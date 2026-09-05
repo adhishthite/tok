@@ -26,6 +26,8 @@ Run `make format` before `make check`. Keep credentials in the ignored `.env`.
 
 For development, `make run` imports the local `.env` at runtime and stores its
 API key in Tok's Keychain item. It never imports the old history database path.
+Imports preserve your existing history retention choice. Change retention in
+History settings, where deleting older records requires confirmation.
 Use Tok's setup window to grant Microphone, Accessibility, and Input Monitoring.
 With Fn, set System Settings > Keyboard > Press Globe key to > Do Nothing.
 

@@ -24,10 +24,12 @@ final class SettingsStore {
       ? URL(fileURLWithPath: expanded) : supportDirectory.appendingPathComponent(expanded)
   }
 
-  init(defaults: UserDefaults = .standard) {
+  init(defaults: UserDefaults = .standard, supportDirectory: URL? = nil) {
     self.defaults = defaults
-    supportDirectory = FileManager.default.urls(
-      for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent(
+    self.supportDirectory =
+      supportDirectory
+      ?? FileManager.default.urls(
+        for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent(
         "Tok", isDirectory: true)
   }
 
@@ -118,6 +120,9 @@ final class SettingsStore {
       configuration.geminiApiKey = key
     }
     imported.removeValue(forKey: "HISTORY_DB")
+    // Importing preferences must not shorten the owner's history retention.
+    // Existing-record deletion is confirmed separately in History settings.
+    imported.removeValue(forKey: "HISTORY_RETENTION_DAYS")
     let rawVocabulary =
       imported["CUSTOM_VOCABULARY_FILE"].flatMap { $0.isEmpty ? nil : $0 } ?? "vocabulary.txt"
     let expanded = NSString(string: rawVocabulary).expandingTildeInPath
