@@ -12,11 +12,14 @@ make check
 ```
 
 The app includes a native menu-bar panel, AppKit dictation overlay, Settings,
-searchable History, and Diagnostics. Onboarding and the Vocabulary workflow are
-being completed. The microphone stays closed between dictations by default.
+searchable History, Vocabulary editing with suggestions, and Diagnostics.
+Setup guides permissions, API key storage, and shortcut testing.
+The microphone stays closed between dictations by default.
 Builds use an available Apple Development identity, with ad-hoc signing as a
 local fallback. Hardened runtime is enabled.
 `make package` creates a local ZIP in `build/package/`; it is not a notarized release.
+`make distribute` creates a universal Developer ID-signed app, DMG, and ZIP.
+See [DISTRIBUTION.md](DISTRIBUTION.md) for notarization and update configuration.
 
 `project.yml` owns the generated Xcode project. Build output stays in `build/`.
 Run `make format` before `make check`. Keep credentials in the ignored `.env`.

@@ -2,6 +2,23 @@
 
 ## Current result
 
+Latest distribution checkpoint: `make distribute` completed with
+`ARCHIVE SUCCEEDED` and `EXPORT SUCCEEDED`. The universal Developer ID app,
+signed DMG, and ZIP passed signature, architecture, entitlement, and archive
+content checks. `spctl --assess --type execute --verbose` returned `rejected`,
+`source=Unnotarized Developer ID`. No notarization or update delivery is claimed.
+
+The latest `make check` completed with `TEST SUCCEEDED`: 25 XCTest cases passed,
+two explicit live API cases skipped, and zero failures. Four additional Python
+tests passed for notarization resume, interrupted upload recovery, changed
+archive identity, and rejected-submission handling. These tests mock Apple
+responses; they are not evidence of successful notarization. Strict Swift
+format lint, script syntax, `git diff --check`, and Ruff on the new Python files
+passed. Distribution workflow details are in [DISTRIBUTION.md](DISTRIBUTION.md).
+
+The following initial checkpoint is retained as historical evidence. Its
+permission status predates the owner's permission grants.
+
 The compiled app launches with a development signature and hardened runtime.
 The engine is connected to the observable store, menu-bar state, setup checklist,
 Keychain configuration, and Diagnostics window. Real microphone dictation is

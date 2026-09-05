@@ -7,6 +7,7 @@ import TokHUD
 @Observable
 final class DictationStore: DictationEngineDelegate {
   let settings = SettingsStore()
+  let updates = UpdateStore()
   let loginItem = LoginItemStore()
   let history = HistoryViewStore()
   @ObservationIgnored var showVocabulary: (() -> Void)?
@@ -41,6 +42,7 @@ final class DictationStore: DictationEngineDelegate {
   func start() {
     settings.didChange = { [weak self] in self?.settingsChanged() }
     settings.load()
+    updates.start()
     configureVocabularyWatcher()
     hasLoaded = true
     applyRetention()

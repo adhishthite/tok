@@ -87,3 +87,5 @@ compile_commands.json
 *.xcworkspace/
 *.zip
 *.p8
+__pycache__/
+.ruff_cache/

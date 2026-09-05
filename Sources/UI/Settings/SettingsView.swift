@@ -16,7 +16,10 @@ struct SettingsView: View {
     } detail: {
       Form {
         if group == .transcription { APIKeySection() }
-        if group == .general { LoginItemSection() }
+        if group == .general {
+          LoginItemSection()
+          UpdateSection()
+        }
         if group == .history { HistoryRetentionSection() }
         if group == .vocabulary {
           Section { Button("Open Vocabulary editor") { store.showVocabulary?() } }
