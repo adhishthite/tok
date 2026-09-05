@@ -16,12 +16,25 @@ settings:
     MARKETING_VERSION: '0.1.0'
     CURRENT_PROJECT_VERSION: '1'
 targets:
+  TokEngine:
+    type: library.static
+    platform: macOS
+    sources: Sources/Engine
+    settings:
+      base:
+        SWIFT_VERSION: '5.0'
+        SWIFT_STRICT_CONCURRENCY: minimal
+        DEFINES_MODULE: YES
+        PRODUCT_MODULE_NAME: TokEngine
   Tok:
     type: application
     platform: macOS
     sources:
       - Sources/App
       - Sources/UI
+    dependencies:
+      - target: TokEngine
+      - sdk: libsqlite3.tbd
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.adhishthite.tok
@@ -38,6 +51,19 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.adhishthite.tok.tests
         GENERATE_INFOPLIST_FILE: YES
+  TokEngineTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: Tests/EngineTests
+    dependencies:
+      - target: TokEngine
+      - sdk: libsqlite3.tbd
+    settings:
+      base:
+        SWIFT_VERSION: '5.0'
+        SWIFT_STRICT_CONCURRENCY: minimal
+        PRODUCT_BUNDLE_IDENTIFIER: com.adhishthite.tok.engine-tests
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   Tok:
     build:
@@ -47,3 +73,4 @@ schemes:
       gatherCoverageData: true
       targets:
         - TokTests
+        - TokEngineTests

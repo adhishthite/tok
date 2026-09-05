@@ -1,0 +1,174 @@
+import AVFoundation
+import AppKit
+import AudioToolbox
+import Carbon
+import CoreAudio
+import Foundation
+import IOKit
+import Network
+import SQLite3
+
+final class HotkeyManager {
+
+  let binding: KeyBinding
+  let mode: String
+  private var isKeyDown: Bool = false
+  private var physicalKeyDown = false
+  var lastStateChangeTime: CFAbsoluteTime = 0
+  private var eventTap: CFMachPort?
+  private var runLoopSource: CFRunLoopSource?
+
+  private(set) var lastEventUptime: TimeInterval?
+
+  var onKeyDown: (() -> Void)?
+  var onKeyUp: (() -> Void)?
+
+  init(binding: KeyBinding, mode: String) {
+    self.binding = binding
+    self.mode = mode
+  }
+
+  func start() -> Bool {
+    let eventMask =
+      (1 << CGEventType.flagsChanged.rawValue) | (1 << CGEventType.keyDown.rawValue)
+      | (1 << CGEventType.keyUp.rawValue)
+
+    let selfPointer = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
+
+    guard
+      let tap = CGEvent.tapCreate(
+        tap: .cgSessionEventTap,
+        place: .headInsertEventTap,
+        options: .listenOnly,
+        eventsOfInterest: CGEventMask(eventMask),
+        callback: { (proxy, type, event, refcon) -> Unmanaged<CGEvent>? in
+          guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
+          let manager = Unmanaged<HotkeyManager>.fromOpaque(refcon).takeUnretainedValue()
+
+          // Auto-recover tap if disabled by macOS timeout
+          if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let t = manager.eventTap {
+              CGEvent.tapEnable(tap: t, enable: true)
+            }
+            return Unmanaged.passUnretained(event)
+          }
+
+          manager.handleCGEvent(type: type, event: event)
+          return Unmanaged.passUnretained(event)
+        },
+        userInfo: selfPointer
+      )
+    else {
+      return false
+    }
+
+    self.eventTap = tap
+    let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+    self.runLoopSource = source
+    CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+    CGEvent.tapEnable(tap: tap, enable: true)
+
+    return true
+  }
+
+  private func handleCGEvent(type: CGEventType, event: CGEvent) {
+    lastEventUptime = Double(event.timestamp) / 1_000_000_000
+    let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+    let flags = event.flags
+
+    switch binding {
+    case .rightOption:
+      if type == .flagsChanged && keyCode == 61 {
+        let isPressed = flags.contains(.maskAlternate)
+        updateKeyState(pressed: isPressed)
+      }
+    case .leftOption:
+      if type == .flagsChanged && keyCode == 58 {
+        let isPressed = flags.contains(.maskAlternate)
+        updateKeyState(pressed: isPressed)
+      }
+    case .rightControl:
+      if type == .flagsChanged && keyCode == 62 {
+        let isPressed = flags.contains(.maskControl)
+        updateKeyState(pressed: isPressed)
+      }
+    case .leftControl:
+      if type == .flagsChanged && keyCode == 59 {
+        let isPressed = flags.contains(.maskControl)
+        updateKeyState(pressed: isPressed)
+      }
+    case .rightCmd:
+      if type == .flagsChanged && keyCode == 54 {
+        let isPressed = flags.contains(.maskCommand)
+        updateKeyState(pressed: isPressed)
+      }
+    case .leftCmd:
+      if type == .flagsChanged && keyCode == 55 {
+        let isPressed = flags.contains(.maskCommand)
+        updateKeyState(pressed: isPressed)
+      }
+    case .fn:
+      if type == .flagsChanged && keyCode == 63 {
+        let isPressed = flags.contains(.maskSecondaryFn)
+        updateKeyState(pressed: isPressed)
+      }
+    case .fKey(let targetCode), .custom(let targetCode):
+      if keyCode == targetCode {
+        if type == .keyDown {
+          updateKeyState(pressed: true)
+        } else if type == .keyUp {
+          updateKeyState(pressed: false)
+        }
+      }
+    }
+  }
+
+  func updateKeyState(pressed: Bool) {
+    let now = ProcessInfo.processInfo.systemUptime
+
+    if mode == "toggle" {
+      let pressEdge = pressed && !physicalKeyDown
+      physicalKeyDown = pressed
+      guard pressEdge else { return }
+      // Both toggle transitions fire on a press edge, so the 80ms debounce applies to both.
+      guard (now - lastStateChangeTime) > 0.08 else { return }  // 80ms debounce
+      if pressed && !isKeyDown {
+        isKeyDown = true
+        lastStateChangeTime = now
+        onKeyDown?()
+      } else if pressed && isKeyDown {
+        isKeyDown = false
+        lastStateChangeTime = now
+        onKeyUp?()
+      }
+    } else {
+      // Push-to-Talk (Hold): debounce only the press edge. A release must never be
+      // swallowed - dropping it would leave isKeyDown stuck true (mic stuck recording)
+      // after a press+release faster than the debounce window.
+      if pressed && !isKeyDown {
+        guard (now - lastStateChangeTime) > 0.08 else { return }  // 80ms debounce
+        isKeyDown = true
+        lastStateChangeTime = now
+        onKeyDown?()
+      } else if !pressed && isKeyDown {
+        isKeyDown = false
+        lastStateChangeTime = now
+        onKeyUp?()
+      }
+    }
+  }
+
+  // External completion or refused startup must reset toggle intent, not physical state.
+  func resetToggle() {
+    if mode == "toggle" { isKeyDown = false }
+  }
+
+  func stop() {
+    if let tap = eventTap {
+      CGEvent.tapEnable(tap: tap, enable: false)
+    }
+    if let source = runLoopSource {
+      CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+    }
+  }
+}
