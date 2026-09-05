@@ -144,7 +144,7 @@ final class CorrectionWatcher {
   // Locate the paste inside a field that may hold unrelated text (an email draft, a doc).
   // Slides a pasted-length window over the field and keeps the best token-set overlap;
   // below 0.5 the paste was rewritten or deleted and diffing would produce noise.
-  private static func bestWindow(pasted: [String], field: [String]) -> [String] {
+  static func bestWindow(pasted: [String], field: [String]) -> [String] {
     let n = pasted.count
     if field.count <= n {
       if overlapScore(pasted, field) >= 0.5 { return field }

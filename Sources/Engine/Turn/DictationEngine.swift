@@ -11,6 +11,12 @@ import SQLite3
 // MARK: - Orchestrator (Core State Machine)
 
 public final class DictationEngine {
+  private var stopping = false
+  private var isStopping: Bool {
+    processingLock.lock()
+    defer { processingLock.unlock() }
+    return stopping
+  }
   private let feedback = EngineFeedback()
   public weak var delegate: DictationEngineDelegate? {
     didSet {
@@ -95,7 +101,7 @@ public final class DictationEngine {
   // with no synchronization, so a slow-arriving WS result and a just-fired fallback timer could
   // both call handleTranscribedText and paste the turn twice. Funneling every route through
   // this serial queue makes turn settlement a single-writer state machine.
-  private let sessionQueue = DispatchQueue(
+  let sessionQueue = DispatchQueue(
     label: "com.adhishthite.tok.session", qos: .userInteractive)
   private var currentTurnId: UInt64 = 0
   var turnSettled: Bool = false
@@ -300,6 +306,9 @@ public final class DictationEngine {
   }
 
   public func stop() {
+    processingLock.lock()
+    stopping = true
+    processingLock.unlock()
     capturePending = false
     captureGeneration &+= 1
     captureActive = false
@@ -318,7 +327,7 @@ public final class DictationEngine {
       self.pendingRestRequest?.cancel()
       self.pendingFallbackTimer?.cancel()
       self.pendingTurnDeadline?.cancel()
-      self.liveClient?.disconnect()
+      self.liveClient?.shutdown()
       self.history?.close()
     }
   }
@@ -331,6 +340,7 @@ public final class DictationEngine {
   }
 
   private func handleKeyDown() {
+    guard !isStopping else { return }
     defer {
       if !captureActive && !capturePending { hotkeyManager?.resetToggle() }
     }
@@ -562,6 +572,7 @@ public final class DictationEngine {
   /// lifecycle, and is the only place that mutates currentTurnId / turnSettled / pendingFallbackTimer.
 
   func runTurnPipeline(keyUpTime: CFAbsoluteTime) {
+    guard !isStopping else { return }
     let pipelineStartTime = ProcessInfo.processInfo.systemUptime
     turnReleaseTime = keyUpTime
     let (pcmData, duration, chunks, capturedBytes, peakDb, speechFrames, interrupted) =
@@ -679,7 +690,7 @@ public final class DictationEngine {
     let turnId = currentTurnId
     turnSettled = false
     restAttemptStart = nil
-    let budget = max(10.0, min(30.0, config.restFallbackTimeout + 10.0))
+    let budget = TurnDeadline.budget(fallbackTimeout: config.restFallbackTimeout)
     let deadline = DispatchWorkItem { [weak self] in
       self?.settle(
         turnId: turnId, route: "deadline",
@@ -690,7 +701,9 @@ public final class DictationEngine {
     }
     pendingTurnDeadline = deadline
     sessionQueue.asyncAfter(
-      deadline: .now() + max(0, budget - (ProcessInfo.processInfo.systemUptime - keyUpTime)),
+      deadline: .now()
+        + TurnDeadline.remaining(
+          budget: budget, elapsed: ProcessInfo.processInfo.systemUptime - keyUpTime),
       execute: deadline)
 
     Log.info(
@@ -932,6 +945,7 @@ public final class DictationEngine {
   /// Runs only on sessionQueue. A result for a turnId that isn't current, or one that arrives
   /// after the turn already settled, is a loser of the WS/REST hedge race and is dropped.
   func settle(turnId: UInt64, route: String, outcome: TurnOutcome) {
+    guard !isStopping else { return }
     guard turnId == currentTurnId, !turnSettled else {
       Log.debug("SESSION", "Stale result for turn #\(turnId) ignored (\(route))")
       return
@@ -1082,6 +1096,7 @@ public final class DictationEngine {
     outputTokens: Int? = nil,
     clipboardPrepared: Bool = false
   ) {
+    guard !isStopping else { return }
     var canPrepareClipboard = false
     if config.restoreClipboard, !clipboardPrepared, !SecureInputMonitor.isActive,
       AXIsProcessTrusted()
@@ -1214,7 +1229,9 @@ public final class DictationEngine {
           text: text, restorePreviousClipboard: config.restoreClipboard,
           completionSound: config.soundFeedback, appendSpace: config.trailingSpace,
           shouldDispatch: {
-            guard !SecureInputMonitor.isActive, AXIsProcessTrusted() else { return false }
+            guard !self.isStopping, !SecureInputMonitor.isActive, AXIsProcessTrusted() else {
+              return false
+            }
             var sameTarget = false
             DispatchQueue.main.sync {
               sameTarget =

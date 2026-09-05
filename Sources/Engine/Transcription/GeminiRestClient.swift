@@ -186,7 +186,7 @@ struct GeminiRestClient {
           let apiError = json["error"] as? [String: Any],
           let msg = apiError["message"] as? String
         {
-          apiReason = " (\(msg.prefix(140)))"
+          apiReason = " (\(msg.replacingOccurrences(of: apiKey, with: "[redacted]").prefix(140)))"
         }
         let message: String
         switch status {

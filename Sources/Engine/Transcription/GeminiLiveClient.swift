@@ -1161,4 +1161,9 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
           domain: "JustSpeak", code: -4,
           userInfo: [NSLocalizedDescriptionKey: "Live connection closed."])))
   }
+  func shutdown() {
+    disconnect()
+    urlSession.invalidateAndCancel()
+  }
+
 }
