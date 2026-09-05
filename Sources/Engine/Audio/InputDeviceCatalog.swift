@@ -8,9 +8,9 @@ import IOKit
 import Network
 import SQLite3
 
-struct InputDeviceCatalog {
+public struct InputDeviceCatalog {
 
-  static func inputDevices() -> [Device] {
+  public static func inputDevices() -> [Device] {
     var address = AudioObjectPropertyAddress(
       mSelector: kAudioHardwarePropertyDevices,
       mScope: kAudioObjectPropertyScopeGlobal,
@@ -58,7 +58,7 @@ struct InputDeviceCatalog {
   // INPUT_DEVICE matching: exact UID first (stable across renames), then case-insensitive
   // substring of the name, so "studio" finds "Studio Display Microphone". Ambiguity
   // resolves to the first match in HAL order; the log line shows what was picked.
-  static func match(_ query: String, in devices: [Device]) -> Device? {
+  public static func match(_ query: String, in devices: [Device]) -> Device? {
     let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !q.isEmpty else { return nil }
     if let exact = devices.first(where: { $0.uid == q }) { return exact }

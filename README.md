@@ -14,6 +14,9 @@ make check
 The app includes a native menu-bar panel, AppKit dictation overlay, Settings,
 searchable History, Vocabulary editing with suggestions, and Diagnostics.
 Setup guides permissions, API key storage, and shortcut testing.
+Audio settings include a native microphone picker with System Default,
+automatic lid-based selection, and connected device names. Explicit device
+choices use stable IDs. Disconnected and imported selections are preserved.
 The microphone stays closed between dictations by default.
 Builds use an available Apple Development identity, with ad-hoc signing as a
 local fallback. Hardened runtime is enabled.

@@ -56,6 +56,8 @@ struct SettingRow: View {
       }
     case .text:
       TextField(setting.title, text: stringBinding)
+    case .microphone:
+      MicrophonePicker(selection: stringBinding)
     }
   }
   private var stringBinding: Binding<String> {

@@ -115,8 +115,8 @@ public enum SettingCatalog {
     SettingDefinition(
       key: "INPUT_DEVICE", title: "Microphone",
       help:
-        "Empty uses the system default. Auto switches between built-in and external input with the lid.",
-      group: .audio, kind: .text, defaultValue: ""
+        "System Default follows your Mac’s sound settings. Automatic uses the built-in microphone with the lid open and an external microphone with it closed.",
+      group: .audio, kind: .microphone, defaultValue: ""
     ) { config, value in
       config.inputDevice = value
     },
