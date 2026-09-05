@@ -20,6 +20,9 @@ final class DictationStore: DictationEngineDelegate {
   private(set) var diagnostics: [String] = []
   private(set) var completedTurns = 0
   private(set) var settingsPending = false
+  private(set) var retentionError: String?
+  @ObservationIgnored private var retentionTimer: Timer?
+  @ObservationIgnored private var retaining = false
   private(set) var hasLoaded = false
   private(set) var isPaused = false
   @ObservationIgnored private var settingsWorkItem: DispatchWorkItem?
@@ -40,6 +43,11 @@ final class DictationStore: DictationEngineDelegate {
     settings.load()
     configureVocabularyWatcher()
     hasLoaded = true
+    applyRetention()
+    retentionTimer?.invalidate()
+    retentionTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+      MainActor.assumeIsolated { self?.applyRetention() }
+    }
     hud = HUDController(configuration: settings.configuration)
     refreshPermissions()
   }
@@ -78,7 +86,25 @@ final class DictationStore: DictationEngineDelegate {
     }
     watchedVocabularyURL = url
   }
+  private func applyRetention() {
+    let days = settings.configuration.historyRetentionDays
+    guard days > 0, !retaining else { return }
+    retaining = true
+    let repository = HistoryRepository(path: settings.configuration.historyDbPath)
+    let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date())!
+    Task {
+      defer { retaining = false }
+      do {
+        try await repository.prune(before: cutoff)
+        retentionError = nil
+        history.reload()
+      } catch {
+        retentionError = "Could not apply retention. Review the history database location."
+      }
+    }
+  }
   func settingsChanged() {
+    applyRetention()
     configureVocabularyWatcher()
     hud?.update(configuration: settings.configuration)
     settingsWorkItem?.cancel()

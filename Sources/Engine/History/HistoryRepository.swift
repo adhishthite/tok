@@ -132,6 +132,29 @@ public final class HistoryRepository: @unchecked Sendable {
       }
     }
   }
+  public func prune(before cutoff: Date) async throws {
+    try await mutate { db in
+      guard sqlite3_exec(db, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK else {
+        throw HistoryRepositoryError.queryFailed
+      }
+      do {
+        for table in ["transcriptions", "corrections"] {
+          let statement = try Self.prepare(db, "DELETE FROM \(table) WHERE ts_epoch < ?")
+          defer { sqlite3_finalize(statement) }
+          sqlite3_bind_double(statement, 1, cutoff.timeIntervalSince1970)
+          guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw HistoryRepositoryError.queryFailed
+          }
+        }
+        guard sqlite3_exec(db, "COMMIT", nil, nil, nil) == SQLITE_OK else {
+          throw HistoryRepositoryError.queryFailed
+        }
+      } catch {
+        sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+        throw error
+      }
+    }
+  }
   public func clear() async throws {
     try await mutate { db in
       guard

@@ -17,6 +17,7 @@ struct SettingsView: View {
       Form {
         if group == .transcription { APIKeySection() }
         if group == .general { LoginItemSection() }
+        if group == .history { HistoryRetentionSection() }
         if group == .vocabulary {
           Section { Button("Open Vocabulary editor") { store.showVocabulary?() } }
         }
@@ -24,7 +25,9 @@ struct SettingsView: View {
           Section { Button("Preview overlay") { store.previewHUD() } }
         }
         Section {
-          ForEach(SettingCatalog.all.filter { $0.group == group }) { setting in
+          ForEach(
+            SettingCatalog.all.filter { $0.group == group && $0.key != "HISTORY_RETENTION_DAYS" }
+          ) { setting in
             SettingRow(setting: setting)
           }
         }

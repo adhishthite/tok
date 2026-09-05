@@ -3,6 +3,13 @@ import Foundation
 public enum SettingCatalog {
   public static let all: [SettingDefinition] = [
     SettingDefinition(
+      key: "HISTORY_RETENTION_DAYS", title: "History retention",
+      help: "Days to retain history. Zero keeps it indefinitely.", group: .history,
+      kind: .integer(0...3650), defaultValue: "0"
+    ) { config, value in
+      if let days = Int(value) { config.historyRetentionDays = min(3650, max(0, days)) }
+    },
+    SettingDefinition(
       key: "GEMINI_MODEL", title: "Fallback model",
       help: "Used when the live connection cannot finish a dictation.", group: .advanced,
       kind: .text, defaultValue: "gemini-3.5-flash-lite"

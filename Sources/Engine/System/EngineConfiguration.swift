@@ -107,6 +107,7 @@ public struct EngineConfiguration: Sendable {
   // Local dictation history (SQLite). Every turn - success, empty, or error - becomes one row
   // so usage/latency/cost can be analyzed later. Plaintext on disk; disable with HISTORY=false.
   public var historyEnabled: Bool = true
+  public var historyRetentionDays: Int = 0
   public var historyDbPath: String = ""  // empty = ~/Library/Application Support/Tok/history.db
   // Git commit id (short SHA, or "-dirty" suffixed) stamped by the `justspeak` runner via
   // JUSTSPEAK_BUILD  -  not a .env knob, so it's read only from the process environment below.

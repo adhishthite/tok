@@ -1,9 +1,38 @@
 import Foundation
+import SQLite3
 import XCTest
 
 @testable import TokEngine
 
 final class HistoryRepositoryTests: XCTestCase {
+  func testRetentionDeletesOnlyExpiredRecords() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var config = EngineConfiguration()
+    config.historyDbPath = directory.appendingPathComponent("history.db").path
+    let writer = HistoryStore(config: config)
+    writer.record(record(text: "Expired", words: 1, latency: 100, cost: 0))
+    writer.record(record(text: "Keep", words: 1, latency: 100, cost: 0))
+    writer.recordCorrection(wrong: "word", right: "Word", appName: "Fixture")
+    writer.close()
+    var db: OpaquePointer?
+    XCTAssertEqual(sqlite3_open(config.historyDbPath, &db), SQLITE_OK)
+    defer { sqlite3_close(db) }
+    XCTAssertEqual(
+      sqlite3_exec(
+        db, "UPDATE transcriptions SET ts_epoch=1 WHERE id=1; UPDATE corrections SET ts_epoch=1;",
+        nil, nil, nil), SQLITE_OK)
+    let repository = HistoryRepository(path: config.historyDbPath)
+    try await repository.prune(before: Date(timeIntervalSince1970: 100))
+    let rows = try await repository.entries()
+    XCTAssertEqual(rows.map(\.text), ["Keep"])
+    var statement: OpaquePointer?
+    XCTAssertEqual(
+      sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM corrections", -1, &statement, nil), SQLITE_OK)
+    defer { sqlite3_finalize(statement) }
+    XCTAssertEqual(sqlite3_step(statement), SQLITE_ROW)
+    XCTAssertEqual(sqlite3_column_int(statement, 0), 0)
+  }
   func testSearchStatisticsAndDeletionUseTheRealSchema() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -27,6 +56,9 @@ final class HistoryRepositoryTests: XCTestCase {
     XCTAssertEqual(stats.cost, 0.003, accuracy: 0.000001)
     XCTAssertEqual(stats.medianMs, 200)
     XCTAssertEqual(stats.p95Ms, 290)
+    try await repository.prune(before: Date(timeIntervalSince1970: 0))
+    let retained = try await repository.entries()
+    XCTAssertEqual(retained.count, 2)
     try await repository.delete(ids: [all[0].id])
     let remaining = try await repository.entries()
     XCTAssertEqual(remaining.count, 1)
