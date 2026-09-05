@@ -17,6 +17,12 @@ final class SettingsStore {
   @ObservationIgnored private let defaults: UserDefaults
   let supportDirectory: URL
   var vocabularyURL: URL { supportDirectory.appendingPathComponent("vocabulary.txt") }
+  var resolvedVocabularyURL: URL {
+    let raw = string("CUSTOM_VOCABULARY_FILE")
+    let expanded = NSString(string: raw.isEmpty ? vocabularyURL.path : raw).expandingTildeInPath
+    return expanded.hasPrefix("/")
+      ? URL(fileURLWithPath: expanded) : supportDirectory.appendingPathComponent(expanded)
+  }
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults

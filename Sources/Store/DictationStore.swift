@@ -8,6 +8,7 @@ import TokHUD
 final class DictationStore: DictationEngineDelegate {
   let settings = SettingsStore()
   let history = HistoryViewStore()
+  @ObservationIgnored var showVocabulary: (() -> Void)?
   @ObservationIgnored var showSetup: (() -> Void)?
   private(set) var status = DictationStatus.setup
   private(set) var permissions = PermissionStatus.current()
@@ -29,11 +30,14 @@ final class DictationStore: DictationEngineDelegate {
   @ObservationIgnored private var shortcutTesting = false
   private var active: Bool { [.starting, .listening, .locked, .processing].contains(status) }
   @ObservationIgnored private var hud: HUDController?
+  @ObservationIgnored private var vocabularyWatcher: VocabularyWatcher?
+  @ObservationIgnored private var watchedVocabularyURL: URL?
   @ObservationIgnored private var engine: DictationEngine?
   var hotkey: String { settings.configuration.hotkey }
   func start() {
     settings.didChange = { [weak self] in self?.settingsChanged() }
     settings.load()
+    configureVocabularyWatcher()
     hasLoaded = true
     hud = HUDController(configuration: settings.configuration)
     refreshPermissions()
@@ -64,7 +68,17 @@ final class DictationStore: DictationEngineDelegate {
     shortcutTesting = testing
     engine?.acceptsNewCaptures = !testing
   }
+  private func configureVocabularyWatcher() {
+    let url = settings.resolvedVocabularyURL
+    guard url != watchedVocabularyURL else { return }
+    vocabularyWatcher?.stop()
+    vocabularyWatcher = VocabularyWatcher(url: url) { [weak self] in
+      Task { @MainActor [weak self] in self?.settings.reloadVocabulary() }
+    }
+    watchedVocabularyURL = url
+  }
   func settingsChanged() {
+    configureVocabularyWatcher()
     hud?.update(configuration: settings.configuration)
     settingsWorkItem?.cancel()
     let item = DispatchWorkItem { [weak self] in

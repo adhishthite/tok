@@ -5,11 +5,16 @@ import TokEngine
 final class AppDelegate: NSObject, NSApplicationDelegate {
   let store = DictationStore()
   private let setupWindow = SetupWindow()
+  private let vocabularyWindows = VocabularyWindows()
   func applicationDidFinishLaunching(_ notification: Notification) {
     guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
     store.showSetup = { [weak self] in
       guard let self else { return }
       self.setupWindow.show(store: self.store)
+    }
+    store.showVocabulary = { [weak self] in
+      guard let self else { return }
+      self.vocabularyWindows.show(settings: self.store.settings)
     }
     store.start()
     if store.needsSetup || ProcessInfo.processInfo.arguments.contains("--show-setup") {

@@ -16,6 +16,9 @@ struct SettingsView: View {
     } detail: {
       Form {
         if group == .transcription { APIKeySection() }
+        if group == .vocabulary {
+          Section { Button("Open Vocabulary editor") { store.showVocabulary?() } }
+        }
         if group == .appearance {
           Section { Button("Preview overlay") { store.previewHUD() } }
         }

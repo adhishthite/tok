@@ -26,6 +26,8 @@ struct StatusMenu: View {
         )
         .font(.callout).foregroundStyle(.secondary)
       }
+      Button("Vocabulary…", systemImage: "character.book.closed") { store.showVocabulary?() }
+        .buttonStyle(.borderless).font(.callout)
       Button("History…", systemImage: "clock") { show("history") }
         .buttonStyle(.borderless).font(.callout)
       Divider()
