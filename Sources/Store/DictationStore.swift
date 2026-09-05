@@ -6,7 +6,7 @@ import TokHUD
 @MainActor
 @Observable
 final class DictationStore: DictationEngineDelegate {
-  let settings = SettingsStore()
+  let settings: SettingsStore
   let updates = UpdateStore()
   let loginItem = LoginItemStore()
   let history = HistoryViewStore()
@@ -40,8 +40,11 @@ final class DictationStore: DictationEngineDelegate {
   @ObservationIgnored private var watchedVocabularyURL: URL?
   @ObservationIgnored private var engine: DictationEngine?
   var hotkey: String { settings.configuration.hotkey }
-  func start() {
+  init(settings: SettingsStore = SettingsStore()) {
+    self.settings = settings
     settings.didChange = { [weak self] in self?.settingsChanged() }
+  }
+  func start() {
     settings.load()
     updates.start()
     configureVocabularyWatcher()
@@ -107,6 +110,10 @@ final class DictationStore: DictationEngineDelegate {
     }
   }
   func settingsChanged() {
+    if settings.configuration.privacyMode {
+      lastText = ""
+      liveText = ""
+    }
     applyRetention()
     configureVocabularyWatcher()
     hud?.update(configuration: settings.configuration)

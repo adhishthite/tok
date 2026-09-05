@@ -66,7 +66,23 @@ final class FloatingHUD: NSObject {
 
   // Screen-share privacy: the pill never renders dictated words - a generic placeholder
   // stands in while streaming and the success beat shows no transcript.
-  var privacyMode: Bool = false
+  var privacyMode: Bool = false {
+    didSet {
+      guard oldValue != privacyMode else { return }
+      lastFrameState = nil
+      if privacyMode {
+        deferredLiveText = nil
+        setTranscript("", color: .white, caret: false)
+        hostView.layer?.removeAllAnimations()
+        hostView.alphaValue = 0
+        hostPanel.orderOut(nil)
+      } else if shownTarget {
+        applyFrame()
+        if reduceMotion { hostView.alphaValue = 1 }
+        hostPanel.orderFrontRegardless()
+      }
+    }
+  }
 
   // CADisplayLink on macOS 14+ (stored as AnyObject so the property needs no availability
   // annotation); a 60Hz timer stands in on older systems.
@@ -76,10 +92,16 @@ final class FloatingHUD: NSObject {
   // Glow/orb are Core Graphics redraws - advanced at ~40Hz even when the springs tick at
   // 120Hz. Pill MOTION stays at native refresh; the slow-breathing glow doesn't need it.
   private var glowAccumulator: CGFloat = 0.0
+  private let motionReduced: () -> Bool
 
   // Everything is assembled in locals first: NSObject subclasses may not touch properties
   // of already-assigned stored objects before super.init(), only initialize them.
-  override init() {
+  override convenience init() {
+    self.init(reduceMotion: { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion })
+  }
+
+  init(reduceMotion: @escaping () -> Bool) {
+    motionReduced = reduceMotion
     let screen = NSScreen.main ?? NSScreen.screens.first ?? NSScreen()
     let screenFrame = screen.frame
     let notchInfo = NotchGeometry.detect(screen: screen)
@@ -236,7 +258,7 @@ final class FloatingHUD: NSObject {
   }
 
   private var reduceMotion: Bool {
-    NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    motionReduced()
   }
 
   // Recomputes screenFrame, notchInfo, and repositions the panels - the same geometry

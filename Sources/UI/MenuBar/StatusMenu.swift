@@ -16,7 +16,7 @@ struct StatusMenu: View {
         Button("Set up Tok") { store.showSetup?() }.buttonStyle(.borderedProminent)
       } else if store.status == .error {
         Text(store.message).font(.callout)
-      } else if !store.lastText.isEmpty {
+      } else if !store.settings.bool("PRIVACY_MODE"), !store.lastText.isEmpty {
         Text(store.lastText).font(.callout).lineLimit(4).textSelection(.enabled)
         Button("Copy last dictation", systemImage: "doc.on.doc") { store.copyLastDictation() }
           .buttonStyle(.borderless).font(.callout)
