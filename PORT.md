@@ -30,3 +30,13 @@ configuration bounds, canonical vocabulary casing, WAV bytes, and REST gating.
 
 The HUD, standalone diagnostic UI, and analyzer UI are delivered separately.
 Passing offline fixtures does not establish real-world accuracy or latency.
+
+The native lifecycle now rejects settlement after stop is requested, before its
+queued cleanup executes. A controlled queue test covers that ordering. Shutdown
+also invalidates the client's URLSession. These are native lifecycle adaptations
+to the script's process-exit behavior. API error text redacts the key before it
+can reach history or diagnostics.
+
+The algorithm mirror and deadline fixtures from `verify_algorithms.py` now run
+against the Swift code in XCTest. Analyzer porting remains grouped with its
+history/vocabulary UI milestone; the HUD retains its separate milestone.

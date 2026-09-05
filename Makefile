@@ -5,7 +5,7 @@ DERIVED := $(CURDIR)/build/DerivedData
 APP := $(DERIVED)/Build/Products/$(CONFIGURATION)/Tok.app
 XCODEBUILD := ./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme Tok -configuration $(CONFIGURATION) -derivedDataPath "$(DERIVED)" -destination 'platform=macOS'
 
-.PHONY: install clean check format lint generate build run test package
+.PHONY: install clean check format lint generate build run test package test-live
 
 install:
 	@command -v xcodegen >/dev/null || brew install xcodegen
@@ -24,6 +24,9 @@ run: build
 
 test: generate
 	$(XCODEBUILD) test
+
+test-live:
+	./Scripts/live_check.sh
 
 lint:
 	xcrun swift format lint --strict --recursive Sources Tests

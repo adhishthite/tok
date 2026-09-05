@@ -32,6 +32,10 @@ targets:
     sources:
       - Sources/App
       - Sources/UI
+      - Sources/Store
+      - Sources/Support
+      - path: Resources
+        buildPhase: resources
     dependencies:
       - target: TokEngine
       - sdk: libsqlite3.tbd
@@ -65,6 +69,16 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.adhishthite.tok.engine-tests
         GENERATE_INFOPLIST_FILE: YES
 schemes:
+  TokLiveChecks:
+    build:
+      targets:
+        TokEngine: all
+    test:
+      targets:
+        - TokEngineTests
+      environmentVariables:
+        TOK_LIVE_TESTS: '1'
+        TOK_PROJECT_ROOT: $(SRCROOT)
   Tok:
     build:
       targets:

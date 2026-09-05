@@ -12,7 +12,12 @@ if pgrep -x Tok >/dev/null; then
         exit 1
     fi
 fi
-open "$app"
+root="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ -f "$root/.env" ]]; then
+    open "$app" --args --config-file "$root/.env" --status-file "$root/build/runtime-status.json"
+else
+    open "$app"
+fi
 sleep 2
 if ! pgrep -x Tok >/dev/null; then
     echo 'Tok exited during startup. Check its DiagnosticReports crash log.' >&2
