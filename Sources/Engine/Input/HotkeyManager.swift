@@ -5,6 +5,7 @@ import Carbon
 import CoreAudio
 import Foundation
 import IOKit
+import IOKit.hidsystem
 import Network
 import SQLite3
 
@@ -22,6 +23,9 @@ final class HotkeyManager {
 
   var onKeyDown: (() -> Void)?
   var onKeyUp: (() -> Void)?
+  var readKeyState: (CGKeyCode) -> Bool = {
+    CGEventSource.keyState(.combinedSessionState, key: $0)
+  }
 
   init(binding: KeyBinding, mode: String) {
     self.binding = binding
@@ -71,7 +75,7 @@ final class HotkeyManager {
     return true
   }
 
-  private func handleCGEvent(type: CGEventType, event: CGEvent) {
+  func handleCGEvent(type: CGEventType, event: CGEvent) {
     lastEventUptime = Double(event.timestamp) / 1_000_000_000
     let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
     let flags = event.flags
@@ -79,32 +83,44 @@ final class HotkeyManager {
     switch binding {
     case .rightOption:
       if type == .flagsChanged && keyCode == 61 {
-        let isPressed = flags.contains(.maskAlternate)
+        let isPressed = modifierPressed(
+          keyCode, flags, family: .maskAlternate,
+          own: NX_DEVICERALTKEYMASK, other: NX_DEVICELALTKEYMASK)
         updateKeyState(pressed: isPressed)
       }
     case .leftOption:
       if type == .flagsChanged && keyCode == 58 {
-        let isPressed = flags.contains(.maskAlternate)
+        let isPressed = modifierPressed(
+          keyCode, flags, family: .maskAlternate,
+          own: NX_DEVICELALTKEYMASK, other: NX_DEVICERALTKEYMASK)
         updateKeyState(pressed: isPressed)
       }
     case .rightControl:
       if type == .flagsChanged && keyCode == 62 {
-        let isPressed = flags.contains(.maskControl)
+        let isPressed = modifierPressed(
+          keyCode, flags, family: .maskControl,
+          own: NX_DEVICERCTLKEYMASK, other: NX_DEVICELCTLKEYMASK)
         updateKeyState(pressed: isPressed)
       }
     case .leftControl:
       if type == .flagsChanged && keyCode == 59 {
-        let isPressed = flags.contains(.maskControl)
+        let isPressed = modifierPressed(
+          keyCode, flags, family: .maskControl,
+          own: NX_DEVICELCTLKEYMASK, other: NX_DEVICERCTLKEYMASK)
         updateKeyState(pressed: isPressed)
       }
     case .rightCmd:
       if type == .flagsChanged && keyCode == 54 {
-        let isPressed = flags.contains(.maskCommand)
+        let isPressed = modifierPressed(
+          keyCode, flags, family: .maskCommand,
+          own: NX_DEVICERCMDKEYMASK, other: NX_DEVICELCMDKEYMASK)
         updateKeyState(pressed: isPressed)
       }
     case .leftCmd:
       if type == .flagsChanged && keyCode == 55 {
-        let isPressed = flags.contains(.maskCommand)
+        let isPressed = modifierPressed(
+          keyCode, flags, family: .maskCommand,
+          own: NX_DEVICELCMDKEYMASK, other: NX_DEVICERCMDKEYMASK)
         updateKeyState(pressed: isPressed)
       }
     case .fn:
@@ -121,6 +137,18 @@ final class HotkeyManager {
         }
       }
     }
+  }
+
+  private func modifierPressed(
+    _ code: CGKeyCode, _ flags: CGEventFlags, family: CGEventFlags, own: Int32, other: Int32
+  ) -> Bool {
+    guard flags.contains(family) else { return false }
+    // Aggregate flags stay set while either side is down. Prefer the event's
+    // side-specific state; query the individual key for events that omit it.
+    if flags.rawValue & UInt64(own | other) != 0 {
+      return flags.rawValue & UInt64(own) != 0
+    }
+    return readKeyState(code)
   }
 
   func updateKeyState(pressed: Bool) {
