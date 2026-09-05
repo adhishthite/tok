@@ -1,0 +1,49 @@
+name: Tok
+options:
+  minimumXcodeGenVersion: 2.46.0
+  deploymentTarget:
+    macOS: '14.0'
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    SWIFT_STRICT_CONCURRENCY: complete
+    MACOSX_DEPLOYMENT_TARGET: '14.0'
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: '-'
+    ENABLE_HARDENED_RUNTIME: YES
+    ENABLE_APP_SANDBOX: NO
+    ENABLE_DEBUG_DYLIB: NO
+    MARKETING_VERSION: '0.1.0'
+    CURRENT_PROJECT_VERSION: '1'
+targets:
+  Tok:
+    type: application
+    platform: macOS
+    sources:
+      - Sources/App
+      - Sources/UI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.adhishthite.tok
+        CODE_SIGN_ENTITLEMENTS: Config/Tok.entitlements
+        INFOPLIST_FILE: Config/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+  TokTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: Tests/AppTests
+    dependencies:
+      - target: Tok
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.adhishthite.tok.tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Tok:
+    build:
+      targets:
+        Tok: all
+    test:
+      gatherCoverageData: true
+      targets:
+        - TokTests

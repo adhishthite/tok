@@ -1,0 +1,89 @@
+# ==============================================================================
+# Tok - .gitignore for Native macOS Application (Swift / XcodeGen / SPM)
+# ==============================================================================
+
+# --- macOS System Files ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+Icon?
+Thumbs.db
+
+# --- Secrets & Environment Variables ---
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.cer
+*.mobileprovision
+*.provisionprofile
+
+# --- XcodeGen & Xcode Build / Derived Data ---
+# Generated project (if regenerated via project.yml)
+Tok.xcodeproj/xcuserdata/
+Tok.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+build/
+*.build
+*.dSYM/
+*.ipa
+*.app
+*.dmg
+*.pkg
+dist/
+releases/
+artifacts/
+
+# --- Xcode User Settings & State ---
+*.xcuserstate
+*.xcbkptlist
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.moved-aside
+*.ipa
+*.hmap
+*.xccheckout
+
+# --- Swift Package Manager (SPM) ---
+.build/
+.swiftpm/xcode/package.xcworkspace/xcuserdata/
+.swiftpm/configuration/
+
+# --- Fastlane & Tooling ---
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# --- Linters & Formatters Cache ---
+.swiftlint-cache
+.swift-format-cache
+.cache/
+compile_commands.json
+
+# --- Editors & IDEs ---
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Generated projects and distribution artifacts
+*.xcodeproj/
+*.xcworkspace/
+*.zip
+*.p8
