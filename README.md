@@ -29,6 +29,8 @@ local fallback. Hardened runtime is enabled.
 See [DISTRIBUTION.md](DISTRIBUTION.md) for notarization and update configuration.
 
 `project.yml` owns the generated Xcode project. Build output stays in `build/`.
+`make icon` regenerates the committed app-icon sizes from the original vector
+drawing in `Scripts/generate_icon.swift`.
 Run `make format` before `make check`. Keep credentials in the ignored `.env`.
 
 For development, `make run` imports the local `.env` at runtime and stores its

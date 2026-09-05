@@ -5,7 +5,7 @@ DERIVED := $(CURDIR)/build/DerivedData
 APP := $(DERIVED)/Build/Products/$(CONFIGURATION)/Tok.app
 XCODEBUILD := ./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme Tok -configuration $(CONFIGURATION) -derivedDataPath "$(DERIVED)" -destination 'platform=macOS'
 
-.PHONY: install clean check format lint generate build run test package test-live distribute containers notarize-app notarize-dmg profile-microphone
+.PHONY: install clean check format lint generate build run test package test-live distribute containers notarize-app notarize-dmg profile-microphone icon
 
 install:
 	@command -v xcodegen >/dev/null || brew install xcodegen
@@ -14,6 +14,9 @@ install:
 
 generate:
 	xcodegen generate
+
+icon:
+	python3 Scripts/bounded_run.py --seconds 30 --label icon -- xcrun swift Scripts/generate_icon.swift
 
 build: generate
 	$(XCODEBUILD) build
@@ -32,10 +35,10 @@ test-live:
 	./Scripts/live_check.sh
 
 lint:
-	xcrun swift format lint --strict --recursive Sources Tests
+	xcrun swift format lint --strict --recursive Sources Tests Scripts
 
 format:
-	xcrun swift format format --in-place --recursive Sources Tests
+	xcrun swift format format --in-place --recursive Sources Tests Scripts
 
 check: lint test
 	git diff --check
