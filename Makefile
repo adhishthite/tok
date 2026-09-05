@@ -5,7 +5,7 @@ DERIVED := $(CURDIR)/build/DerivedData
 APP := $(DERIVED)/Build/Products/$(CONFIGURATION)/Tok.app
 XCODEBUILD := ./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme Tok -configuration $(CONFIGURATION) -derivedDataPath "$(DERIVED)" -destination 'platform=macOS'
 
-.PHONY: install clean check format lint generate build run test package test-live distribute containers notarize-app notarize-dmg profile-microphone icon check-updates
+.PHONY: install clean check format lint generate build run test package test-live distribute containers notarize-app notarize-dmg profile-microphone icon check-updates settings-tool settings-reference check-settings
 
 install:
 	@command -v xcodegen >/dev/null || brew install xcodegen
@@ -20,6 +20,15 @@ icon:
 
 check-updates: build
 	python3 Scripts/bounded_run.py --seconds 120 --label update-signing -- python3 Scripts/check_updates.py
+
+settings-tool: generate
+	./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme TokSettingsReference -configuration Debug -derivedDataPath "$(DERIVED)" -destination 'platform=macOS' build
+
+settings-reference: settings-tool
+	"$(DERIVED)/Build/Products/Debug/TokSettingsReference" --write README.md
+
+check-settings: settings-tool
+	"$(DERIVED)/Build/Products/Debug/TokSettingsReference" --check README.md
 
 build: generate
 	$(XCODEBUILD) build
@@ -38,12 +47,12 @@ test-live:
 	./Scripts/live_check.sh
 
 lint:
-	xcrun swift format lint --strict --recursive Sources Tests Scripts
+	xcrun swift format lint --strict --recursive Sources Tests Scripts Tools
 
 format:
-	xcrun swift format format --in-place --recursive Sources Tests Scripts
+	xcrun swift format format --in-place --recursive Sources Tests Scripts Tools
 
-check: lint test
+check: lint test check-settings
 	git diff --check
 	@for script in Scripts/*.sh; do bash -n "$$script" || exit; done
 	python3 -m unittest discover -s Tests/ScriptTests -p 'test_*.py'

@@ -73,14 +73,14 @@ public enum SettingCatalog {
     SettingDefinition(
       key: "HOLD_TO_LOCK", title: "Hold to lock",
       help: "Seconds before a held shortcut locks recording. Zero disables it.", group: .general,
-      kind: .integer(0...60), defaultValue: "15.0"
+      kind: .decimal(0...60), defaultValue: "15.0"
     ) { config, value in
       if let s = Double(value) { config.holdToLockSec = min(60.0, max(0.0, s)) }
     },
     SettingDefinition(
       key: "LOCK_LIMIT", title: "Locked recording limit",
       help: "Maximum seconds for hands-free recording. Zero removes the limit.", group: .general,
-      kind: .integer(0...600), defaultValue: "120.0"
+      kind: .decimal(0...600), defaultValue: "120.0"
     ) { config, value in
       if let s = Double(value) { config.lockLimitSec = min(600.0, max(0.0, s)) }
     },

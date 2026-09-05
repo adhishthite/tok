@@ -21,6 +21,13 @@ settings:
     CURRENT_PROJECT_VERSION: '1'
     TOK_UPDATE_FEED_URL: ''
 targets:
+  TokSettingsReference:
+    type: tool
+    platform: macOS
+    sources: Tools/SettingsReference.swift
+    dependencies:
+      - target: TokEngine
+      - sdk: libsqlite3.tbd
   TokEngine:
     type: library.static
     platform: macOS
@@ -101,6 +108,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.adhishthite.tok.engine-tests
         GENERATE_INFOPLIST_FILE: YES
 schemes:
+  TokSettingsReference:
+    build:
+      targets:
+        TokSettingsReference: all
   TokLiveChecks:
     build:
       targets:
