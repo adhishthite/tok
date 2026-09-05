@@ -5,7 +5,7 @@ DERIVED := $(CURDIR)/build/DerivedData
 APP := $(DERIVED)/Build/Products/$(CONFIGURATION)/Tok.app
 XCODEBUILD := ./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme Tok -configuration $(CONFIGURATION) -derivedDataPath "$(DERIVED)" -destination 'platform=macOS'
 
-.PHONY: install clean check format lint generate build run test package test-live distribute containers notarize-app notarize-dmg
+.PHONY: install clean check format lint generate build run test package test-live distribute containers notarize-app notarize-dmg profile-microphone
 
 install:
 	@command -v xcodegen >/dev/null || brew install xcodegen
@@ -21,6 +21,9 @@ build: generate
 
 run: build
 	./Scripts/run.sh "$(APP)"
+
+profile-microphone: build
+	TOK_PROFILE_MIC=1 ./Scripts/run.sh "$(APP)"
 
 test: generate
 	$(XCODEBUILD) test

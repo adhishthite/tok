@@ -89,3 +89,4 @@ compile_commands.json
 *.p8
 __pycache__/
 .ruff_cache/
+*.profraw

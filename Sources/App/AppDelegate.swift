@@ -22,12 +22,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     if ProcessInfo.processInfo.arguments.contains("--hud-demo") { store.previewHUD() }
     #if DEBUG
-      if ProcessInfo.processInfo.arguments.contains("--probe-microphone") {
+      let delayedProbe = ProcessInfo.processInfo.arguments.contains("--probe-microphone-delayed")
+      if ProcessInfo.processInfo.arguments.contains("--probe-microphone") || delayedProbe {
         store.setPaused(true)
         Task {
           var report: [String: Any]
           do {
-            report = ["startup_ms": try await MicrophoneProbe.measure(), "success": true]
+            if delayedProbe { try await Task.sleep(for: .seconds(6)) }
+            let measurements = try await MicrophoneProbe.measure()
+            report = [
+              "startup_ms": measurements.map(\.readinessMilliseconds),
+              "main_thread_setup_ms": measurements.map(\.synchronousSetupMilliseconds),
+              "pid": ProcessInfo.processInfo.processIdentifier,
+              "success": true,
+            ]
           } catch { report = ["success": false, "error_code": (error as NSError).code] }
           if let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
           {

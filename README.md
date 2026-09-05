@@ -35,5 +35,7 @@ With Fn, set System Settings > Keyboard > Press Globe key to > Do Nothing.
 local key for three synthetic Live turns and one REST transcription, with bounded
 waits. Its timing measures audio-end to settlement, not physical key-up to paste.
 See [VALIDATION.md](VALIDATION.md) for actual results and the real-dictation gate.
+`make profile-microphone` records a bounded Instruments startup profile.
+See [PERFORMANCE.md](PERFORMANCE.md) for the measured main-thread setup delay.
 
 Tok is independent software. Engine behavior is ported from JustSpeak.
