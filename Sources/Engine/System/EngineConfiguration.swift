@@ -8,7 +8,7 @@ import IOKit
 import Network
 import SQLite3
 
-public struct EngineConfiguration {
+public struct EngineConfiguration: Sendable {
   public init() {}
   public var geminiApiKey: String = ""
   public var geminiModel: String = "gemini-3.5-flash-lite"
@@ -91,6 +91,7 @@ public struct EngineConfiguration {
   public var silenceFlushMs: Int = 700
   // Release the mic (status-bar indicator off) after this many seconds without a dictation;
   // the next key-down re-arms it. 0 = keep the mic always on (lowest latency, indicator lit).
+  public var keepMicrophoneWarm: Bool = false
   public var micIdleTimeoutSec: Int = 300
   // Token pricing (USD per 1M tokens), used only for the per-dictation cost line in the
   // diagnostics. Defaults match Aug 2026 public-preview pricing for the two default models.
@@ -211,132 +212,39 @@ public struct EngineConfiguration {
     }.joined(separator: "-")
   }
 
+  static func parseLanguages(_ value: String, fallback: [String]) -> [String] {
+    let languages = value.components(separatedBy: ",").map(normalizeLanguageCode).filter {
+      !$0.isEmpty
+    }
+    if languages.contains("auto") || languages.contains("all") { return [] }
+    return languages.isEmpty ? fallback : languages
+  }
+
   public static func load(values: [String: String], vocabularyText: String? = nil)
     -> EngineConfiguration
   {
     var config = EngineConfiguration()
-    var inlineVocabRaw = ""
-    var vocabFile = ""
-    var rawLanguages: String?
-    for (key, value) in values {
-      switch key {
-      case "GEMINI_API_KEY": config.geminiApiKey = value
-      case "GEMINI_MODEL": config.geminiModel = value
-      case "GEMINI_LIVE_MODEL": config.geminiLiveModel = value
-      case "SMART_TRANSCRIPTION":
-        config.smartTranscription = (value.lowercased() == "true" || value == "1")
-      case "LANGUAGE_CODES": rawLanguages = value
-      case "CUSTOM_VOCABULARY": inlineVocabRaw = value
-      case "CUSTOM_VOCABULARY_FILE": vocabFile = value
-      case "HOTKEY": config.hotkey = value.lowercased()
-      case "HOTKEY_MODE": config.hotkeyMode = value.lowercased()
-      case "HOLD_TO_LOCK":
-        if let s = Double(value) { config.holdToLockSec = min(60.0, max(0.0, s)) }
-      case "LOCK_LIMIT": if let s = Double(value) { config.lockLimitSec = min(600.0, max(0.0, s)) }
-      case "SOUND_FEEDBACK": config.soundFeedback = (value.lowercased() == "true" || value == "1")
-      case "RELEASE_SOUND": config.releaseSound = (value.lowercased() == "true" || value == "1")
-      case "SHOW_HUD": config.showHUD = (value.lowercased() == "true" || value == "1")
-      case "HUD_FOLLOW_FOCUS":
-        config.hudFollowFocus = (value.lowercased() == "true" || value == "1")
-      case "INPUT_DEVICE": config.inputDevice = value
-      case "HUD_REVEAL":
-        if ["slide", "bloom", "drift", "unfurl", "morph"].contains(value.lowercased()) {
-          config.hudRevealStyle = value.lowercased()
-        }
-      case "HUD_PARTICLES": config.hudParticles = (value.lowercased() == "true" || value == "1")
-      case "PRIVACY_MODE": config.privacyMode = (value.lowercased() == "true" || value == "1")
-      case "DUCK_AUDIO": config.duckAudio = (value.lowercased() == "true" || value == "1")
-      case "DUCK_FRACTION": if let f = Double(value) { config.duckFraction = min(1.0, max(0.0, f)) }
-      case "ENABLE_LIVE_WEBSOCKET":
-        config.enableLiveWebSocket = (value.lowercased() == "true" || value == "1")
-      case "RESTORE_CLIPBOARD":
-        config.restoreClipboard = (value.lowercased() == "true" || value == "1")
-      case "TRAILING_SPACE": config.trailingSpace = (value.lowercased() == "true" || value == "1")
-      case "REST_FALLBACK_TIMEOUT": if let t = Double(value) { config.restFallbackTimeout = t }
-      case "PRE_ROLL_MS": if let ms = Int(value) { config.preRollMs = min(1000, max(0, ms)) }
-      case "POST_ROLL_MS": if let ms = Int(value) { config.postRollMs = min(500, max(0, ms)) }
-      case "POST_ROLL_MAX_MS":
-        if let ms = Int(value) { config.postRollMaxMs = min(5000, max(0, ms)) }
-      case "TRAIL_SILENCE_DB":
-        if let db = Double(value) { config.trailSilenceDb = min(-10.0, max(-80.0, db)) }
-      case "VAD_MODE":
-        if ["manual", "tuned", "auto"].contains(value.lowercased()) {
-          config.vadMode = value.lowercased()
-        }
-      case "VAD_SILENCE_MS":
-        if let ms = Int(value) { config.vadSilenceMs = min(5000, max(200, ms)) }
-      case "WS_ENDPOINT_ALIGNED":
-        config.wsEndpointAligned = (value.lowercased() == "true" || value == "1")
-      case "CHUNK_MS": if let ms = Int(value) { config.chunkMs = min(500, max(20, ms)) }
-      case "SILENCE_FLUSH_MS":
-        if let ms = Int(value) { config.silenceFlushMs = min(2000, max(0, ms)) }
-      case "MIC_IDLE_TIMEOUT":
-        if let sec = Int(value) { config.micIdleTimeoutSec = min(7200, max(0, sec)) }
-      case "HISTORY": config.historyEnabled = (value.lowercased() == "true" || value == "1")
-      case "HISTORY_DB": config.historyDbPath = value
-      case "ANALYZE_MODEL": config.analyzeModel = value
-      case "ANALYZE_CONTEXT": config.analyzeContext = value
-      case "LEARN_CORRECTIONS":
-        config.learnCorrections = (value.lowercased() == "true" || value == "1")
-      case "LEARN_DELAY_MS":
-        if let ms = Int(value) { config.learnDelayMs = min(60000, max(2000, ms)) }
-      case "LIVE_INPUT_PRICE_PER_1M":
-        if let p = Double(value), p >= 0 { config.liveInputPricePer1M = p }
-      case "LIVE_OUTPUT_PRICE_PER_1M":
-        if let p = Double(value), p >= 0 { config.liveOutputPricePer1M = p }
-      case "REST_INPUT_PRICE_PER_1M":
-        if let p = Double(value), p >= 0 { config.restInputPricePer1M = p }
-      case "REST_OUTPUT_PRICE_PER_1M":
-        if let p = Double(value), p >= 0 { config.restOutputPricePer1M = p }
-      case "LOG_LEVEL": config.logLevel = value.lowercased()
-      default: break
-      }
+    config.geminiApiKey = values["GEMINI_API_KEY"] ?? ""
+    for setting in SettingCatalog.all {
+      setting.apply(&config, values[setting.key] ?? setting.defaultValue)
     }
-    if let raw = rawLanguages {
-      let parsedLangs = raw.components(separatedBy: ",")
-        .map { normalizeLanguageCode($0) }
-        .filter { !$0.isEmpty }
-      if parsedLangs.contains("auto") || parsedLangs.contains("all") {
-        config.languageCodes = []
-      } else if !parsedLangs.isEmpty {
-        config.languageCodes = parsedLangs
-      }
-    }
-
-    config.customVocabularyFile = vocabFile
-
-    var combinedVocab: [String] = []
-    if !inlineVocabRaw.isEmpty {
-      combinedVocab.append(contentsOf: parseVocabulary(from: inlineVocabRaw))
-    }
-
-    if let content = vocabularyText {
-      combinedVocab.append(contentsOf: parseVocabulary(from: content))
+    var items = config.customVocabulary
+    if let vocabularyText {
+      items.append(contentsOf: parseVocabulary(from: vocabularyText))
       if config.analyzeContext.isEmpty {
-        config.analyzeContext = parseContextDirective(from: content)
+        config.analyzeContext = parseContextDirective(from: vocabularyText)
       }
     }
-    // Pull "wrong => right" replacement rules out of the raw items; the right-hand side
-    // still boosts recognition - never the wrong form, which would just teach the
-    // recognizer to keep mishearing it the same way.
-    let vocabSplit = splitVocabularyItems(combinedVocab)
-    config.replacementRules = vocabSplit.rules
-    config.compiledReplacementRules = ReplacementEngine.compile(vocabSplit.rules)
-    combinedVocab = vocabSplit.vocab + vocabSplit.rules.map { $0.right }
-
-    // Deduplicate while preserving order
+    let split = splitVocabularyItems(items)
+    config.replacementRules = split.rules
+    config.compiledReplacementRules = ReplacementEngine.compile(split.rules)
     var seen = Set<String>()
-    var deduped: [String] = []
-    for word in combinedVocab {
-      let normalized = word.trimmingCharacters(in: .whitespacesAndNewlines)
-      if !normalized.isEmpty && !seen.contains(normalized.lowercased()) {
-        seen.insert(normalized.lowercased())
-        deduped.append(normalized)
-      }
+    config.customVocabulary = (split.vocab + split.rules.map { $0.right }).compactMap { value in
+      let term = value.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !term.isEmpty, seen.insert(term.lowercased()).inserted else { return nil }
+      return term
     }
-    config.customVocabulary = deduped
-
-    Log.isVerbose = (config.logLevel == "verbose")
+    Log.isVerbose = config.logLevel == "verbose"
     return config
   }
 }

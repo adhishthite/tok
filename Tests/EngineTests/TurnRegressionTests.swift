@@ -66,6 +66,7 @@ final class TurnRegressionTests: XCTestCase {
     var rejectedConfig = appFixtureConfig
     rejectedConfig.historyEnabled = false
     rejectedConfig.micIdleTimeoutSec = 300
+    rejectedConfig.keepMicrophoneWarm = true
     DictationEngine(config: rejectedConfig).fixtureRejectedTurn(silent: false)
     DictationEngine(config: rejectedConfig).fixtureRejectedTurn(silent: true)
 

@@ -107,7 +107,7 @@ final class AudioCaptureEngine {
     self.silenceFlushBytes = max(0, silenceFlushMs * 32)
   }
 
-  func setup() -> Bool {
+  func setup(startImmediately: Bool = true) -> Bool {
     // Device changes (AirPods connect/disconnect, default-input switch) invalidate both
     // the tap's captured format and the converter; AVAudioEngine posts this after
     // reconfiguring itself. Handled on main - isEngineRunning is main-thread-only.
@@ -126,7 +126,7 @@ final class AudioCaptureEngine {
       }
     }
 
-    return recovery.start()
+    return startImmediately ? recovery.start() : true
   }
 
   // Bound copied hardware buffers before allocation; callbacks never perform conversion.

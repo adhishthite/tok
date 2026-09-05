@@ -139,6 +139,10 @@ public final class DictationEngine {
     audioCapture.applyPendingReselect()
     micIdleWorkItem?.cancel()
     micIdleWorkItem = nil
+    if !config.keepMicrophoneWarm {
+      audioCapture.suspendEngine()
+      return
+    }
     guard config.micIdleTimeoutSec > 0 else { return }
 
     let item = DispatchWorkItem { [weak self] in
@@ -186,6 +190,7 @@ public final class DictationEngine {
   }
 
   public func start() {
+    SoundManager.prepare()
     // Connectivity truth for the key-down offline gate.
     NetworkMonitor.shared.start()
 
@@ -206,7 +211,7 @@ public final class DictationEngine {
       self.turnLocked = false
       self.handleKeyUp(finish: "input_interrupted")
     }
-    if !audioCapture.setup() {
+    if !audioCapture.setup(startImmediately: config.keepMicrophoneWarm) {
       Log.warn("MIC", "Microphone unavailable; recovery will retry.")
     }
 
@@ -317,11 +322,11 @@ public final class DictationEngine {
     lockLimitWorkItem?.cancel()
     micIdleWorkItem?.cancel()
     pendingDuckItem?.cancel()
+    correctionWatcher?.cancelPending()
     hotkeyManager?.stop()
     audioCapture.stopEngine()
     AudioDucker.shared.restore()
-    sessionQueue.async { [weak self] in
-      guard let self else { return }
+    sessionQueue.async { [self] in
       self.currentTurnId &+= 1
       self.turnSettled = true
       self.pendingRestRequest?.cancel()
@@ -579,6 +584,9 @@ public final class DictationEngine {
       audioCapture.stopRecording(
         gracePeriodMs: config.postRollMs, maxTrailMs: config.postRollMaxMs,
         silenceThresholdDb: config.trailSilenceDb)
+    if !config.keepMicrophoneWarm {
+      DispatchQueue.main.async { [weak self] in self?.audioCapture.suspendEngine() }
+    }
     // Mic capture for this turn is over and every pipeline exit path passes this point -
     // one restore site instead of one per abandoned-turn/settle branch. The pending-duck
     // cancel hops to main (its owning thread); the item's captureActive guard covers the

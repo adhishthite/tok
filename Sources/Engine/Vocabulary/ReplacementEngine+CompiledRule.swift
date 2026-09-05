@@ -9,7 +9,7 @@ import Network
 import SQLite3
 
 extension ReplacementEngine {
-  struct CompiledRule {
+  struct CompiledRule: Sendable {
     let regex: NSRegularExpression
     let wrong: String
     let right: String

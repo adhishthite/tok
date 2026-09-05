@@ -8,7 +8,7 @@ import IOKit
 import Network
 import SQLite3
 
-struct ReplacementRule {
+struct ReplacementRule: Sendable {
   let wrong: String
   let right: String
 }
