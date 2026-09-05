@@ -25,8 +25,8 @@ final class StoreTests: XCTestCase {
     let store = DictationStore()
     for index in 0..<350 { store.engineDidEmit(.diagnostic("Test line \(index)")) }
     XCTAssertEqual(store.diagnostics.count, 300)
-    XCTAssertEqual(store.diagnostics.first, "Test line 50")
-    XCTAssertEqual(store.diagnostics.last, "Test line 349")
+    XCTAssertEqual(store.diagnostics.first?.message, "Test line 50")
+    XCTAssertEqual(store.diagnostics.last?.message, "Test line 349")
   }
 
   func testImporterPreservesQuotedValuesAndEmptySettings() {

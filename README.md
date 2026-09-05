@@ -18,6 +18,10 @@ Audio settings include a native microphone picker with System Default,
 automatic lid-based selection, and connected device names. Explicit device
 choices use stable IDs. Disconnected and imported selections are preserved.
 The microphone stays closed between dictations by default.
+Diagnostics shows the latest timing breakdown and a searchable session log.
+Warnings and errors can be filtered, selected entries can be copied, and clearing
+the log leaves saved dictations intact. Transcript text is not logged by the
+live-stream or completed-turn paths.
 Builds use an available Apple Development identity, with ad-hoc signing as a
 local fallback. Hardened runtime is enabled.
 `make package` creates a local ZIP in `build/package/`; it is not a notarized release.

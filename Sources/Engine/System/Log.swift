@@ -47,10 +47,10 @@ enum Log {
   static func flush() { writer.flush() }
   static func info(_ tag: String, _ message: String) { raw("[\(tag)] \(message)") }
   static func success(_ tag: String, _ message: String) { info(tag, message) }
-  static func warn(_ tag: String, _ message: String) { info(tag, message) }
-  static func error(_ tag: String, _ message: String) { info(tag, message) }
+  static func warn(_ tag: String, _ message: String) { raw("[WARNING] [\(tag)] \(message)") }
+  static func error(_ tag: String, _ message: String) { raw("[ERROR] [\(tag)] \(message)") }
   static func debug(_ tag: String, _ message: @autoclosure () -> String) {
-    if isVerbose { info(tag, message()) }
+    if isVerbose { raw("[DEBUG] [\(tag)] \(message())") }
   }
   static func meter(_ message: @autoclosure () -> String) {
     lock.lock()

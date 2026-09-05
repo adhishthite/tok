@@ -18,7 +18,8 @@ final class DictationStore: DictationEngineDelegate {
   private(set) var lastText = ""
   private(set) var liveText = ""
   private(set) var lastLatencyLine = "No dictations measured yet."
-  private(set) var diagnostics: [String] = []
+  private(set) var diagnostics: [DiagnosticEntry] = []
+  private(set) var lastLatency: LatencySnapshot?
   private(set) var completedTurns = 0
   private(set) var settingsPending = false
   private(set) var retentionError: String?
@@ -182,6 +183,7 @@ final class DictationStore: DictationEngineDelegate {
     case .failure(let reason):
       status = .error
       message = reason
+      appendDiagnostic("[ERROR] [APP] \(reason)")
     case .success:
       status = .ready
       message = "Done."
@@ -191,6 +193,7 @@ final class DictationStore: DictationEngineDelegate {
       if let text = record.text { lastText = settings.configuration.privacyMode ? "" : text }
       if record.outcome == "success" { completedTurns += 1 }
       if let total = record.totalMs {
+        lastLatency = LatencySnapshot(record: record)
         let route = record.isLiveRoute.map { $0 ? "WS" : "REST" } ?? record.transport ?? "none"
         lastLatencyLine =
           "LATENCY route=\(route) capture=\(Self.milliseconds(record.captureFinalizeMs)) api=\(Self.milliseconds(record.roundtripMs)) injection=\(Self.milliseconds(record.injectMs)) total=\(Self.milliseconds(total)) delivery=\(record.deliveryOutcome ?? "none")"
@@ -215,7 +218,11 @@ final class DictationStore: DictationEngineDelegate {
 
   private func appendDiagnostic(_ line: String) {
     guard !line.isEmpty else { return }
-    diagnostics.append(line)
+    let key = settings.configuration.geminiApiKey
+    let safeLine = key.isEmpty ? line : line.replacingOccurrences(of: key, with: "[redacted]")
+    diagnostics.append(DiagnosticEntry(line: safeLine))
     if diagnostics.count > 300 { diagnostics.removeFirst(diagnostics.count - 300) }
   }
+
+  func clearDiagnostics() { diagnostics.removeAll() }
 }

@@ -562,7 +562,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     if let update = liveTextUpdate {
       onLiveTextUpdate?(update.textCopy)
       Log.meter(
-        "\(update.label) [\(String(format: "%.0f", update.elapsedMs))ms]: \(update.fullText.replacingOccurrences(of: "\n", with: " "))"
+        "[STREAM] \(update.fullText.count) characters received in \(String(format: "%.0f", update.elapsedMs)) ms"
       )
     }
     if shouldCompleteServerTurn { completeServerTurnIfReady(turn: messageTurn) }

@@ -1277,28 +1277,7 @@ public final class DictationEngine {
       SoundManager.playCommitSound()
     }
 
-    // Privacy mode keeps dictated words off the terminal too - a shared screen with a
-    // visible terminal leaks exactly like the pill would. Say "transcribed", not "pasted":
-    // delivery isn't known yet (secure input / lost accessibility / focus change all
-    // downgrade to copy-only below) - the Injection Latency line reports the real outcome.
-    if config.privacyMode {
-      Log.raw("\n─── Transcribed ─── privacy mode: \(text.count) chars transcribed, not shown")
-    } else {
-      Log.raw("\n─── Transcribed & Polished Text ─────────────────────────────")
-      Log.raw("\(text)")
-      Log.raw("─────────────────────────────────────────────────────────────")
-    }
-
     let totalElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStartTime) * 1000.0
-
-    let injectStatus: String
-    if let error = deliveryError {
-      injectStatus = error
-    } else if let reason = copyOnlyReason {
-      injectStatus = "Copied  -  \(reason)"
-    } else {
-      injectStatus = injected ? "Paste events dispatched" : (deliveryError ?? "Not delivered")
-    }
 
     let feedbackGeneration = captureGeneration
     DispatchQueue.main.async { [weak self] in
@@ -1319,26 +1298,6 @@ public final class DictationEngine {
       }
     }
 
-    Log.raw("\n📊 Latency Diagnostic Breakdown:")
-    Log.raw("  • Primary Route:       \(transport)")
-    if let reason = fallbackReason {
-      Log.raw("  • Fallback Used:       YES ⚠️ [REST Fallback Route Invoked]")
-      Log.raw("  • Fallback Reason:     \(reason)")
-      Log.raw("  • Fallback Model:      \(config.geminiModel)")
-    } else {
-      Log.raw("  • Fallback Used:       NO (Direct Live Stream Complete)")
-    }
-    Log.raw("  • Audio Duration:      \(String(format: "%.2f", audioDuration))s")
-    Log.raw(
-      "  • Capture Finalize:    \(String(format: "%.1f", captureFinalizeMs)) ms (post-roll + drain)"
-    )
-    if firstTokenMs > 0 {
-      Log.raw("  • First Token TTFT:    \(String(format: "%.1f", firstTokenMs)) ms")
-    }
-    Log.raw("  • Event Queue Delay:   \(String(format: "%.1f", turnEventQueueMs)) ms")
-    Log.raw("  • API Roundtrip (RTT): \(String(format: "%.1f", roundtripMs)) ms")
-    Log.raw("  • Injection Latency:   \(String(format: "%.1f", injectMs)) ms (\(injectStatus))")
-
     // Token usage & cost. API-metered when the server reported usageMetadata; otherwise a
     // deterministic estimate from the documented rates (25 audio tokens/sec + ~1s of
     // pre/post-roll & silence padding also billed; output ~4 chars/token).
@@ -1350,10 +1309,6 @@ public final class DictationEngine {
     let turnCostUSD =
       Double(effectiveInputTokens) / 1_000_000.0 * inputPrice
       + Double(effectiveOutputTokens) / 1_000_000.0 * outputPrice
-    Log.raw(
-      "  • Tokens & Cost:       \(effectiveInputTokens) in / \(effectiveOutputTokens) out ≈ $\(String(format: "%.5f", turnCostUSD)) (\(usageMetered ? "API metered" : "estimated"))"
-    )
-
     statsLock.lock()
     sessionTurns += 1
     sessionInputTokens += effectiveInputTokens
@@ -1396,8 +1351,6 @@ public final class DictationEngine {
       eventQueueMs: turnEventQueueMs,
       deliveryOutcome: injected ? "dispatched" : (deliveryError == nil ? "copied" : "failed")
     )
-
-    Log.raw("  • Key-Up → Paste Dispatch: \(String(format: "%.1f", totalElapsedMs)) ms ⚡\n")
 
     processingLock.lock()
     isProcessing = false
