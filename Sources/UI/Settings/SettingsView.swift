@@ -16,6 +16,7 @@ struct SettingsView: View {
     } detail: {
       Form {
         if group == .transcription { APIKeySection() }
+        if group == .general { LoginItemSection() }
         if group == .vocabulary {
           Section { Button("Open Vocabulary editor") { store.showVocabulary?() } }
         }

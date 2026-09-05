@@ -7,6 +7,7 @@ import TokHUD
 @Observable
 final class DictationStore: DictationEngineDelegate {
   let settings = SettingsStore()
+  let loginItem = LoginItemStore()
   let history = HistoryViewStore()
   @ObservationIgnored var showVocabulary: (() -> Void)?
   @ObservationIgnored var showSetup: (() -> Void)?
