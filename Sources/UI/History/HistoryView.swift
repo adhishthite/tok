@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import TokEngine
 
@@ -40,6 +41,13 @@ struct HistoryView: View {
           Button("Copy") { history.copySelection() }.disabled(history.selection.isEmpty)
           Button("Delete…", role: .destructive) { confirmDelete = true }.disabled(
             history.selection.isEmpty)
+        }
+        .onCopyCommand {
+          let text = history.selectedText
+          return text.isEmpty ? [] : [NSItemProvider(object: text as NSString)]
+        }
+        .onDeleteCommand {
+          if !history.selection.isEmpty { confirmDelete = true }
         }
         .overlay {
           if history.entries.isEmpty && !history.loading {

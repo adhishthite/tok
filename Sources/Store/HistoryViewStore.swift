@@ -64,8 +64,11 @@ final class HistoryViewStore {
       reload()
     } catch { self.error = error.localizedDescription }
   }
+  var selectedText: String {
+    entries.filter { selection.contains($0.id) }.map(\.text).joined(separator: "\n\n")
+  }
   func copySelection() {
-    let text = entries.filter { selection.contains($0.id) }.map(\.text).joined(separator: "\n\n")
+    let text = selectedText
     guard !text.isEmpty else { return }
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(text, forType: .string)

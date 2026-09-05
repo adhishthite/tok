@@ -1,6 +1,29 @@
-# Validation, 2026-09-05
+# Validation
 
 ## Current result
+
+On 2026-09-06, the History table gained native Copy and Delete command handlers.
+Copy uses the same full text and display order as context-menu Copy. Delete opens
+the existing confirmation and does nothing when no rows are selected. These
+handlers are scoped to the table so text editing elsewhere retains its commands.
+
+`make check` exited 0: 54 XCTest cases passed, two explicit live cases skipped,
+seven Python script tests passed, and the compiled 47-setting reference matched
+README. Strict Swift formatting, shell syntax, and `git diff --check` passed.
+The log is `/tmp/tok-history-keyboard-check.log`. The script-test notarization
+messages are mocked responses, not submissions or acceptance by Apple.
+
+Setup inspection remained inconclusive. The exact-app UI call timed out at five
+seconds. A separate bounded AX query had accessibility permission but returned an
+application element in the window list. Core Graphics confirmed the setup-sized
+window was on screen, while a window-only screenshot failed. No VoiceOver,
+interactive keyboard, visual layout, or window latency pass is claimed. These
+observations do not establish the cause of the inspection failure.
+
+The full acceptance procedure is in [ACCEPTANCE.md](ACCEPTANCE.md). The app goal
+remains incomplete. The following checkpoints retain their original scope.
+
+## Previous checkpoints
 
 Microphone lifecycle operations now run on a serial hardware queue. The measured
 main-thread setup interval fell from 306/86/78 ms to 0.132/0.065/0.057 ms in the
