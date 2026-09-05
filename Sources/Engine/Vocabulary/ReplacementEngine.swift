@@ -25,19 +25,58 @@ enum ReplacementEngine {
     }
   }
 
-  static func apply(_ text: String, compiled: [CompiledRule]) -> String {
-    guard !compiled.isEmpty else { return text }
+  static func apply(
+    _ text: String, compiled: [CompiledRule], maximumOutputUTF16: Int = 1_000_000,
+    maximumMatches: Int = 10_000, maximumScannedUTF16: Int = 16_000_000
+  ) throws -> String {
+    guard !compiled.isEmpty, !text.isEmpty else { return text }
+    guard maximumOutputUTF16 >= 0, maximumMatches >= 0, maximumScannedUTF16 >= 0,
+      (text as NSString).length <= maximumOutputUTF16
+    else { throw ReplacementLimitError.budgetExceeded }
     var result = text
+    var matchesLeft = maximumMatches
+    var scanLeft = maximumScannedUTF16
     for rule in compiled {
       let ns = result as NSString
-      let matches = rule.regex.matches(in: result, range: NSRange(location: 0, length: ns.length))
-        .reversed()
-      let mutable = NSMutableString(string: result)
-      for match in matches {
+      guard ns.length <= scanLeft else { throw ReplacementLimitError.budgetExceeded }
+      scanLeft -= ns.length
+      var edits: [(range: NSRange, replacement: String)] = []
+      var projectedLength = ns.length
+      var rejected = false
+      // Enumeration can stop before allocating an unbounded array of matches.
+      rule.regex.enumerateMatches(in: result, range: NSRange(location: 0, length: ns.length)) {
+        match, _, stop in
+        guard let match else { return }
+        guard matchesLeft > 0 else {
+          rejected = true
+          stop.pointee = true
+          return
+        }
+        matchesLeft -= 1
         let original = ns.substring(with: match.range)
         let replacement = propagateCase(from: original, to: rule.right, wrong: rule.wrong)
-        mutable.replaceCharacters(in: match.range, with: replacement)
+        let length = (replacement as NSString).length
+        let retained = projectedLength - match.range.length
+        guard length <= maximumOutputUTF16 - retained else {
+          rejected = true
+          stop.pointee = true
+          return
+        }
+        projectedLength = retained + length
+        edits.append((match.range, replacement))
       }
+      guard !rejected else { throw ReplacementLimitError.budgetExceeded }
+      guard !edits.isEmpty else { continue }
+      // Construct once in source order, rather than repeatedly shifting the growing string.
+      let mutable = NSMutableString(capacity: projectedLength)
+      var cursor = 0
+      for edit in edits {
+        mutable.append(
+          ns.substring(with: NSRange(location: cursor, length: edit.range.location - cursor)))
+        mutable.append(edit.replacement)
+        cursor = NSMaxRange(edit.range)
+      }
+      mutable.append(ns.substring(from: cursor))
       result = mutable as String
     }
     return result

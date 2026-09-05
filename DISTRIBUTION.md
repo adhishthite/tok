@@ -87,5 +87,12 @@ Local archive, export, and signed-container creation have been exercised.
 Notarization credentials and a public feed URL are not configured in this
 session. Notarization, Gatekeeper acceptance, an installed Sparkle update,
 and fresh-Mac installation remain unverified. The current `spctl --assess`
-result is `rejected`, `source=Unnotarized Developer ID`. The source security scan is
-partial, with one confirmed Diagnostics privacy issue fixed.
+result is `rejected`, `source=Unnotarized Developer ID`.
+
+The source security review at revision `42ed1f0` covered all 185 files in its
+source/configuration inventory and reported two low-severity findings: stale
+transcript visibility after enabling privacy and cascading replacement expansion.
+Both have now been addressed with regression tests. The review was sequential,
+without an independent worker, and did not audit macOS or Sparkle internals or
+certify runtime release behavior. The generated report remains a record of the
+audited revision, not a report rewritten to hide its findings.

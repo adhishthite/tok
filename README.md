@@ -41,6 +41,9 @@ Automatic vocabulary import is limited to the folder containing the selected
 settings file, including symlink resolution. Use “Add vocabulary from file”
 to select a file elsewhere. New lines are merged into Tok’s vocabulary without
 removing existing lines. Imported files must be UTF-8 text, no larger than 1 MB.
+Replacement processing is bounded to 1,000,000 UTF-16 output units, 10,000 matches,
+and 16,000,000 scanned UTF-16 units per dictation. If a limit is reached, Tok does
+not paste the expanded text and keeps the original in History when history is enabled.
 Use Tok's setup window to grant Microphone, Accessibility, and Input Monitoring.
 With Fn, set System Settings > Keyboard > Press Globe key to > Do Nothing.
 

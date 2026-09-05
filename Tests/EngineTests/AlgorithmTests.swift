@@ -38,11 +38,11 @@ final class AlgorithmTests: XCTestCase {
     XCTAssertEqual(config.customVocabulary, ["gRPC", "Kubernetes", "Claude Code", "npm"])
     XCTAssertEqual(config.analyzeContext, "Architecture")
     XCTAssertEqual(
-      ReplacementEngine.apply(
+      try ReplacementEngine.apply(
         "COOPER NETTIES, cloud code and NPM.", compiled: config.compiledReplacementRules),
       "Kubernetes, Claude Code and npm.")
     XCTAssertEqual(
-      ReplacementEngine.apply("cloud codec", compiled: config.compiledReplacementRules),
+      try ReplacementEngine.apply("cloud codec", compiled: config.compiledReplacementRules),
       "cloud codec")
   }
 

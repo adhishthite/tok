@@ -1179,7 +1179,14 @@ public final class DictationEngine {
     }
 
     // Deterministic wrong->right enforcement (client-side guarantee on top of boost bias).
-    let text = ReplacementEngine.apply(trimmed, compiled: config.compiledReplacementRules)
+    let text: String
+    var replacementRejected = false
+    do {
+      text = try ReplacementEngine.apply(trimmed, compiled: config.compiledReplacementRules)
+    } catch {
+      text = trimmed
+      replacementRejected = true
+    }
 
     // Active Window Injection: paste, unless secure input is held or the frontmost app
     // changed mid-turn - both downgrade to clipboard-only delivery instead of synthesizing
@@ -1191,7 +1198,15 @@ public final class DictationEngine {
     // set on downgrade; drives the log message, HUD text and status label
     var copyOnlyReason: String?
 
-    if SecureInputMonitor.isActive {
+    if replacementRejected {
+      injected = false
+      injectMs = 0
+      deliveryError =
+        config.historyEnabled
+        ? "Vocabulary replacements exceeded safe limits. Original text saved in History."
+        : "Vocabulary replacements exceeded safe limits. Nothing pasted. Review Vocabulary."
+      Log.warn("VOCAB", "Replacement budget exceeded; no text was pasted.")
+    } else if SecureInputMonitor.isActive {
       let copyStart = ProcessInfo.processInfo.systemUptime
       if !TextInjector.copyOnly(text: text, appendSpace: config.trailingSpace) {
         deliveryError = "Clipboard write failed. Text not copied."
