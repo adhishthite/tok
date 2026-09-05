@@ -6,7 +6,7 @@ import re
 import subprocess
 import sys
 
-result = subprocess.run(['security', 'find-identity', '-v', '-p', 'codesigning'], capture_output=True, text=True)
+result = subprocess.run(['security', 'find-identity', '-v', '-p', 'codesigning'], capture_output=True, text=True, timeout=10)
 identities = re.findall(r'\b([A-F0-9]{40}) "([^"]+)"', result.stdout)
 identity = next(((digest, name) for digest, name in identities if name.startswith('Apple Development:')), None)
 settings = []

@@ -40,5 +40,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     #endif
   }
   func applicationWillTerminate(_ notification: Notification) { store.stop() }
+  func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    guard NSDocumentController.shared.hasEditedDocuments else { return .terminateNow }
+    NSDocumentController.shared.reviewUnsavedDocuments(
+      withAlertTitle: "Save vocabulary changes?", cancellable: true, delegate: self,
+      didReviewAllSelector: #selector(reviewedDocuments(_:didReviewAll:contextInfo:)),
+      contextInfo: nil)
+    return .terminateLater
+  }
+
+  @objc private func reviewedDocuments(
+    _ controller: NSDocumentController, didReviewAll: Bool, contextInfo: UnsafeMutableRawPointer?
+  ) {
+    NSApplication.shared.reply(toApplicationShouldTerminate: didReviewAll)
+  }
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }

@@ -2,7 +2,7 @@
 set -euo pipefail
 app="${1:?Pass the built Tok.app path}"
 if pgrep -x Tok >/dev/null; then
-    osascript -e 'tell application id "com.adhishthite.tok" to quit'
+    python3 "$(dirname "$0")/bounded_run.py" --seconds 10 --label quit -- osascript -e 'tell application id "com.adhishthite.tok" to quit'
     for ((attempt=0; attempt<50; attempt++)); do
         pgrep -x Tok >/dev/null || break
         sleep 0.1
