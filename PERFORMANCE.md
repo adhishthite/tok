@@ -2,8 +2,9 @@
 
 ## Microphone startup baseline, 2026-09-05
 
-Tok's on-demand microphone startup blocks the main thread. This is a measured
-UI responsiveness problem, separate from key-up-to-paste latency.
+Before the hardware-queue change, Tok's on-demand microphone startup blocked
+the main thread. This was a measured UI responsiveness problem, separate from
+key-up-to-paste latency.
 
 The debug probe starts and suspends the microphone three times with zero
 pre-roll. It does not record a dictation or send audio for transcription.
@@ -31,11 +32,48 @@ separate elapsed-time measurement covers that wait. Device and profiler state
 affect timings, so these three samples do not establish a stable distribution
 or compare performance against earlier unprofiled samples.
 
-The next change should remove synchronous hardware setup from the main thread,
-retain serialized audio lifecycle operations, and reject stale callbacks after
-cancellation or a device change. The turn arbiter must retain its serial
-DispatchQueue and NSLock model. Repeat this probe after the change and inspect
-real first-word capture before claiming an improvement in dictation behavior.
+## Hardware queue result
+
+The same three-attempt probe after moving hardware lifecycle operations to a
+serial background queue measured:
+
+| Attempt | Main-thread setup | Total readiness |
+| --- | ---: | ---: |
+| 1 | 0.132 ms | 462.2 ms |
+| 2 | 0.065 ms | 190.7 ms |
+| 3 | 0.057 ms | 193.9 ms |
+
+`make profile-microphone` completed with exit 0. The trace is
+`build/microphone-startup-20260905-233823.trace`, PID 80691. Exported CPU samples
+contain 33 worker-thread samples with `rebuildHardware` on the stack and zero
+main-thread samples with that call. There were 25 main-thread samples total.
+
+This removes the measured synchronous startup stall. It does not establish
+faster hardware readiness or faster transcription. Hardware readiness remains
+hundreds of milliseconds, and first-word capture still needs real dictation
+validation. These runs are small samples taken sequentially under Instruments.
+
+The existing recovery state machine now runs with hardware operations on one
+serial queue. Locked snapshots let the main thread check readiness and input
+metadata. Epoch checks invalidate readiness results immediately on cancellation,
+including results already queued for main. The turn arbiter still uses its
+original DispatchQueue and NSLock model. No actor replaced it.
+
+The targeted Thread Sanitizer run passed all five selected tests, with no race
+reports. Coverage includes the unchanged recovery regression fixtures, startup
+while hardware is blocked, cancellation during startup, invalidating a result
+already queued for main, and retaining the audio owner until queued shutdown
+finishes. This covers the tested paths, not every possible device interaction.
+
+```sh
+./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme Tok \
+  -configuration Debug -derivedDataPath build/DerivedData \
+  -destination 'platform=macOS' -enableThreadSanitizer YES \
+  -only-testing:TokEngineTests/MicrophoneLifecycleTests \
+  -only-testing:TokEngineTests/MicrophoneRegressionTests test
+```
+
+Output: `Executed 5 tests, with 0 failures`, `TEST SUCCEEDED`.
 
 ## Reproduce
 

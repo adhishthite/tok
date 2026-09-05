@@ -2,13 +2,23 @@
 
 ## Current result
 
+Microphone lifecycle operations now run on a serial hardware queue. The measured
+main-thread setup interval fell from 306/86/78 ms to 0.132/0.065/0.057 ms in the
+three-attempt Instruments probe. Total hardware readiness remains roughly
+462/191/194 ms; this is not evidence of faster transcription or first-word
+capture. [PERFORMANCE.md](PERFORMANCE.md) records the traces and scope.
+
+After this change, `make check` passed 30 XCTest cases, skipped two explicit
+live-API cases, and passed all four script tests. A targeted Thread Sanitizer
+run passed five lifecycle/recovery tests with no race reports.
+
 Latest distribution checkpoint: `make distribute` completed with
 `ARCHIVE SUCCEEDED` and `EXPORT SUCCEEDED`. The universal Developer ID app,
 signed DMG, and ZIP passed signature, architecture, entitlement, and archive
 content checks. `spctl --assess --type execute --verbose` returned `rejected`,
 `source=Unnotarized Developer ID`. No notarization or update delivery is claimed.
 
-The latest `make check` completed with `TEST SUCCEEDED`: 25 XCTest cases passed,
+At the distribution checkpoint, `make check` completed with `TEST SUCCEEDED`: 25 XCTest cases passed,
 two explicit live API cases skipped, and zero failures. Four additional Python
 tests passed for notarization resume, interrupted upload recovery, changed
 archive identity, and rejected-submission handling. These tests mock Apple

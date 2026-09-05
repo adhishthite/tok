@@ -150,12 +150,11 @@ public final class DictationEngine {
     let item = DispatchWorkItem { [weak self] in
       guard let self = self else { return }
       self.micIdleWorkItem = nil
-      self.audioCapture.suspendEngine()
-      self.feedback.micReleased()
-      Log.info(
-        "MIC",
-        "Mic released after \(self.config.micIdleTimeoutSec)s idle - indicator off. Next key-down re-arms it."
-      )
+      self.audioCapture.suspendEngine { [weak self] in
+        guard let self, !self.capturePending, !self.captureActive, !self.isStopping else { return }
+        self.feedback.micReleased()
+        Log.info("MIC", "Microphone released after inactivity.")
+      }
     }
     micIdleWorkItem = item
     DispatchQueue.main.asyncAfter(

@@ -20,7 +20,7 @@ final class MicRecoveryController {
   private(set) var generation: UInt64 = 0
   private var attempt = 0
   private var startedAt: TimeInterval = 0
-  private var lastBuffer: TimeInterval?
+  private(set) var lastBuffer: TimeInterval?
   private var waiting: [(Bool) -> Void] = []
   private var configurationPending = false
 

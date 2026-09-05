@@ -19,14 +19,15 @@ final class AudioCaptureEngine {
 
   let lock = NSLock()
   var isRecording: Bool = false
-  var isEngineRunning: Bool { recovery.healthy }
+  var isEngineRunning: Bool { lifecycle.healthy }
   private var tapInstalled = false
+  private var notificationObservers: [NSObjectProtocol] = []
   private var bufferEpoch: UInt64 = 0
   var turnInterrupted = false
   private var interruptionNotified = false
   private var queuedBuffers = 0
   private lazy var healthDelivery = MainQueueDelivery<(UInt64, TimeInterval)> { [weak self] value in
-    self?.recovery.receivedBuffer(generation: value.0, at: value.1)
+    self?.lifecycle.receivedBuffer(generation: value.0, at: value.1)
   }
   private lazy var overloadDelivery = MainQueueDelivery<UInt64> { [weak self] epoch in
     guard let self else { return }
@@ -36,7 +37,7 @@ final class AudioCaptureEngine {
     if current { self.interruptCapture("Microphone audio processing could not keep up") }
   }
   var onCaptureInterrupted: ((String) -> Void)?
-  lazy var recovery = MicRecoveryController(
+  lazy var lifecycle = MicrophoneLifecycle(
     rebuild: { [weak self] in self?.rebuildHardware() ?? false },
     stop: { [weak self] in self?.stopHardware() },
     running: { [weak self] in self?.audioEngine.isRunning ?? false },
@@ -81,13 +82,16 @@ final class AudioCaptureEngine {
   var onAudioChunk: ((Data) -> Void)?
   var onAudioLevel: ((Double) -> Void)?
 
-  // Main-thread-only (written in setup and the configuration-change handler, read at
-  // key-down): the device the engine is actually capturing from, for the log and the
-  // history row. Never assume the system default - an external display's mic often is.
-  private(set) var currentInput: InputDeviceCatalog.Device?
+  // Device metadata is written on the hardware queue and read through a locked snapshot.
+  private var inputSnapshot: InputDeviceCatalog.Device?
+  var currentInput: InputDeviceCatalog.Device? {
+    lock.lock()
+    defer { lock.unlock() }
+    return inputSnapshot
+  }
   private let preferredInputDevice: String
   private var autoInput: Bool { preferredInputDevice.lowercased() == "auto" }
-  // Main-thread-only: a lid flip arrived mid-dictation; re-pin once the turn is over.
+  // Hardware-queue-only: a lid flip arrived mid-dictation; re-pin once the turn is over.
   private var pendingReselect = false
 
   init(
@@ -108,31 +112,42 @@ final class AudioCaptureEngine {
   }
 
   func setup(startImmediately: Bool = true) -> Bool {
+    // Initialize lazy delivery/state objects before hardware work can access them.
+    _ = lifecycle
+    _ = healthDelivery
+    _ = overloadDelivery
     // Device changes (AirPods connect/disconnect, default-input switch) invalidate both
     // the tap's captured format and the converter; AVAudioEngine posts this after
-    // reconfiguring itself. Handled on main - isEngineRunning is main-thread-only.
-    NotificationCenter.default.addObserver(
-      forName: .AVAudioEngineConfigurationChange, object: audioEngine, queue: .main
-    ) { [weak self] _ in
-      self?.handleConfigurationChange()
-    }
+    // reconfiguring itself. Forward notifications to the serialized hardware lifecycle.
+    notificationObservers.append(
+      NotificationCenter.default.addObserver(
+        forName: .AVAudioEngineConfigurationChange, object: audioEngine, queue: .main
+      ) { [weak self] _ in
+        self?.handleConfigurationChange()
+      })
     // A lid open/close with an external display attached always reshuffles the screen
     // list; that's the trigger for INPUT_DEVICE=auto (the HAL itself often stays quiet).
     if autoInput {
-      NotificationCenter.default.addObserver(
-        forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
-      ) { [weak self] _ in
-        self?.reselectForLidState()
-      }
+      notificationObservers.append(
+        NotificationCenter.default.addObserver(
+          forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+          self?.reselectForLidState()
+        })
     }
 
-    return startImmediately ? recovery.start() : true
+    if startImmediately { lifecycle.start() }
+    return true
+  }
+
+  deinit {
+    for observer in notificationObservers { NotificationCenter.default.removeObserver(observer) }
   }
 
   // Bound copied hardware buffers before allocation; callbacks never perform conversion.
   private func installTap(on inputNode: AVAudioInputNode, format: AVAudioFormat) {
     let epoch = bufferEpoch
-    let generation = recovery.generation
+    let generation = lifecycle.generation
     let healthDelivery = self.healthDelivery
     let overloadDelivery = self.overloadDelivery
     inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] (buffer, when) in
@@ -197,13 +212,16 @@ final class AudioCaptureEngine {
   // A configuration notification can arrive before the replacement format is usable.
   // Recovery preserves run intent and retries the complete tap/converter setup.
   private func handleConfigurationChange() {
-    recovery.configurationChanged()
+    lifecycle.configurationChanged()
   }
 
-  // INPUT_DEVICE=auto, main-thread-only. No-op unless the lid state now wants a different
-  // device than the unit is on; deferred to the end of the turn while recording (the
-  // rebuild would drop the buffers mid-dictation).
+  // INPUT_DEVICE=auto. Inspect on the hardware queue; only change a different device.
+  // Defer until the turn ends while recording, since rebuilding would drop buffers.
   func reselectForLidState() {
+    lifecycle.queue.async { [self] in reselectOnHardwareQueue() }
+  }
+
+  private func reselectOnHardwareQueue() {
     guard autoInput else { return }
     let devices = InputDeviceCatalog.inputDevices()
     guard let target = targetInput(in: devices), let unit = audioEngine.inputNode.audioUnit,
@@ -218,13 +236,14 @@ final class AudioCaptureEngine {
       return
     }
     pendingReselect = false
-    recovery.configurationChanged()
+    lifecycle.configurationChanged()
   }
 
   // Main-thread-only, called after each turn settles.
   func applyPendingReselect() {
-    guard pendingReselect else { return }
-    reselectForLidState()
+    lifecycle.queue.async { [self] in
+      if pendingReselect { reselectOnHardwareQueue() }
+    }
   }
 
   private func interruptCapture(_ reason: String) {
@@ -322,14 +341,18 @@ final class AudioCaptureEngine {
       }
     }
 
+    let selectedInput: InputDeviceCatalog.Device?
     if let unit = unit, let activeID = activeDevice(of: unit) {
-      currentInput =
+      selectedInput =
         devices.first(where: { $0.id == activeID })
         ?? InputDeviceCatalog.describe(
           activeID, isDefault: activeID == InputDeviceCatalog.defaultInputDevice())
     } else {
-      currentInput = devices.first(where: { $0.isDefault })
+      selectedInput = devices.first(where: { $0.isDefault })
     }
+    lock.lock()
+    inputSnapshot = selectedInput
+    lock.unlock()
   }
 
   private func activeDevice(of unit: AudioUnit) -> AudioDeviceID? {
@@ -341,19 +364,19 @@ final class AudioCaptureEngine {
     return activeID
   }
 
-  func suspendEngine() {
+  func suspendEngine(completion: @escaping () -> Void = {}) {
     lock.lock()
     let recording = isRecording
     lock.unlock()
     guard !recording else { return }
-    recovery.suspend()
+    lifecycle.suspend(completion: completion)
   }
 
   func ensureReady(completion: @escaping (Bool) -> Void) {
-    recovery.ensureReady(completion)
+    lifecycle.ensureReady(completion)
   }
 
-  func cancelPendingReadiness() { recovery.cancelPendingReadiness() }
+  func cancelPendingReadiness() { lifecycle.cancelPendingReadiness() }
 
   private func processIncomingBufferOnQueue(
     _ inputBuffer: AVAudioPCMBuffer, generation: UInt64, capturedAt: TimeInterval,
@@ -538,7 +561,7 @@ final class AudioCaptureEngine {
   }
 
   @discardableResult func startRecording() -> Bool {
-    guard recovery.healthy else { return false }
+    guard isEngineRunning else { return false }
     audioProcessingQueue.sync { startRecordingOnQueue() }
     return true
   }
@@ -730,6 +753,7 @@ final class AudioCaptureEngine {
   }
 
   func stopEngine() {
-    recovery.suspend()
+    // Keep the AVAudioEngine owner alive until queued hardware shutdown completes.
+    lifecycle.suspend { [self] in withExtendedLifetime(self) {} }
   }
 }
