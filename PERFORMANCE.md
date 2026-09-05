@@ -1,5 +1,29 @@
 # Performance evidence
 
+## Stored dictation timing, 2026-09-06
+
+A read-only aggregate of Tok's history found 19 records, including 16 successful
+Live-route paste dispatches with finite total timings. No transcript text was
+selected or displayed.
+
+| Measurement | Median | Minimum | Maximum |
+| --- | ---: | ---: | ---: |
+| Key release to dispatch | 583.7 ms | 521.5 ms | 1100.7 ms |
+| Capture finalization | 86.8 ms | 77.8 ms | 209.6 ms |
+| API interval | 458.5 ms | 364.9 ms | 989.4 ms |
+| Injection | 14.4 ms | 12.7 ms | 31.3 ms |
+| Event queue | 0.9 ms | 0.0 ms | 7.6 ms |
+
+The sub-500 ms target is not met in this sample. These are separate marginal
+medians and must not be added as a decomposition of the median total. Paste
+dispatch does not independently prove that the destination consumed the text.
+
+All 19 records had a NULL build identifier, so this is a mixed-version baseline,
+not evidence about the latest implementation alone. Tok now stamps its source
+revision into the bundle and assigns that value to new history records, including
+a `-dirty` suffix for uncommitted source. Existing rows are not backfilled.
+Diagnostics and the development runtime report show the same build identifier.
+
 ## Microphone startup baseline, 2026-09-05
 
 Before the hardware-queue change, Tok's on-demand microphone startup blocked

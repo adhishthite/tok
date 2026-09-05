@@ -14,6 +14,13 @@ identity = next(((digest, name) for digest, name in identities if name.startswit
 if distribution and identity is None:
     raise SystemExit('Developer ID Application identity is required for distribution.')
 settings = []
+revision = subprocess.run(['git', 'rev-parse', '--short=12', 'HEAD'], capture_output=True, text=True, timeout=3)
+source_revision = revision.stdout.strip() if revision.returncode == 0 else 'unversioned'
+if revision.returncode == 0:
+    state = subprocess.run(['git', 'status', '--porcelain', '--untracked-files=normal'], capture_output=True, text=True, timeout=3)
+    if state.returncode != 0 or state.stdout:
+        source_revision += '-dirty'
+settings.append('TOK_SOURCE_REVISION=' + source_revision)
 if identity:
     digest, name = identity
     settings.append('CODE_SIGN_IDENTITY=' + digest)

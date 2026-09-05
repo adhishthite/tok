@@ -90,6 +90,7 @@ final class SettingsStore {
       ?? configuration.geminiApiKey
     let vocabulary = try? String(contentsOf: resolvedVocabularyURL, encoding: .utf8)
     configuration = EngineConfiguration.load(values: effective, vocabularyText: vocabulary)
+    configuration.buildId = BuildIdentity.revision
     hasAPIKey = !configuration.geminiApiKey.isEmpty
   }
 

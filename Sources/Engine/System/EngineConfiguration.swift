@@ -109,8 +109,8 @@ public struct EngineConfiguration: Sendable {
   public var historyEnabled: Bool = true
   public var historyRetentionDays: Int = 0
   public var historyDbPath: String = ""  // empty = ~/Library/Application Support/Tok/history.db
-  // Git commit id (short SHA, or "-dirty" suffixed) stamped by the `justspeak` runner via
-  // JUSTSPEAK_BUILD  -  not a .env knob, so it's read only from the process environment below.
+  // Source revision from Tok's built bundle, including a dirty-worktree marker.
+  // Assigned by SettingsStore; never a user preference or imported .env setting.
   public var buildId: String = ""
   // Analyzer-only knobs (--analyze / make analyze). Analysis is rare and offline, so it
   // can afford a stronger model than the REST fallback; empty falls back to GEMINI_MODEL.

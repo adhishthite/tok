@@ -19,6 +19,7 @@ enum RuntimeReport {
         "microphone": permissions.microphone,
         "accessibility": permissions.accessibility, "inputMonitoring": permissions.inputMonitoring,
         "hasAPIKey": hasAPIKey, "latency": latency,
+        "build": BuildIdentity.revision,
       ]
       guard let data = try? JSONSerialization.data(withJSONObject: values, options: [.sortedKeys])
       else { return }

@@ -5,6 +5,21 @@ import XCTest
 
 @MainActor
 final class StoreTests: XCTestCase {
+  func testSettingsChangesRetainBundleBuildIdentity() {
+    let suite = "TokBuildIdentityTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let settings = SettingsStore(
+      defaults: defaults,
+      supportDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(
+        UUID().uuidString))
+    settings.set("HOTKEY", "fn")
+    XCTAssertEqual(settings.configuration.buildId, BuildIdentity.revision)
+    XCTAssertFalse(settings.configuration.buildId.isEmpty)
+    settings.set("BUILD_ID", "untrusted-import-value")
+    XCTAssertEqual(settings.configuration.buildId, BuildIdentity.revision)
+  }
+
   func testStateTracksEngineEventsWithoutStartingHardware() {
     let store = DictationStore()
     store.engineDidEmit(.ready)
