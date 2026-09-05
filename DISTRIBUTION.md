@@ -63,6 +63,21 @@ download URL prefix. The tool signs both the archive entries and the feed.
 Increment `CURRENT_PROJECT_VERSION` for every update. Verify an actual update
 from the previous build before publishing the archive and feed together.
 
+`make check-updates` exercises local signing with the built Debug app. It checks
+the embedded public key against the signing key, generates a feed using a reserved
+`.invalid` download host, verifies signatures, and rejects modified copies.
+Each command has a 30-second limit and the signing phase has a 120-second limit.
+Artifacts stay in a marked test-only directory under `build/`; the command does
+not publish anything or install an update. A cryptographic failure must be
+reported explicitly; authentication failures cannot count as tamper rejection.
+
+On 2026-09-06, the embedded public-key comparison passed, but `generate_appcast`
+timed out. A one-second process sample showed it waiting in `SecItemCopyMatching`
+and Keychain decryption. A second bounded attempt stopped with exit 124. No
+generator process remained. Feed generation, signature verification, and tamper
+rejection have not yet run successfully with this Keychain. macOS authorization
+may be needed; no signing success is inferred from the mock script tests.
+
 References: [Apple notarization workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow)
 and [Sparkle publishing](https://sparkle-project.org/documentation/publishing/).
 
