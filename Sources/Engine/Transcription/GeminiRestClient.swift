@@ -249,8 +249,8 @@ struct GeminiRestClient {
           // ever reaches insertion (Feature: RestValidationGate).
           let cleanedText = RestValidationGate.clean(text)
           if let reason = RestValidationGate.rejectionReason(cleanedText) {
-            let prefix = String(cleanedText.prefix(80))
-            Log.warn("GATE", "REST result rejected (\(reason)): \(prefix)")
+            Log.warn(
+              "GATE", "REST result rejected (\(reason)); \(cleanedText.count) characters withheld.")
             completion(
               .failure(
                 NSError(
