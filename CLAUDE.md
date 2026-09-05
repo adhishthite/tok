@@ -51,7 +51,8 @@ Tok is not a Google product and carries no Google branding.
 ## Current working agreement
 - Work directly on main and commit small, verified changes. Tags and releases require the owner's instruction.
 - HANDOFF.md is guidance. The reference source wins when the brief disagrees.
-- Stop for review after working dictation, onboarding, and notarized packaging.
+- Continue the full goal autonomously. The owner superseded milestone review stops on 2026-09-05.
+- Treat native behavior, restrained feedback, responsiveness, and performance as design inputs now, not a final cosmetic phase.
 - Keep JustSpeak read-only. Its corporate interpreter restrictions do not apply here.
 - Use the relevant skills listed in HANDOFF section 9 before work in each area.
 - Before SwiftUI work, read ~/.agents/skills/swiftui-expert-skill/references/latest-apis.md.

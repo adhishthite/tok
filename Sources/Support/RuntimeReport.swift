@@ -1,10 +1,12 @@
+import AppKit
 import Foundation
 
 enum RuntimeReport {
   private static let queue = DispatchQueue(
     label: "com.adhishthite.tok.runtime-report", qos: .utility)
-  static func write(status: String, permissions: PermissionStatus, hasAPIKey: Bool, latency: String)
-  {
+  @MainActor static func write(
+    status: String, permissions: PermissionStatus, hasAPIKey: Bool, latency: String
+  ) {
     #if DEBUG
       let arguments = ProcessInfo.processInfo.arguments
       guard let flag = arguments.firstIndex(of: "--status-file"),
@@ -12,6 +14,7 @@ enum RuntimeReport {
       else { return }
       let url = URL(fileURLWithPath: arguments[flag + 1])
       let values: [String: Any] = [
+        "windows": NSApplication.shared.windows.filter { $0.isVisible }.map { $0.title },
         "pid": ProcessInfo.processInfo.processIdentifier, "status": status,
         "microphone": permissions.microphone,
         "accessibility": permissions.accessibility, "inputMonitoring": permissions.inputMonitoring,

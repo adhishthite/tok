@@ -4,14 +4,12 @@ import SwiftUI
 struct TokApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
   var body: some Scene {
-    MenuBarExtra(
-      "Tok: \(delegate.store.status.rawValue)", systemImage: delegate.store.status.symbol
-    ) {
+    MenuBarExtra {
       StatusMenu().environment(delegate.store)
+    } label: {
+      MenuBarLabel().environment(delegate.store)
     }.menuBarExtraStyle(.window)
-    Window("Tok setup", id: "setup") {
-      SetupStatusView().environment(delegate.store)
-    }.defaultSize(width: 480, height: 380)
+    Settings { SettingsView().environment(delegate.store) }
     Window("Tok diagnostics", id: "diagnostics") {
       DiagnosticsView().environment(delegate.store)
     }.defaultSize(width: 760, height: 480)

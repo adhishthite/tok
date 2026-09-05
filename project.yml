@@ -26,6 +26,17 @@ targets:
         SWIFT_STRICT_CONCURRENCY: minimal
         DEFINES_MODULE: YES
         PRODUCT_MODULE_NAME: TokEngine
+  TokHUD:
+    type: library.static
+    platform: macOS
+    sources: Sources/HUD
+    dependencies:
+      - target: TokEngine
+    settings:
+      base:
+        SWIFT_VERSION: '5.0'
+        SWIFT_STRICT_CONCURRENCY: minimal
+        DEFINES_MODULE: YES
   Tok:
     type: application
     platform: macOS
@@ -38,6 +49,7 @@ targets:
         buildPhase: resources
     dependencies:
       - target: TokEngine
+      - target: TokHUD
       - sdk: libsqlite3.tbd
     settings:
       base:
@@ -54,6 +66,19 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.adhishthite.tok.tests
+        GENERATE_INFOPLIST_FILE: YES
+  TokHUDTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: Tests/HUDTests
+    dependencies:
+      - target: Tok
+      - target: TokHUD
+    settings:
+      base:
+        SWIFT_VERSION: '5.0'
+        SWIFT_STRICT_CONCURRENCY: minimal
+        PRODUCT_BUNDLE_IDENTIFIER: com.adhishthite.tok.hud-tests
         GENERATE_INFOPLIST_FILE: YES
   TokEngineTests:
     type: bundle.unit-test
@@ -88,3 +113,4 @@ schemes:
       targets:
         - TokTests
         - TokEngineTests
+        - TokHUDTests

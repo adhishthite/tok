@@ -5,28 +5,57 @@ struct StatusMenu: View {
   @Environment(\.openWindow) private var openWindow
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      HStack {
-        Label("Tok", systemImage: store.status.symbol).font(.headline)
+      HStack(alignment: .firstTextBaseline) {
+        Text("Tok").font(.headline)
         Spacer()
-        Text(store.status.rawValue).font(.caption).foregroundStyle(.secondary)
+        Text(store.isPaused ? "Paused" : store.shortcutLabel).font(.callout).foregroundStyle(
+          .secondary)
       }
-      Text(store.message).font(.callout)
-      if !store.liveText.isEmpty {
-        Text(store.liveText).lineLimit(3).foregroundStyle(.secondary)
+      if store.needsSetup {
+        Text("Finish setup to start dictating.").foregroundStyle(.secondary)
+        Button("Set up Tok") { store.showSetup?() }.buttonStyle(.borderedProminent)
+      } else if store.status == .error {
+        Text(store.message).font(.callout)
       } else if !store.lastText.isEmpty {
-        Text(store.lastText).lineLimit(3).textSelection(.enabled)
-      }
-      if !store.permissions.allGranted || !store.settings.hasAPIKey {
-        Button("Set up Tok") { show("setup") }.buttonStyle(.borderedProminent)
+        Text(store.lastText).font(.callout).lineLimit(4).textSelection(.enabled)
+        Button("Copy last dictation", systemImage: "doc.on.doc") { store.copyLastDictation() }
+          .buttonStyle(.borderless).font(.callout)
+      } else {
+        Text(
+          store.isPaused ? "Resume when you’re ready." : "Hold \(store.shortcutLabel) and speak."
+        )
+        .font(.callout).foregroundStyle(.secondary)
       }
       Divider()
+      Toggle(
+        "Hide dictated words",
+        isOn: Binding(
+          get: { store.settings.bool("PRIVACY_MODE") },
+          set: { store.settings.set("PRIVACY_MODE", String($0)) })
+      )
+      .toggleStyle(.checkbox).controlSize(.small)
+      Toggle(
+        "Play sounds",
+        isOn: Binding(
+          get: { store.settings.bool("SOUND_FEEDBACK") },
+          set: { store.settings.set("SOUND_FEEDBACK", String($0)) })
+      )
+      .toggleStyle(.checkbox).controlSize(.small)
+      Divider()
       HStack {
-        Button("Diagnostics") { show("diagnostics") }
+        SettingsLink { Text("Settings…") }.keyboardShortcut(",")
         Spacer()
+        Button(store.isPaused ? "Resume" : "Pause") { store.setPaused(!store.isPaused) }
         Button("Quit") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
-      }
+      }.controlSize(.small)
+      #if DEBUG
+        Menu("Developer") {
+          Button("Preview overlay") { store.previewHUD() }
+          Button("Diagnostics") { show("diagnostics") }
+        }.menuStyle(.borderlessButton).font(.caption).foregroundStyle(.secondary)
+      #endif
     }
-    .padding(20).frame(width: 340, alignment: .leading)
+    .padding(18).frame(width: 300, alignment: .leading)
     .onAppear { store.refreshPermissions() }
   }
   private func show(_ id: String) {

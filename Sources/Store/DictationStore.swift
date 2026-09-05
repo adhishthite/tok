@@ -1,11 +1,13 @@
 import AppKit
 import Observation
 import TokEngine
+import TokHUD
 
 @MainActor
 @Observable
 final class DictationStore: DictationEngineDelegate {
   let settings = SettingsStore()
+  @ObservationIgnored var showSetup: (() -> Void)?
   private(set) var status = DictationStatus.setup
   private(set) var permissions = PermissionStatus.current()
   private(set) var message = "Grant permissions to start dictating."
@@ -14,16 +16,29 @@ final class DictationStore: DictationEngineDelegate {
   private(set) var lastLatencyLine = "No dictations measured yet."
   private(set) var diagnostics: [String] = []
   private(set) var completedTurns = 0
+  private(set) var settingsPending = false
+  private(set) var hasLoaded = false
+  private(set) var isPaused = false
+  @ObservationIgnored private var settingsWorkItem: DispatchWorkItem?
+  var needsSetup: Bool { !permissions.allGranted || !settings.hasAPIKey }
+  var shortcutLabel: String {
+    hotkey == "fn" ? "Fn" : hotkey.replacingOccurrences(of: "_", with: " ").capitalized
+  }
+  private var active: Bool { [.starting, .listening, .locked, .processing].contains(status) }
+  @ObservationIgnored private var hud: HUDController?
   @ObservationIgnored private var engine: DictationEngine?
   var hotkey: String { settings.configuration.hotkey }
   func start() {
+    settings.didChange = { [weak self] in self?.settingsChanged() }
     settings.load()
+    hasLoaded = true
+    hud = HUDController(configuration: settings.configuration)
     refreshPermissions()
   }
   func refreshPermissions() {
     defer { reportRuntime() }
     permissions = .current()
-    guard engine == nil else { return }
+    guard engine == nil, !isPaused else { return }
     if let error = settings.loadError {
       message = error
       return
@@ -41,7 +56,42 @@ final class DictationStore: DictationEngineDelegate {
     self.engine = engine
     engine.start()
   }
+  func settingsChanged() {
+    hud?.update(configuration: settings.configuration)
+    settingsWorkItem?.cancel()
+    let item = DispatchWorkItem { [weak self] in
+      guard let self else { return }
+      self.settingsPending = true
+      self.applyPendingSettings()
+    }
+    settingsWorkItem = item
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: item)
+  }
+  private func applyPendingSettings() {
+    guard settingsPending, !active else { return }
+    settingsPending = false
+    engine?.stop()
+    engine = nil
+    refreshPermissions()
+  }
+  func setPaused(_ paused: Bool) {
+    isPaused = paused
+    if paused {
+      stop()
+      status = .paused
+    } else {
+      refreshPermissions()
+    }
+  }
+  func copyLastDictation() {
+    guard !lastText.isEmpty else { return }
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(lastText, forType: .string)
+  }
+  func previewHUD() { hud?.preview() }
+
   func stop() {
+    hud?.hide()
     engine?.stop()
     engine = nil
   }
@@ -53,13 +103,14 @@ final class DictationStore: DictationEngineDelegate {
     }
   }
   private func consume(_ event: EngineEvent) {
+    hud?.handle(event)
     switch event {
     case .ready:
       status = .ready
       message = "Hold \(hotkey) to dictate."
     case .starting:
       status = .starting
-      message = "Waiting for microphone audio."
+      message = "Getting ready…"
     case .listening:
       status = .listening
       liveText = ""
@@ -81,7 +132,7 @@ final class DictationStore: DictationEngineDelegate {
       message = reason
     case .success:
       status = .ready
-      message = "Paste events dispatched."
+      message = "Done."
     case .liveText(let text): liveText = settings.configuration.privacyMode ? "" : text
     case .turnSettled(let record):
       if let text = record.text { lastText = settings.configuration.privacyMode ? "" : text }
@@ -96,13 +147,14 @@ final class DictationStore: DictationEngineDelegate {
     case .diagnostic(let line): appendDiagnostic(line)
     case .audioLevel, .captureStarted: break
     }
+    applyPendingSettings()
   }
   private static func milliseconds(_ value: Double?) -> String {
     guard let value, value.isFinite else { return "n/a" }
     return String(format: "%.1fms", value)
   }
 
-  private func reportRuntime() {
+  func reportRuntime() {
     RuntimeReport.write(
       status: status.rawValue, permissions: permissions,
       hasAPIKey: settings.hasAPIKey, latency: lastLatencyLine)
