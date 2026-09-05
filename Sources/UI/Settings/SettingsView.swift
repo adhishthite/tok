@@ -22,7 +22,19 @@ struct SettingsView: View {
         }
         if group == .history { HistoryRetentionSection() }
         if group == .vocabulary {
-          Section { Button("Open Vocabulary editor") { store.showVocabulary?() } }
+          Section {
+            Button("Open Vocabulary editor") { store.showVocabulary?() }
+            Button("Add vocabulary from file…") {
+              guard let url = FileDialogs.chooseVocabulary() else { return }
+              do {
+                try store.settings.importVocabulary(from: url)
+                importResult = "New vocabulary was added to your existing terms."
+              } catch {
+                importResult = "Choose a readable UTF-8 text file no larger than 1 MB."
+              }
+            }.disabled(store.settings.isOverridden("CUSTOM_VOCABULARY_FILE"))
+            if let importResult { Text(importResult).font(.caption).foregroundStyle(.secondary) }
+          }
         }
         if group == .appearance {
           Section { Button("Preview overlay") { store.previewHUD() } }
@@ -40,10 +52,9 @@ struct SettingsView: View {
             Button("Import JustSpeak settings…") {
               guard let url = FileDialogs.chooseConfiguration() else { return }
               do {
-                try store.settings.importConfiguration(from: url)
-                importResult = "Settings and available vocabulary imported."
+                importResult = try store.settings.importConfiguration(from: url).message
               } catch {
-                importResult = "Could not import this file. Choose a readable JustSpeak .env file."
+                importResult = "Choose a readable UTF-8 settings file no larger than 1 MB."
               }
             }
             if let importResult { Text(importResult).font(.caption).foregroundStyle(.secondary) }

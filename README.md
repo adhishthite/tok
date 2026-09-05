@@ -37,6 +37,10 @@ For development, `make run` imports the local `.env` at runtime and stores its
 API key in Tok's Keychain item. It never imports the old history database path.
 Imports preserve your existing history retention choice. Change retention in
 History settings, where deleting older records requires confirmation.
+Automatic vocabulary import is limited to the folder containing the selected
+settings file, including symlink resolution. Use “Add vocabulary from file”
+to select a file elsewhere. New lines are merged into Tok’s vocabulary without
+removing existing lines. Imported files must be UTF-8 text, no larger than 1 MB.
 Use Tok's setup window to grant Microphone, Accessibility, and Input Monitoring.
 With Fn, set System Settings > Keyboard > Press Globe key to > Do Nothing.
 

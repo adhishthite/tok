@@ -21,6 +21,6 @@ enum EnvImporter {
     return values
   }
   static func read(_ url: URL) throws -> [String: String] {
-    parse(try String(contentsOf: url, encoding: .utf8))
+    parse(try ImportTextFile.read(url))
   }
 }

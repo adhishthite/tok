@@ -7,6 +7,7 @@ struct SetupStatusView: View {
   @Environment(DictationStore.self) private var store
   var onDone: (() -> Void)?
   @State private var importError: String?
+  @State private var importMessage: String?
 
   var body: some View {
     VStack(spacing: 0) {
@@ -53,15 +54,30 @@ struct SetupStatusView: View {
           Button("Import JustSpeak settings…") {
             guard let url = FileDialogs.chooseConfiguration() else { return }
             do {
-              try store.settings.importConfiguration(from: url)
+              importMessage = try store.settings.importConfiguration(from: url).message
               importError = nil
             } catch {
-              importError = "Could not import that file. Choose a readable JustSpeak .env file."
+              importMessage = nil
+              importError = "Choose a readable UTF-8 settings file no larger than 1 MB."
             }
           }
+          Button("Add vocabulary from file…") {
+            guard let url = FileDialogs.chooseVocabulary() else { return }
+            do {
+              try store.settings.importVocabulary(from: url)
+              importMessage = "New vocabulary was added to your existing terms."
+              importError = nil
+            } catch {
+              importMessage = nil
+              importError = "Choose a readable UTF-8 text file no larger than 1 MB."
+            }
+          }.disabled(store.settings.isOverridden("CUSTOM_VOCABULARY_FILE"))
           if let importError { Text(importError).foregroundStyle(.red).font(.caption) }
+          if let importMessage { Text(importMessage).foregroundStyle(.secondary).font(.caption) }
         } footer: {
-          Text("Import is optional. Your key goes to Keychain, and vocabulary is copied into Tok.")
+          Text(
+            "Import is optional. Your key goes to Keychain. New vocabulary is added to your existing terms."
+          )
         }
       }.formStyle(.grouped)
       Divider()
