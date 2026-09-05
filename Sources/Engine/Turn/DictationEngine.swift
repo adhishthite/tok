@@ -11,6 +11,8 @@ import SQLite3
 // MARK: - Orchestrator (Core State Machine)
 
 public final class DictationEngine {
+  // Main-thread-only gate for the setup shortcut test.
+  public var acceptsNewCaptures = true
   private var stopping = false
   private var isStopping: Bool {
     processingLock.lock()
@@ -365,7 +367,7 @@ public final class DictationEngine {
       return
     }
     processingLock.unlock()
-    guard !capturePending, !captureActive else { return }
+    guard acceptsNewCaptures, !capturePending, !captureActive else { return }
 
     // Refuse to start a turn while secure input is held (password field, Terminal's Secure
     // Keyboard Entry, ...) - synthesized keystrokes and clipboard pastes into it can fail or

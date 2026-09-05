@@ -25,6 +25,8 @@ final class DictationStore: DictationEngineDelegate {
   var shortcutLabel: String {
     hotkey == "fn" ? "Fn" : hotkey.replacingOccurrences(of: "_", with: " ").capitalized
   }
+  var dictationActive: Bool { active }
+  @ObservationIgnored private var shortcutTesting = false
   private var active: Bool { [.starting, .listening, .locked, .processing].contains(status) }
   @ObservationIgnored private var hud: HUDController?
   @ObservationIgnored private var engine: DictationEngine?
@@ -54,8 +56,13 @@ final class DictationStore: DictationEngineDelegate {
     }
     let engine = DictationEngine(config: settings.configuration)
     engine.delegate = self
+    engine.acceptsNewCaptures = !shortcutTesting
     self.engine = engine
     engine.start()
+  }
+  func setShortcutTesting(_ testing: Bool) {
+    shortcutTesting = testing
+    engine?.acceptsNewCaptures = !testing
   }
   func settingsChanged() {
     hud?.update(configuration: settings.configuration)

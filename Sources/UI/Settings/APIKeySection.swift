@@ -10,6 +10,7 @@ struct APIKeySection: View {
     Section {
       SecureField(store.settings.hasAPIKey ? "Replace API key" : "Gemini API key", text: $key)
         .autocorrectionDisabled()
+        .disabled(store.settings.apiKeyProvidedByEnvironment)
       HStack {
         if testing { ProgressView().controlSize(.small) }
         Button(key.isEmpty ? "Test connection" : "Test and save") {
@@ -37,6 +38,11 @@ struct APIKeySection: View {
             .foregroundStyle(.secondary)
         }
       }
+      if store.settings.apiKeyProvidedByEnvironment {
+        Text("API key supplied by environment.").font(.caption).foregroundStyle(.secondary)
+      }
+      Link("Get an API key", destination: URL(string: "https://aistudio.google.com/apikey")!)
+        .font(.callout)
       if let result { Text(result).font(.callout).foregroundStyle(failed ? .red : .secondary) }
     } header: {
       Text("Gemini connection")

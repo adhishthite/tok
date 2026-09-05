@@ -6,6 +6,9 @@ import TokEngine
 @Observable
 final class SettingsStore {
   private(set) var hasAPIKey = false
+  var apiKeyProvidedByEnvironment: Bool {
+    !(ProcessInfo.processInfo.environment["GEMINI_API_KEY"] ?? "").isEmpty
+  }
   private(set) var loadError: String?
   private(set) var values: [String: String] = [:]
   private(set) var overrides: [String: String] = [:]

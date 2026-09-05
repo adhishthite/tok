@@ -2,16 +2,21 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class SetupWindow {
+final class SetupWindow: NSObject, NSWindowDelegate {
+  private weak var store: DictationStore?
   private var controller: NSWindowController?
 
   func show(store: DictationStore) {
+    self.store = store
     if controller == nil {
-      let content = SetupStatusView().environment(store)
+      let content = SetupStatusView(onDone: { [weak self] in self?.controller?.close() })
+        .environment(store)
       let window = NSWindow(contentViewController: NSHostingController(rootView: content))
       window.title = "Set up Tok"
-      window.styleMask = [.titled, .closable, .miniaturizable]
-      window.setContentSize(NSSize(width: 500, height: 440))
+      window.delegate = self
+      window.contentMinSize = NSSize(width: 540, height: 620)
+      window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+      window.setContentSize(NSSize(width: 580, height: 700))
       window.center()
       window.setFrameAutosaveName("TokSetup")
       controller = NSWindowController(window: window)
@@ -21,4 +26,9 @@ final class SetupWindow {
     NSApplication.shared.activate(ignoringOtherApps: true)
     store.reportRuntime()
   }
+  func windowWillClose(_ notification: Notification) {
+    store?.setShortcutTesting(false)
+    controller = nil
+  }
+
 }
