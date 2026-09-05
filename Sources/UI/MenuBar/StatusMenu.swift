@@ -26,6 +26,8 @@ struct StatusMenu: View {
         )
         .font(.callout).foregroundStyle(.secondary)
       }
+      Button("History…", systemImage: "clock") { show("history") }
+        .buttonStyle(.borderless).font(.callout)
       Divider()
       Toggle(
         "Hide dictated words",

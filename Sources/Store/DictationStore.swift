@@ -7,6 +7,7 @@ import TokHUD
 @Observable
 final class DictationStore: DictationEngineDelegate {
   let settings = SettingsStore()
+  let history = HistoryViewStore()
   @ObservationIgnored var showSetup: (() -> Void)?
   private(set) var status = DictationStatus.setup
   private(set) var permissions = PermissionStatus.current()
@@ -70,6 +71,7 @@ final class DictationStore: DictationEngineDelegate {
   private func applyPendingSettings() {
     guard settingsPending, !active else { return }
     settingsPending = false
+    history.configure(path: settings.configuration.historyDbPath)
     engine?.stop()
     engine = nil
     refreshPermissions()
@@ -135,6 +137,7 @@ final class DictationStore: DictationEngineDelegate {
       message = "Done."
     case .liveText(let text): liveText = settings.configuration.privacyMode ? "" : text
     case .turnSettled(let record):
+      history.reload()
       if let text = record.text { lastText = settings.configuration.privacyMode ? "" : text }
       if record.outcome == "success" { completedTurns += 1 }
       if let total = record.totalMs {

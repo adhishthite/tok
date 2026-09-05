@@ -11,9 +11,9 @@ make run
 make check
 ```
 
-The app now connects the dictation engine to a native menu-bar panel, permission
-checklist, and Diagnostics window. HUD, full onboarding, Settings, and history
-browsing are subsequent milestones.
+The app includes a native menu-bar panel, AppKit dictation overlay, Settings,
+searchable History, and Diagnostics. Onboarding and the Vocabulary workflow are
+being completed. The microphone stays closed between dictations by default.
 Builds use an available Apple Development identity, with ad-hoc signing as a
 local fallback. Hardened runtime is enabled.
 `make package` creates a local ZIP in `build/package/`; it is not a notarized release.
