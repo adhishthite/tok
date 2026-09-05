@@ -83,6 +83,27 @@ and [Sparkle publishing](https://sparkle-project.org/documentation/publishing/).
 
 ## Current limits
 
+The 2026-09-06 refresh packaged source `67ef83eef079` as version 0.1.0, build 1.
+`make distribute` exited 0 with `ARCHIVE SUCCEEDED` and `EXPORT SUCCEEDED`.
+`codesign --verify --deep --strict --verbose=2` passed for the exported app;
+strict signature verification also passed for the DMG. `lipo -archs` returned
+`x86_64 arm64`, and the app declares macOS 14.0 and `LSUIElement = true`.
+
+The ZIP's Info.plist matched the source identity and its entries contained no
+`.env` files. A read-only DMG mount contained the same signed build and an
+Applications shortcut; it was detached after verification. These checks do not
+prove a successful fresh-Mac install. Artifacts from this checkpoint:
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `build/package/Tok.dmg` | 2646001 | `bbfc13327ac85c6ed73428810612da45d648db0cd4108eb62ba78a8e9b25c002` |
+| `build/package/Tok-distribution.zip` | 2546200 | `772bbdbb66b0d856c6456ac04b9845a0e137796bdfa47f95c2d71ed77d466994` |
+
+The exact app again failed `spctl --assess --type execute --verbose=2` with
+`rejected`, `source=Unnotarized Developer ID`. No submission was attempted.
+The build log is `/tmp/tok-distribution-67ef83e.log`. Rebuilding or stapling
+changes artifact hashes, so these values identify only this checkpoint.
+
 Local archive, export, and signed-container creation have been exercised.
 Notarization credentials and a public feed URL are not configured in this
 session. Notarization, Gatekeeper acceptance, an installed Sparkle update,
