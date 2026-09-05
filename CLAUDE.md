@@ -57,3 +57,9 @@ Tok is not a Google product and carries no Google branding.
 - Use the relevant skills listed in HANDOFF section 9 before work in each area.
 - Before SwiftUI work, read ~/.agents/skills/swiftui-expert-skill/references/latest-apis.md.
 - No em dashes in prose, docs, or new user-facing copy.
+
+## Operation deadlines
+- Long foreground commands use Scripts/bounded_run.py with an explicit deadline.
+- Builds and tests default to 120 seconds. Inspect a live process and concrete progress before extending its control file, by at most 60 seconds each time.
+- A started command has a process handle. A plan or Working indicator does not establish execution.
+- Report results or blockers promptly; avoid unbounded waits and repeated UI inventory attempts.

@@ -94,3 +94,24 @@ exclude microphone finalization and paste delivery.
 The real-dictation median, accuracy comparison, native UI responsiveness,
 notarization, Gatekeeper, and fresh-account onboarding remain unverified.
 The overall application goal remains active.
+
+## Bounded execution and microphone readiness
+
+The in-app microphone probe completed three startup attempts with zero pre-roll:
+382.6 ms, 180.9 ms, and 163.7 ms. It did not start a recording or send audio to
+transcription. These are hardware-readiness delays, not key-up-to-paste latency.
+The first-start delay warrants further profiling and first-word capture tests.
+
+Builds and tests now run through `Scripts/bounded_run.py`, with a 120-second
+initial deadline. The runner prints its live process ID and control-file path.
+After checking actual progress, extend that live deadline by up to 60 seconds:
+
+```sh
+python3 Scripts/bounded_run.py --extend CONTROL_FILE --seconds 60
+```
+
+The deadline helper passed normal completion, expiry (exit 124), live extension,
+rejection of extension after completion, and child cleanup after malformed control
+data. Ruff passed. The full XCTest run passed with 20 tests passed and two explicit
+live-API tests skipped. Deadline supervision bounds external commands; it cannot
+preempt a model or client stall before the next tool call.

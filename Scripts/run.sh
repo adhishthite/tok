@@ -18,6 +18,7 @@ if [[ -f "$root/.env" ]]; then
     args+=(--config-file "$root/.env" --status-file "$root/build/runtime-status.json")
 fi
 if [[ "${TOK_SHOW_SETUP:-0}" == 1 ]]; then args+=(--show-setup); fi
+if [[ "${TOK_PROBE_MIC:-0}" == 1 ]]; then args+=(--probe-microphone); fi
 open "$app" --args "${args[@]}"
 sleep 2
 if ! pgrep -x Tok >/dev/null; then

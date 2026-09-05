@@ -19,5 +19,6 @@ if identity:
     print('Signing: Apple Development', flush=True)
 else:
     print('Signing: ad-hoc local development', flush=True)
-os.execvp('xcodebuild', ['xcodebuild', *sys.argv[1:], *settings])
+runner = os.path.join(os.getcwd(), 'Scripts', 'bounded_run.py')
+os.execv(sys.executable, [sys.executable, runner, '--seconds', os.environ.get('TOK_BUILD_TIMEOUT_SECONDS', '120'), '--label', 'xcodebuild', '--', 'xcodebuild', *sys.argv[1:], *settings])
 PY

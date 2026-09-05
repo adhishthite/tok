@@ -1,4 +1,5 @@
 import AppKit
+import TokEngine
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -15,6 +16,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       setupWindow.show(store: store)
     }
     if ProcessInfo.processInfo.arguments.contains("--hud-demo") { store.previewHUD() }
+    #if DEBUG
+      if ProcessInfo.processInfo.arguments.contains("--probe-microphone") {
+        store.setPaused(true)
+        Task {
+          var report: [String: Any]
+          do {
+            report = ["startup_ms": try await MicrophoneProbe.measure(), "success": true]
+          } catch { report = ["success": false, "error_code": (error as NSError).code] }
+          if let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
+          {
+            try? data.write(
+              to: URL(fileURLWithPath: "/tmp/tok-microphone-probe.json"), options: .atomic)
+          }
+          store.setPaused(false)
+        }
+      }
+    #endif
   }
   func applicationWillTerminate(_ notification: Notification) { store.stop() }
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
