@@ -22,6 +22,8 @@ Diagnostics shows the latest timing breakdown and a searchable session log.
 Warnings and errors can be filtered, selected entries can be copied, and clearing
 the log leaves saved dictations intact. Transcript text is not logged by the
 live-stream or completed-turn paths.
+REST failures use safe messages that direct you to Tok Settings; raw response
+bodies and provider-supplied error text are not copied into error descriptions.
 Builds use an available Apple Development identity, with ad-hoc signing as a
 local fallback. Hardened runtime is enabled.
 `make package` creates a local ZIP in `build/package/`; it is not a notarized release.

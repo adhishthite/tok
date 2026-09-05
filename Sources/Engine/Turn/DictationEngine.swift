@@ -296,7 +296,7 @@ public final class DictationEngine {
     guard hotkey.start() else {
       Log.error(
         "HOTKEY",
-        "Failed to initialize global CGEventTap. Please grant Accessibility permissions to this terminal."
+        "Could not detect the shortcut. Enable Input Monitoring and Accessibility for Tok."
       )
       feedback.showError(message: "Enable Input Monitoring and Accessibility for Tok.")
       return
@@ -907,7 +907,7 @@ public final class DictationEngine {
     if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
       Log.error(
         "MIC",
-        "3 consecutive no-speech turns and microphone permission is not granted - re-enable this terminal under System Settings > Privacy & Security > Microphone."
+        "Microphone access is unavailable. Enable Tok in System Settings > Privacy & Security > Microphone."
       )
       DispatchQueue.main.async { [weak self] in
         self?.feedback.showError(message: "Microphone access lost  -  check System Settings")
@@ -940,12 +940,8 @@ public final class DictationEngine {
       }
     }
     if ns.domain == "GeminiAPI" {
-      switch ns.code {
-      case 400, 401, 403: return "API key rejected  -  check GEMINI_API_KEY in .env"
-      case 404: return "Model not found  -  check model names in .env"
-      case 429: return "Rate limited  -  try again shortly"
-      default: return nil
-      }
+      // RESTResponse constructs these descriptions without remote response text.
+      return ns.localizedDescription
     }
     return nil
   }
@@ -1227,7 +1223,7 @@ public final class DictationEngine {
       injected = false
       Log.warn(
         "INJECT",
-        "Accessibility permission revoked - copied, not pasted. Re-enable this terminal under System Settings > Privacy & Security > Accessibility."
+        "Accessibility access is unavailable. Text was copied. Enable Tok in System Settings > Privacy & Security > Accessibility."
       )
       copyOnlyReason = "accessibility revoked"
     } else {
