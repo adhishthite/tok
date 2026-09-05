@@ -64,8 +64,7 @@ struct SetupStatusView: View {
           Button("Add vocabulary from file…") {
             guard let url = FileDialogs.chooseVocabulary() else { return }
             do {
-              try store.settings.importVocabulary(from: url)
-              importMessage = "New vocabulary was added to your existing terms."
+              importMessage = try store.settings.importVocabulary(from: url).message
               importError = nil
             } catch {
               importMessage = nil

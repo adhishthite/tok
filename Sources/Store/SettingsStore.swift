@@ -14,6 +14,7 @@ final class SettingsStore {
   private(set) var overrides: [String: String] = [:]
   @ObservationIgnored private(set) var configuration = EngineConfiguration()
   @ObservationIgnored var didChange: (() -> Void)?
+  @ObservationIgnored var stageVocabularyImport: ((URL, String) -> Bool)?
   @ObservationIgnored private let defaults: UserDefaults
   let supportDirectory: URL
   var vocabularyURL: URL { supportDirectory.appendingPathComponent("vocabulary.txt") }
@@ -131,9 +132,12 @@ final class SettingsStore {
     }
     var result = vocabulary == nil ? ConfigurationImportResult.chooseVocabulary : .settingsOnly
     if let contents {
-      try addVocabulary(contents)
+      let vocabularyResult = try addVocabulary(contents)
       imported["CUSTOM_VOCABULARY_FILE"] = vocabularyURL.path
-      result = .vocabularyAdded
+      switch vocabularyResult {
+      case .saved: result = .vocabularyAdded
+      case .staged: result = .vocabularyStaged
+      }
     } else {
       imported.removeValue(forKey: "CUSTOM_VOCABULARY_FILE")
     }
@@ -148,12 +152,15 @@ final class SettingsStore {
     return result
   }
 
-  func importVocabulary(from source: URL) throws {
-    try addVocabulary(ImportTextFile.read(source))
+  @discardableResult
+  func importVocabulary(from source: URL) throws -> VocabularyImportResult {
+    let result = try addVocabulary(ImportTextFile.read(source))
     set("CUSTOM_VOCABULARY_FILE", vocabularyURL.path)
+    return result
   }
 
-  private func addVocabulary(_ contents: String) throws {
+  private func addVocabulary(_ contents: String) throws -> VocabularyImportResult {
+    if stageVocabularyImport?(vocabularyURL, contents) == true { return .staged }
     try FileManager.default.createDirectory(
       at: supportDirectory, withIntermediateDirectories: true,
       attributes: [.posixPermissions: 0o700])
@@ -164,6 +171,7 @@ final class SettingsStore {
       to: vocabularyURL, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes(
       [.posixPermissions: 0o600], ofItemAtPath: vocabularyURL.path)
+    return .saved
   }
 
   func reloadVocabulary() {

@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       guard let self else { return }
       self.vocabularyWindows.show(settings: self.store.settings)
     }
+    vocabularyWindows.connect(to: store.settings)
     store.start()
     if store.needsSetup || ProcessInfo.processInfo.arguments.contains("--show-setup") {
       setupWindow.show(store: store)

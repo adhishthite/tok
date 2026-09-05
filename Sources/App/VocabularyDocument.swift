@@ -86,10 +86,19 @@ final class VocabularyDocument: NSDocument {
     model.selected = []
     model.message = "Suggestions added. Save to use them in dictation."
   }
-  private func replaceContents(_ text: String) {
+  func addImportedVocabulary(_ text: String) {
+    replaceContents(
+      VocabularyImport.merging(text, into: model.contents), actionName: "Import vocabulary")
+    model.message = "Vocabulary added. Save to use the changes in dictation."
+  }
+
+  private func replaceContents(_ text: String, actionName: String = "Add vocabulary suggestions") {
+    guard text != model.contents else { return }
     let prior = model.contents
-    undoManager?.registerUndo(withTarget: self) { document in document.replaceContents(prior) }
-    undoManager?.setActionName("Add vocabulary suggestions")
+    undoManager?.registerUndo(withTarget: self) { document in
+      document.replaceContents(prior, actionName: actionName)
+    }
+    undoManager?.setActionName(actionName)
     model.contents = text
   }
   override func close() {

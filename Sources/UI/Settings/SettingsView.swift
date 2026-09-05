@@ -27,8 +27,7 @@ struct SettingsView: View {
             Button("Add vocabulary from file…") {
               guard let url = FileDialogs.chooseVocabulary() else { return }
               do {
-                try store.settings.importVocabulary(from: url)
-                importResult = "New vocabulary was added to your existing terms."
+                importResult = try store.settings.importVocabulary(from: url).message
               } catch {
                 importResult = "Choose a readable UTF-8 text file no larger than 1 MB."
               }
