@@ -376,6 +376,24 @@ final class AudioCaptureEngine {
     lifecycle.ensureReady(completion)
   }
 
+  func prepareInput(completion: @escaping (MicrophonePreparationMeasurement) -> Void) {
+    lifecycle.queue.async { [self] in
+      let start = ProcessInfo.processInfo.systemUptime
+      let node = audioEngine.inputNode
+      var running: UInt32 = 0
+      var size = UInt32(MemoryLayout<UInt32>.size)
+      let status =
+        node.audioUnit.map {
+          AudioUnitGetProperty(
+            $0, kAudioOutputUnitProperty_IsRunning, kAudioUnitScope_Global, 0, &running, &size)
+        } ?? kAudio_ParamError
+      let measurement = MicrophonePreparationMeasurement(
+        milliseconds: (ProcessInfo.processInfo.systemUptime - start) * 1000,
+        engineRunning: audioEngine.isRunning, audioUnitStatus: status, audioUnitRunning: running)
+      DispatchQueue.main.async { completion(measurement) }
+    }
+  }
+
   func cancelPendingReadiness() { lifecycle.cancelPendingReadiness() }
 
   private func processIncomingBufferOnQueue(

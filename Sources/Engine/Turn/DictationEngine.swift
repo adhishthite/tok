@@ -215,6 +215,10 @@ public final class DictationEngine {
     if !audioCapture.setup(startImmediately: config.keepMicrophoneWarm) {
       Log.warn("MIC", "Microphone unavailable; recovery will retry.")
     }
+    if !config.keepMicrophoneWarm {
+      // Construct the input node ahead of the first shortcut without starting audio I/O.
+      audioCapture.prepareInput { _ in }
+    }
 
     // The mic idle countdown starts at launch: no dictation for the configured window
     // releases the mic until the next key-down.

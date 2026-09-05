@@ -1,5 +1,33 @@
 # Performance evidence
 
+## Preparing the input node without capture, 2026-09-06
+
+An explicit preparation probe constructed the AVAudioEngine input node before
+measuring readiness. It did not install a tap or call `start` during preparation.
+Preparation took 154.7 ms; `AVAudioEngine.isRunning` was false and
+`kAudioOutputUnitProperty_IsRunning` returned zero with status zero.
+The three subsequent readiness measurements were 297.9, 207.5, and 195.9 ms;
+their main-thread request intervals were 0.016, 0.074, and 0.072 ms.
+
+The 12-second Instruments capture completed successfully at
+`build/microphone-startup-20260906-015434.trace`, PID 91206. The probe briefly
+started and stopped audio for the readiness measurements, but retained no
+dictation and uploaded no audio. The preparation-state measurements precede
+those starts. They do not constitute visual verification of Control Center.
+
+Tok now queues input-node construction at engine startup after permission checks,
+while on-demand capture remains stopped. Device selection, tap installation,
+and actual audio start still happen when capture is requested. The probe keeps
+its unprepared baseline path and enables the preparation experiment explicitly:
+
+```sh
+TOK_PREPARE_MIC=1 make profile-microphone
+```
+
+This moves setup work before the first shortcut. These small sequential samples
+do not prove a stable latency improvement, first-word accuracy, or the separate
+sub-500 ms key-up-to-paste target.
+
 ## Stored dictation timing, 2026-09-06
 
 A read-only aggregate of Tok's history found 19 records, including 16 successful

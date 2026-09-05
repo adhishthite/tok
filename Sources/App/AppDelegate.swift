@@ -29,13 +29,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
           var report: [String: Any]
           do {
             if delayedProbe { try await Task.sleep(for: .seconds(6)) }
-            let measurements = try await MicrophoneProbe.measure()
+            let measurements = try await MicrophoneProbe.measure(
+              prepareInput: ProcessInfo.processInfo.arguments.contains("--prepare-microphone"))
             report = [
-              "startup_ms": measurements.map(\.readinessMilliseconds),
-              "main_thread_setup_ms": measurements.map(\.synchronousSetupMilliseconds),
+              "startup_ms": measurements.startup.map(\.readinessMilliseconds),
+              "main_thread_setup_ms": measurements.startup.map(\.synchronousSetupMilliseconds),
               "pid": ProcessInfo.processInfo.processIdentifier,
               "success": true,
             ]
+            if let preparation = measurements.preparation {
+              report["preparation_ms"] = preparation.milliseconds
+              report["prepared_engine_running"] = preparation.engineRunning
+              report["prepared_audio_unit_status"] = preparation.audioUnitStatus
+              report["prepared_audio_unit_running"] = preparation.audioUnitRunning
+            }
           } catch { report = ["success": false, "error_code": (error as NSError).code] }
           if let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
           {

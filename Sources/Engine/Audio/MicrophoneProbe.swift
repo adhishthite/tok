@@ -1,12 +1,22 @@
 import Foundation
 
 public enum MicrophoneProbe {
-  @MainActor public static func measure() async throws -> [MicrophoneStartupMeasurement] {
+  @MainActor public static func measure(prepareInput: Bool = false) async throws
+    -> (startup: [MicrophoneStartupMeasurement], preparation: MicrophonePreparationMeasurement?)
+  {
     let audio = AudioCaptureEngine(preRollMs: 0)
     guard audio.setup(startImmediately: false) else {
       throw NSError(domain: "Tok.MicrophoneProbe", code: 1)
     }
     defer { audio.stopEngine() }
+    let preparation: MicrophonePreparationMeasurement?
+    if prepareInput {
+      preparation = await withCheckedContinuation { continuation in
+        audio.prepareInput { continuation.resume(returning: $0) }
+      }
+    } else {
+      preparation = nil
+    }
     var measurements: [MicrophoneStartupMeasurement] = []
     for _ in 0..<3 {
       try Task.checkCancellation()
@@ -24,6 +34,6 @@ public enum MicrophoneProbe {
       audio.suspendEngine()
       try await Task.sleep(nanoseconds: 200_000_000)
     }
-    return measurements
+    return (measurements, preparation)
   }
 }

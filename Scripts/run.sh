@@ -19,6 +19,7 @@ if [[ -f "$root/.env" ]]; then
 fi
 if [[ "${TOK_SHOW_SETUP:-0}" == 1 ]]; then args+=(--show-setup); fi
 if [[ "${TOK_PROBE_MIC:-0}" == 1 ]]; then args+=(--probe-microphone); fi
+if [[ "${TOK_PREPARE_MIC:-0}" == 1 ]]; then args+=(--prepare-microphone); fi
 if [[ "${TOK_PROFILE_MIC:-0}" == 1 ]]; then
     trace="$root/build/microphone-startup-$(date +%Y%m%d-%H%M%S).trace"
     python3 "$root/Scripts/bounded_run.py" --seconds 10 --label launch -- \
