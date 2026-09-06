@@ -2,6 +2,7 @@
 """Run a command with an explicit, incrementally extendable deadline."""
 
 import argparse
+import contextlib
 import fcntl
 import json
 import os
@@ -11,6 +12,26 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+
+
+def interrupt_group(process):
+    """Allow the whole process group to exit, then kill any remaining members."""
+    try:
+        os.killpg(process.pid, signal.SIGINT)
+    except ProcessLookupError:
+        return
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        process.poll()  # Reap the leader without mistaking it for the whole group.
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.05)
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGKILL)
+    process.wait(timeout=5)
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seconds", type=int, default=120)
@@ -75,40 +96,15 @@ try:
                 f"{args.label}: time limit reached; interrupting the command.",
                 flush=True,
             )
-            try:
-                os.killpg(process.pid, signal.SIGINT)
-            except ProcessLookupError:
-                pass
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait(timeout=5)
+            interrupt_group(process)
             break
         time.sleep(0.2)
 except KeyboardInterrupt:
-    if process.poll() is None:
-        os.killpg(process.pid, signal.SIGINT)
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait(timeout=5)
+    interrupt_group(process)
 finally:
     # A broken control file must not leave an unbounded child behind.
     if process.poll() is None:
-        try:
-            os.killpg(process.pid, signal.SIGINT)
-        except ProcessLookupError:
-            pass
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.wait(timeout=5)
+        interrupt_group(process)
     state["state"] = "timed_out" if timed_out else "finished"
     state["exit_code"] = process.returncode
     with control.open("r+") as handle:
