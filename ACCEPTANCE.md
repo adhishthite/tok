@@ -8,8 +8,7 @@ Keep recordings, transcripts, credentials, and private app content out of Git.
 
 Use a separate test macOS account with no Tok preferences, Keychain entry, or
 permission grants. Do not reset permissions or remove data in the owner's account.
-Use the preserved notarized DMG at `build/package/build-6/Tok.dmg` until a newer
-verified build is recorded below. Match its hash to the
+Use the preserved notarized DMG at `build/package/build-7/Tok.dmg`. Match its hash to the
 verified checkpoint in [DISTRIBUTION.md](DISTRIBUTION.md).
 
 1. Open the DMG, drag Tok into Applications, and launch it from Finder. Confirm
@@ -138,3 +137,12 @@ contains no build 6 records and does not establish destination output or parity.
 [UPDATE_HOSTING.md](UPDATE_HOSTING.md) is the concrete hosting proposal awaiting
 owner approval. Public destination approval and publication remain distinct
 from local preparation. No hosted update or runtime tamper test has run.
+
+Build 7 (`0c7cdb76f915`) is now signed, notarized, stapled, and preserved, with
+container verification passing as recorded in DISTRIBUTION.md. It is not installed
+because normal app control remains unavailable; installed build 6 is unchanged.
+The Reduce Motion regression fix passed `make check`, including four new synthetic
+HUD tests. Real keyboard/VoiceOver and mid-animation visual verification remain
+untested. Final installation, hosting approval/publication, isolated onboarding,
+owner speech review, hardware coverage, and presented-frame measurements are still
+required. The deferred task is incomplete.

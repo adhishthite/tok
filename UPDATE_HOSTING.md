@@ -35,7 +35,8 @@ existing release asset layout with fewer new operational components.
 Version numbers are proposed, not reserved. Refresh the next available versions
 and build numbers before building. Use increasing `CURRENT_PROJECT_VERSION`
 values and separate marketing versions for the initial pair, for example
-0.1.1/build 7 and 0.1.2/build 8 if those numbers remain unused.
+0.1.1/build 8 and 0.1.2/build 9 if those numbers remain unused.
+Build 7 was subsequently used for the local Reduce Motion fix.
 
 GitHub documents the stable latest-release asset URL form. Versioned archive
 URLs prevent a feed from silently referring to a different archive when latest

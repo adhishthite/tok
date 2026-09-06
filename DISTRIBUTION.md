@@ -254,3 +254,34 @@ repository with local Keychain signing and no credential export. It remains a
 proposal pending owner approval. The source repo is still private; GitHub reports
 no releases. Build 6 still has no hosted feed. Installed update, preservation,
 anonymous hosting, runtime tamper rejection, and fresh-account gates remain open.
+
+## Build 7 prepared on 2026-09-06
+
+Version 0.1.0, build 7, was built from clean main commit `0c7cdb76f915`, including
+the mid-animation Reduce Motion fix. `make distribute` exited 0 under a
+120-second outer deadline. Log: `/tmp/tok-build7-distribution.log`.
+
+Apple accepted app submission `666f37bd-9365-4e31-907b-7881daf17c04` and DMG
+submission `2591b6bf-f93f-4b36-9712-c38e79ccd628`. Each was submitted once and then
+resumed using its saved ID. Both tickets were stapled and validated. Deep strict
+app signing, strict DMG signing, both Gatekeeper assessments, extracted ZIP app
+checks, and read-only mounted DMG app checks passed. The mount had the Applications
+link and was detached. Artifact verification exited 0 under a 120-second deadline.
+
+| Preserved artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `build/package/build-7/Tok.dmg` | 2731284 | `0c2d715b84f50509f7ed0a30b08e24aac8c9af0c1c157093418e833cb778fb51` |
+| `build/package/build-7/Tok-distribution.zip` | 2641963 | `ed8318694fee6bda1a4ccaad698ef746a41e9e1ec09301493b665d92e0fcec1b` |
+
+The preserved directory also contains Tok.app, verification.json, and the two
+saved notary records. It declares macOS 14.0 and contains x86_64 and arm64 code.
+Runtime coverage in this session is only macOS 26.6.2 arm64. There is no hosted
+feed. No tag, public resource, or release was created.
+
+Build 7 is prepared, not installed. Build 6 remains running in Applications.
+Native Computer Use could not attach to Tok and returned a blank desktop capture.
+The normal quit/unsaved-document flow and post-install UI relaunch could not be
+verified, so the owner bundle was not forcibly terminated or replaced. Open Tok's
+Settings or quit Tok normally to permit the next serialized installation attempt.
+This installation blocker is separate from public-host approval and fresh-account
+acceptance. Build 4 rollback remains intact.

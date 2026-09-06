@@ -12,7 +12,7 @@ Keep the owner's account, permissions, Keychain, and saved data unchanged. A fre
 account on the same Mac tests onboarding isolation, not another OS or architecture.
 
 Use the exact signed DMG and hash approved in DISTRIBUTION.md for this session.
-Build 6's preserved path is `build/package/build-6/Tok.dmg`; do not assume the
+Build 7's preserved path is `build/package/build-7/Tok.dmg`; do not assume the
 mutable `build/package/Tok.dmg` is the same artifact. Recheck the chosen build
 before timing. If installing in shared `/Applications` would replace the owner's
 app, use a separate Mac or coordinate that installation explicitly.
