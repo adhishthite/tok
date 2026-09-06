@@ -133,6 +133,13 @@ archive/export build log is `/tmp/tok-distribution-67ef83e.log`.
 
 ## Remaining distribution gates
 
+The verified release was installed at `/Applications/Tok.app` after confirming
+that no app existed at that path. Its ticket, signature, and Gatekeeper checks
+passed before installation. The development copy quit normally, and process
+inspection confirmed the release running from Applications at source
+`67ef83eef079`, version 0.1.0, without development launch arguments. This used
+the owner's existing macOS account and does not satisfy the fresh-account gate.
+
 No artifacts, tags, releases, or update feeds have been published. A hosted
 update feed, an installed Sparkle update, and installation on a fresh Mac remain
 unverified. Local Gatekeeper acceptance is not a fresh-Mac installation test.
