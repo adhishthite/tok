@@ -171,3 +171,31 @@ Both have now been addressed with regression tests. The review was sequential,
 without an independent worker, and did not audit macOS or Sparkle internals or
 certify runtime release behavior. The generated report remains a record of the
 audited revision, not a report rewritten to hide its findings.
+
+## Build 5 prepared on 2026-09-06
+
+Version 0.1.0, build 5, was built from the clean isolated commit `138a64fe65fe`.
+It includes the committed History loading fix. Concurrent accessibility changes
+were excluded. The archive and export passed within the 120-second deadline.
+The complete build log is `/tmp/tok-build5-distribution.log`.
+
+Apple accepted the app submission `4844c9b5-9427-4543-b6ce-d89f799eb68b` and DMG
+submission `a39fc72a-2bd8-4643-aadd-e8cd38c1e0b5`. Each artifact was submitted
+once, then its saved submission was checked. App and DMG stapling passed.
+Deep strict app signatures, strict DMG signature, and Gatekeeper assessments
+passed. The app extracted from the ZIP and the app on a read-only DMG mount
+also passed signature, ticket, and Gatekeeper checks. The DMG included the
+Applications shortcut; its verification mount was detached.
+
+The app declares macOS 14.0, both `x86_64 arm64` architectures, and `LSUIElement`.
+It has no hosted update feed. Build 5 is prepared, not installed or published.
+The installed build 4 and its artifacts were not changed.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `build/package/build-5/Tok.dmg` | 2719587 | `7a830c97b88db2ac7a85311c16e6dc52d78deba13f4dccd7d66740c9ef9444b7` |
+| `build/package/build-5/Tok-distribution.zip` | 2637204 | `f3794a59940fdc78c410ee9a4d8fb85e3ec3f0a0997571a6f754edddb13c7834` |
+
+The signed app, saved notarization state, and `verification.json` are preserved
+in `build/package/build-5/`. No fresh-Mac or installed-update claim follows from
+these local artifact checks.
