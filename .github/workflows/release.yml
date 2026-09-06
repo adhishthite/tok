@@ -45,8 +45,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 Scripts/ci/release.py preflight
       - name: Check before loading signing credentials
-        timeout-minutes: 3
-        run: python3 Scripts/bounded_run.py --seconds 120 --label release-check -- make check
+        timeout-minutes: 4
+        env:
+          TOK_BUILD_TIMEOUT_SECONDS: 180
+        run: python3 Scripts/bounded_run.py --seconds 180 --label release-check -- make check
       - name: Prepare temporary signing credentials
         env:
           TOK_CERTIFICATE_P12_BASE64: ${{ secrets.TOK_CERTIFICATE_P12_BASE64 }}

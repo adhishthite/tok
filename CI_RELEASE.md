@@ -2,8 +2,9 @@
 
 The source repository is [adhishthite/tok](https://github.com/adhishthite/tok),
 created as private and connected as `origin`. As of 2026-09-06, the workflow files
-are committed locally but have not been pushed or run on GitHub. No signing
-credentials have been exported or uploaded.
+were pushed and the first CI run reached passing XCTest suites before its
+120-second check deadline expired during result handling. No signing credentials
+have been exported or uploaded.
 Hosted signing remains unverified until the first configured run succeeds.
 
 ## Continuous integration
@@ -12,8 +13,9 @@ Hosted signing remains unverified until the first configured run succeeds.
 requests. It uses GitHub's macOS 26 runner and Xcode 26.6, validates the workflow
 tooling, runs `make check`, and creates a development ZIP with `make package`.
 Test results and the ZIP are retained as workflow artifacts for 14 days.
-Repository checks and development packaging each have a 120-second process
-deadline and a three-minute workflow-step limit.
+Repository checks have a 180-second process deadline and a four-minute workflow
+step limit. This adds 60 seconds based on the first cold-run evidence. Development
+packaging retains its 120-second process deadline and three-minute step limit.
 This job has read-only repository permissions and no signing secrets. Its ZIP is
 a development artifact, not a notarized release.
 

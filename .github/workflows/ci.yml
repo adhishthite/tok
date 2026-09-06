@@ -34,8 +34,10 @@ jobs:
       - name: Validate workflow tooling
         run: make check-ci
       - name: Check
-        timeout-minutes: 3
-        run: python3 Scripts/bounded_run.py --seconds 120 --label ci-check -- make check
+        timeout-minutes: 4
+        env:
+          TOK_BUILD_TIMEOUT_SECONDS: 180
+        run: python3 Scripts/bounded_run.py --seconds 180 --label ci-check -- make check
       - name: Package development build
         timeout-minutes: 3
         run: python3 Scripts/bounded_run.py --seconds 120 --label ci-package -- make package
