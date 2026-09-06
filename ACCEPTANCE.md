@@ -96,3 +96,8 @@ Gatekeeper assessment, and real Sparkle signature/tamper checks have passed;
 see [DISTRIBUTION.md](DISTRIBUTION.md) for the exact artifacts and evidence.
 The notary profile is `TokNotary`. The update hosting destination is not configured.
 No test result above should be inferred from the existence of this procedure.
+
+The bounded parallel review results are in
+[ACCESSIBILITY_REVIEW.md](ACCESSIBILITY_REVIEW.md) and
+[PERFORMANCE_REVIEW.md](PERFORMANCE_REVIEW.md). Source fixes and offline checks
+do not close the interactive gates above.
