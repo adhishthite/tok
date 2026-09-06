@@ -89,15 +89,15 @@ and [Sparkle publishing](https://sparkle-project.org/documentation/publishing/).
 
 ## Verified notarized distribution
 
-Source `1d181bd6d8a9` is packaged as version 0.1.0, build 3, for `x86_64 arm64`.
+Source `061f46c1b42a` is packaged as version 0.1.0, build 4, for `x86_64 arm64`.
 The app declares macOS 14.0 and `LSUIElement = true`. The validated Keychain
 profile is `TokNotary`; use `NOTARY_PROFILE=TokNotary` with the notarization
 commands. No credential values belong in source or logs.
 
 Both Apple submissions returned `Accepted`:
 
-- App ZIP: `41dd03c2-6b45-4c69-b27c-eb0dbb3b2ec2`.
-- Final DMG: `eb1aee36-136a-4473-a1d2-de074f1f74fb`.
+- App ZIP: `c4ccbbf3-6d56-4ca7-969c-08b2abb381e4`.
+- Final DMG: `7ed95d29-ef39-41b1-b91a-f8154cfba493`.
 
 `make notarize-app` attached and validated the app ticket, then rebuilt the
 containers. `make notarize-dmg` attached and validated the DMG ticket. Both were
@@ -123,16 +123,16 @@ Final artifacts after stapling:
 
 | Artifact | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `build/package/Tok.dmg` | 2663379 | `1235e7c241ddf52c8bf5c288a54db0764c9a849c583947487c05ae36797a1e36` |
-| `build/package/Tok-distribution.zip` | 2563834 | `c1951bd2b085d17bcfdce74944e0998d1e48d3a695c85470fbc90c77edc387d0` |
+| `build/package/Tok.dmg` | 2718337 | `a5a2913c516eb1c8ed44a3646d8c55ff418d36ff25212e00d762f43d4bbb6bb3` |
+| `build/package/Tok-distribution.zip` | 2636078 | `ccfd2e270f659f3f262ad348b33cd33c2b07d4db669a31e4d827837bb8039f01` |
 
 `build/package/verification.json` records the checks, identities, and hashes.
 Rebuilding the containers changes these artifacts and removes the final DMG's
 stapled ticket, so do not rebuild them to repeat verification. The original
-archive/export build log is `/tmp/tok-menu-feedback-distribution.log`.
+archive/export build log is `/tmp/tok-cleanup-distribution.log`.
 
-Builds 1 and 2 and their verification records are preserved under
-`build/package/build-1/` and `build/package/build-2/`.
+Builds 1, 2, and 3 and their verification records are preserved under
+`build/package/build-1/`, `build/package/build-2/`, and `build/package/build-3/`.
 
 ## Remaining distribution gates
 
@@ -149,6 +149,16 @@ signature, and Gatekeeper checks before replacement. The app quit normally and
 was relaunched from the same installation path. Process inspection confirmed
 that path; Info.plist confirmed build 3. Previous installed bundles remain in
 `build/installed-backups/`. This was a local replacement, not a Sparkle update.
+
+Build 4 (`061f46c1b42a`) replaced build 3 after the same signature and ticket
+checks. The installed process was verified at `/Applications/Tok.app`, and its
+Gatekeeper assessment passed. Cleanup and app-aware formatting remain off.
+The build 3 application remains in `build/installed-backups/build-3/`.
+
+Build 4 initially encountered an unavailable `TokNotary` profile. Once the profile
+was accessible, Apple history confirmed no submission from that attempt. The
+failed-attempt state was preserved as a `.credential-failure.json` backup before
+submitting the unchanged archive. Both resulting submissions were accepted.
 
 No artifacts, tags, releases, or update feeds have been published. A hosted
 update feed, an installed Sparkle update, and installation on a fresh Mac remain

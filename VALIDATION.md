@@ -2,13 +2,26 @@
 
 ## Current result
 
-The signed distribution at source `1d181bd6d8a9` has now passed Apple
+The signed distribution at source `061f46c1b42a` has now passed Apple
 notarization, app and DMG stapling, and local Gatekeeper assessment. The apps
 inside both final containers passed independent ticket, signature, and Gatekeeper
 checks. Real Sparkle tools also verified signed feed/archive output and rejected
 modified copies. [DISTRIBUTION.md](DISTRIBUTION.md) records submission IDs,
 commands, hashes, and the remaining fresh-Mac and installed-update gates. The
 older rejection results below are historical.
+
+Build 4 adds optional cleanup and application-context formatting, both off by
+default, with separate latency, token, cost, and failure metrics. `make check`
+passed 66 XCTest cases, skipped three explicit live cases, and passed seven
+script tests; the settings reference matched all 53 entries. The log is
+`/tmp/tok-cleanup-release-check.log`. Nine focused cleanup tests passed with
+Thread Sanitizer and no reported race (`/tmp/tok-cleanup-tsan.log`).
+
+`make test-cleanup-live` passed five synthetic text-only cases, including the
+three-line list check. Added cleanup time was 815–1,025 ms in the final run.
+The log is `/tmp/tok-cleanup-final-live.log`. This does not verify real-speech
+accuracy or end-to-end latency with cleanup enabled. [POSTPROCESSING.md](POSTPROCESSING.md)
+records behavior, limits, data handling, and metric semantics.
 
 The current feedback batch adds a compact Settings toolbar, removes the sidebar
 toggle, provides explicit connection-test badges with cancellation/invalidation,
