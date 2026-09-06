@@ -2,13 +2,31 @@
 
 ## Current result
 
-The signed distribution at source `67ef83eef079` has now passed Apple
+The signed distribution at source `1d181bd6d8a9` has now passed Apple
 notarization, app and DMG stapling, and local Gatekeeper assessment. The apps
 inside both final containers passed independent ticket, signature, and Gatekeeper
 checks. Real Sparkle tools also verified signed feed/archive output and rejected
 modified copies. [DISTRIBUTION.md](DISTRIBUTION.md) records submission IDs,
 commands, hashes, and the remaining fresh-Mac and installed-update gates. The
 older rejection results below are historical.
+
+The current feedback batch adds a compact Settings toolbar, removes the sidebar
+toggle, provides explicit connection-test badges with cancellation/invalidation,
+and reveals the running app for permission setup. Build 3 adds the app icon and
+colored navigation symbols to the menu, labels vocabulary analysis as “Analyze
+history…”, and removes JustSpeak configuration-import actions from both setup
+and Settings. The unused configuration file chooser was deleted. Development
+`.env` seeding remains separate from the product UI.
+
+`make check` for this batch completed with `TEST SUCCEEDED`: 54 XCTest cases
+passed, two explicit live cases skipped, seven Python tests passed, and the
+47-setting README check passed. Formatting and shell syntax passed. The log is
+`/tmp/tok-menu-feedback-check.log`. Both archive and export passed, as did Apple
+notarization, stapling, and container checks recorded in DISTRIBUTION.md.
+Updated visual alignment, badge colors, and menu appearance await the owner's
+running-app review; a passing build does not establish those visual results.
+
+## Previous UI checkpoints
 
 On 2026-09-06, the History table gained native Copy and Delete command handlers.
 Copy uses the same full text and display order as context-menu Copy. Delete opens

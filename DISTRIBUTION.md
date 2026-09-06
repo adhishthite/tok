@@ -89,15 +89,15 @@ and [Sparkle publishing](https://sparkle-project.org/documentation/publishing/).
 
 ## Verified notarized distribution
 
-Source `67ef83eef079` is packaged as version 0.1.0, build 1, for `x86_64 arm64`.
+Source `1d181bd6d8a9` is packaged as version 0.1.0, build 3, for `x86_64 arm64`.
 The app declares macOS 14.0 and `LSUIElement = true`. The validated Keychain
 profile is `TokNotary`; use `NOTARY_PROFILE=TokNotary` with the notarization
 commands. No credential values belong in source or logs.
 
 Both Apple submissions returned `Accepted`:
 
-- App ZIP: `31d9978c-fe18-4a21-bf46-6aaa296bd7c5`.
-- Final DMG: `2a261a52-6a48-456f-a806-2ae742b5419d`.
+- App ZIP: `41dd03c2-6b45-4c69-b27c-eb0dbb3b2ec2`.
+- Final DMG: `eb1aee36-136a-4473-a1d2-de074f1f74fb`.
 
 `make notarize-app` attached and validated the app ticket, then rebuilt the
 containers. `make notarize-dmg` attached and validated the DMG ticket. Both were
@@ -123,13 +123,16 @@ Final artifacts after stapling:
 
 | Artifact | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `build/package/Tok.dmg` | 2650452 | `e4901abff6c2757d7a61cc0fdc48d42d7bed91923278fd24ff9d8d6ecba08755` |
-| `build/package/Tok-distribution.zip` | 2548052 | `daf4bffee9effa125124fc43211826467f06aa708a18dc073a99f19374235fa5` |
+| `build/package/Tok.dmg` | 2663379 | `1235e7c241ddf52c8bf5c288a54db0764c9a849c583947487c05ae36797a1e36` |
+| `build/package/Tok-distribution.zip` | 2563834 | `c1951bd2b085d17bcfdce74944e0998d1e48d3a695c85470fbc90c77edc387d0` |
 
 `build/package/verification.json` records the checks, identities, and hashes.
 Rebuilding the containers changes these artifacts and removes the final DMG's
 stapled ticket, so do not rebuild them to repeat verification. The original
-archive/export build log is `/tmp/tok-distribution-67ef83e.log`.
+archive/export build log is `/tmp/tok-menu-feedback-distribution.log`.
+
+Builds 1 and 2 and their verification records are preserved under
+`build/package/build-1/` and `build/package/build-2/`.
 
 ## Remaining distribution gates
 
@@ -139,6 +142,13 @@ passed before installation. The development copy quit normally, and process
 inspection confirmed the release running from Applications at source
 `67ef83eef079`, version 0.1.0, without development launch arguments. This used
 the owner's existing macOS account and does not satisfy the fresh-account gate.
+
+Build 3 (`1d181bd6d8a9`) subsequently replaced build 2 in Applications. Their
+designated signing requirements matched, and the candidate passed ticket,
+signature, and Gatekeeper checks before replacement. The app quit normally and
+was relaunched from the same installation path. Process inspection confirmed
+that path; Info.plist confirmed build 3. Previous installed bundles remain in
+`build/installed-backups/`. This was a local replacement, not a Sparkle update.
 
 No artifacts, tags, releases, or update feeds have been published. A hosted
 update feed, an installed Sparkle update, and installation on a fresh Mac remain
