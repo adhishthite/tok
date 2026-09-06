@@ -204,3 +204,35 @@ rejection of extension after completion, and child cleanup after malformed contr
 data. Ruff passed. The full XCTest run passed with 20 tests passed and two explicit
 live-API tests skipped. Deadline supervision bounds external commands; it cannot
 preempt a model or client stall before the next tool call.
+
+## Release automation and History loading, 2026-09-06
+
+Three independent subagent tasks used five-minute work limits. The release
+review found and fixed descendant cleanup after command timeout, mismatched
+existing tags, and notarization polls exceeding the remaining polling budget.
+The History review removed the initial search debounce and sets loading before
+starting a query, preventing a false empty state.
+
+- `make check`, supervised with a 120-second limit, passed before these fixes.
+- After the History fix, the same command reported `TEST SUCCEEDED`: 68 XCTest
+  passes, three explicit live-test skips, and zero XCTest failures. The settings
+  reference reported `PASS: README matches all 53 catalog settings.`
+- That run's script phase failed in the concurrently added deadline fixtures
+  because the sandbox denied process-group signals. This is not a full-suite pass.
+- The focused release suite passed nine tests in 6.525 seconds.
+- `make check-ci ACTIONLINT=build/tools/actionlint`, supervised with a 60-second
+  limit, passed after the release fixes. The native Keychain helper retains its
+  documented SDK deprecation warning.
+- After the owner removed sandbox restrictions, final `make check` passed with
+  exit 0: 68 XCTest passes, three live-test skips, all 53 settings matched, and
+  18 script tests passed in 18.193 seconds with no script skips. This includes
+  the timeout and interrupt descendant-cleanup regressions. Final `make check-ci`
+  also passed. Logs: `/tmp/tok-final-check.log` and `/tmp/tok-final-ci-check.log`.
+- Ruff lint for the deadline runner and its fixtures passed after two style
+  corrections. Synthetic processes have their own finite lifetimes, and tests
+  explicitly skip before spawning descendants when group signals are prohibited.
+
+The workflow files have not run on GitHub. No signing credentials were exported,
+no remote was configured, and nothing was pushed or published. Interactive
+acceptance gates remain listed in [ACCEPTANCE.md](ACCEPTANCE.md). The History
+change is a source change, not an update to the installed build 4.

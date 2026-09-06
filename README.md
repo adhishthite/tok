@@ -38,6 +38,8 @@ local fallback. Hardened runtime is enabled.
 `make package` creates a local ZIP in `build/package/`; it is not a notarized release.
 `make distribute` creates a universal Developer ID-signed app, DMG, and ZIP.
 See [DISTRIBUTION.md](DISTRIBUTION.md) for notarization and update configuration.
+GitHub CI and manual draft-release workflows are described in
+[CI_RELEASE.md](CI_RELEASE.md). They require repository and signing setup before use.
 
 `project.yml` owns the generated Xcode project. Build output stays in `build/`.
 `make icon` regenerates the committed app-icon sizes from the original vector

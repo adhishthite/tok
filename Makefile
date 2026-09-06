@@ -3,9 +3,10 @@ SHELL := /bin/bash
 CONFIGURATION ?= Debug
 DERIVED := $(CURDIR)/build/DerivedData
 APP := $(DERIVED)/Build/Products/$(CONFIGURATION)/Tok.app
+ACTIONLINT ?= actionlint
 XCODEBUILD := ./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme Tok -configuration $(CONFIGURATION) -derivedDataPath "$(DERIVED)" -destination 'platform=macOS'
 
-.PHONY: install clean check format lint generate build run test package test-live distribute containers notarize-app notarize-dmg profile-microphone icon check-updates settings-tool settings-reference check-settings test-cleanup-live
+.PHONY: install clean check format lint generate build run test package test-live distribute containers notarize-app notarize-dmg profile-microphone icon check-updates settings-tool settings-reference check-settings test-cleanup-live check-ci
 
 install:
 	@command -v xcodegen >/dev/null || brew install xcodegen
@@ -80,3 +81,9 @@ notarize-dmg:
 
 clean:
 	rm -rf "$(CURDIR)/build"
+
+check-ci:
+	python3 Scripts/bounded_run.py --seconds 20 --label workflow-lint -- $(ACTIONLINT)
+	python3 Scripts/bounded_run.py --seconds 30 --label ci-identity-typecheck -- xcrun swiftc -typecheck Scripts/ci/import_identity.swift
+	python3 Scripts/bounded_run.py --seconds 30 --label ci-signature-typecheck -- xcrun swiftc -typecheck Scripts/ci/verify_signature.swift
+	python3 Scripts/bounded_run.py --seconds 60 --label ci-python-lint -- uvx ruff check --isolated --select E4,E7,E9,F,I,SIM,PLW1510 Scripts/ci Tests/ScriptTests/test_ci_release.py

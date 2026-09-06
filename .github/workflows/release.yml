@@ -1,0 +1,79 @@
+name: Prepare release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag matching MARKETING_VERSION, for example v0.1.0'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tok-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-26
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: write
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      TOK_RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install build tools
+        timeout-minutes: 5
+        run: |
+          brew install xcodegen actionlint uv
+          make install
+      - name: Validate workflow tooling
+        run: make check-ci
+      - name: Validate release request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 Scripts/ci/release.py preflight
+      - name: Check before loading signing credentials
+        timeout-minutes: 3
+        run: python3 Scripts/bounded_run.py --seconds 120 --label release-check -- make check
+      - name: Prepare temporary signing credentials
+        env:
+          TOK_CERTIFICATE_P12_BASE64: ${{ secrets.TOK_CERTIFICATE_P12_BASE64 }}
+          TOK_CERTIFICATE_PASSWORD: ${{ secrets.TOK_CERTIFICATE_PASSWORD }}
+          TOK_NOTARY_KEY_BASE64: ${{ secrets.TOK_NOTARY_KEY_BASE64 }}
+          TOK_NOTARY_KEY_ID: ${{ secrets.TOK_NOTARY_KEY_ID }}
+          TOK_NOTARY_ISSUER_ID: ${{ secrets.TOK_NOTARY_ISSUER_ID }}
+          TOK_SPARKLE_PRIVATE_KEY: ${{ secrets.TOK_SPARKLE_PRIVATE_KEY }}
+          TOK_EXPECTED_TEAM_ID: ${{ vars.TOK_EXPECTED_TEAM_ID }}
+        run: python3 Scripts/ci/signing.py prepare
+      - name: Build and notarize release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOK_EXPECTED_TEAM_ID: ${{ vars.TOK_EXPECTED_TEAM_ID }}
+        run: python3 Scripts/ci/release.py prepare
+      - name: Preserve recovery bundle
+        if: always()
+        run: python3 Scripts/ci/release.py bundle
+      - name: Upload release and recovery files
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Tok-release-${{ github.run_id }}
+          path: |
+            build/release-assets/
+            build/release-recovery.tar
+          retention-days: 14
+      - name: Remove temporary signing credentials
+        if: always()
+        run: python3 Scripts/ci/signing.py cleanup
