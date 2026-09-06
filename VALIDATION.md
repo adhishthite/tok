@@ -2,6 +2,14 @@
 
 ## Current result
 
+The signed distribution at source `67ef83eef079` has now passed Apple
+notarization, app and DMG stapling, and local Gatekeeper assessment. The apps
+inside both final containers passed independent ticket, signature, and Gatekeeper
+checks. Real Sparkle tools also verified signed feed/archive output and rejected
+modified copies. [DISTRIBUTION.md](DISTRIBUTION.md) records submission IDs,
+commands, hashes, and the remaining fresh-Mac and installed-update gates. The
+older rejection results below are historical.
+
 On 2026-09-06, the History table gained native Copy and Delete command handlers.
 Copy uses the same full text and display order as context-menu Copy. Delete opens
 the existing confirmation and does nothing when no rows are selected. These

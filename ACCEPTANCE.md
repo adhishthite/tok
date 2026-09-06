@@ -8,7 +8,8 @@ Keep recordings, transcripts, credentials, and private app content out of Git.
 
 Use a separate test macOS account with no Tok preferences, Keychain entry, or
 permission grants. Do not reset permissions or remove data in the owner's account.
-Use the final notarized DMG. That artifact is not available yet.
+Use the final notarized DMG at `build/package/Tok.dmg`. Match its hash to the
+verified checkpoint in [DISTRIBUTION.md](DISTRIBUTION.md).
 
 1. Open the DMG, drag Tok into Applications, and launch it from Finder. Confirm
    the normal macOS first-open flow accepts the app without an override.
@@ -90,6 +91,8 @@ history, vocabulary, and permissions. Publishing needs separate owner approval.
 
 Fresh-account timing, interactive keyboard and VoiceOver coverage, visual QA,
 window/frame timing, versioned real-dictation latency and accuracy comparison,
-notarization, Gatekeeper acceptance, and installed Sparkle updates remain open.
-The notary Keychain profile name and update hosting destination are not configured.
+and installed Sparkle updates remain open. Notarization, stapling, local
+Gatekeeper assessment, and real Sparkle signature/tamper checks have passed;
+see [DISTRIBUTION.md](DISTRIBUTION.md) for the exact artifacts and evidence.
+The notary profile is `TokNotary`. The update hosting destination is not configured.
 No test result above should be inferred from the existence of this procedure.
