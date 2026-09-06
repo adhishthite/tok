@@ -26,7 +26,10 @@ public final class HistoryRepository: @unchecked Sendable {
                 CASE WHEN is_live_route=1 THEN 'Live' WHEN is_live_route=0 THEN 'Fallback' ELSE COALESCE(transport,'') END,
                 COALESCE(model,''),word_count,cost_usd,input_tokens,output_tokens,COALESCE(tokens_metered,0),
                 audio_seconds,event_queue_ms,capture_finalize_ms,first_token_ms,roundtrip_ms,inject_ms,total_ms,ready_ms,
-                COALESCE(delivery_outcome,''),COALESCE(finish_mode,''),COALESCE(error,'')
+                COALESCE(delivery_outcome,''),COALESCE(finish_mode,''),COALESCE(error,''),
+                post_process_status,post_process_model,post_process_ms,post_process_input_tokens,
+                post_process_output_tokens,post_process_thinking_tokens,post_process_cost_usd,
+                post_process_error,post_process_app_context,COALESCE(transcription_cost_usd,cost_usd)
               FROM transcriptions WHERE ts_epoch >= ? AND
                 (COALESCE(text,'') LIKE ? ESCAPE char(92) OR COALESCE(app_name,'') LIKE ? ESCAPE char(92))
               ORDER BY ts_epoch DESC,id DESC LIMIT ?
@@ -60,7 +63,22 @@ public final class HistoryRepository: @unchecked Sendable {
                   firstTokenMs: Self.number(statement, 15), apiMs: Self.number(statement, 16),
                   injectionMs: Self.number(statement, 17), totalMs: Self.number(statement, 18),
                   readyMs: Self.number(statement, 19), delivery: Self.text(statement, 20),
-                  finishMode: Self.text(statement, 21), error: Self.text(statement, 22)))
+                  finishMode: Self.text(statement, 21), error: Self.text(statement, 22),
+                  postProcessing: sqlite3_column_type(statement, 23) == SQLITE_NULL
+                    ? nil
+                    : PostProcessingMetrics(
+                      status: Self.text(statement, 23),
+                      model: sqlite3_column_type(statement, 24) == SQLITE_NULL
+                        ? nil : Self.text(statement, 24),
+                      latencyMs: Self.number(statement, 25),
+                      inputTokens: Self.integer(statement, 26),
+                      outputTokens: Self.integer(statement, 27),
+                      thinkingTokens: Self.integer(statement, 28),
+                      costUSD: Self.number(statement, 29),
+                      errorCode: sqlite3_column_type(statement, 30) == SQLITE_NULL
+                        ? nil : Self.text(statement, 30),
+                      appContextUsed: sqlite3_column_int(statement, 31) == 1),
+                  transcriptionCost: Self.number(statement, 32)))
               status = sqlite3_step(statement)
             }
             guard status == SQLITE_DONE else { throw HistoryRepositoryError.queryFailed }
@@ -82,19 +100,26 @@ public final class HistoryRepository: @unchecked Sendable {
           let result = try self.withDatabase { db -> HistoryStatistics in
             let stmt = try Self.prepare(
               db,
-              "SELECT word_count,cost_usd,total_ms FROM transcriptions WHERE outcome='success' AND ts_epoch >= ?"
+              "SELECT word_count,COALESCE(cost_usd,transcription_cost_usd),total_ms,post_process_status,post_process_cost_usd FROM transcriptions WHERE outcome='success' AND ts_epoch >= ?"
             )
             defer { sqlite3_finalize(stmt) }
             sqlite3_bind_double(stmt, 1, since.timeIntervalSince1970)
             var count = 0
             var words = 0
             var cost = 0.0
+            var unpricedCleanupCount = 0
             var latencies: [Double] = []
             var status = sqlite3_step(stmt)
             while status == SQLITE_ROW {
               count += 1
               words += Int(sqlite3_column_int(stmt, 0))
               cost += Self.number(stmt, 1) ?? 0
+              let cleanup = Self.text(stmt, 3)
+              if !cleanup.isEmpty, cleanup != "off", cleanup != "skipped",
+                Self.number(stmt, 4) == nil
+              {
+                unpricedCleanupCount += 1
+              }
               if let value = Self.number(stmt, 2), value.isFinite { latencies.append(value) }
               status = sqlite3_step(stmt)
             }
@@ -102,7 +127,7 @@ public final class HistoryRepository: @unchecked Sendable {
             latencies.sort()
             return HistoryStatistics(
               count: count, words: words, cost: cost, medianMs: Self.percentile(latencies, 0.5),
-              p95Ms: Self.percentile(latencies, 0.95))
+              p95Ms: Self.percentile(latencies, 0.95), unpricedCleanupCount: unpricedCleanupCount)
           }
           continuation.resume(returning: result)
         } catch { continuation.resume(throwing: error) }
@@ -192,6 +217,7 @@ public final class HistoryRepository: @unchecked Sendable {
     }
     defer { sqlite3_close(handle) }
     sqlite3_busy_timeout(handle, 2000)
+    try HistoryPostProcessingSchema.migrate(handle)
     return try body(handle)
   }
   private static func prepare(_ db: OpaquePointer, _ sql: String) throws -> OpaquePointer {

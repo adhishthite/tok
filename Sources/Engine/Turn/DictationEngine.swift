@@ -109,6 +109,7 @@ public final class DictationEngine {
   var turnSettled: Bool = false
   private var pendingFallbackTimer: DispatchWorkItem?
   private var pendingTurnDeadline: DispatchWorkItem?
+  lazy var postProcessingStage = PostProcessingStage(queue: sessionQueue)
   var pendingRestRequest: CancellableRequest?
   var restAttemptStart: TimeInterval?
   private var turnEventQueueMs: Double = 0
@@ -335,6 +336,7 @@ public final class DictationEngine {
       self.currentTurnId &+= 1
       self.turnSettled = true
       self.pendingRestRequest?.cancel()
+      self.postProcessingStage.cancel()
       self.pendingFallbackTimer?.cancel()
       self.pendingTurnDeadline?.cancel()
       self.liveClient?.shutdown()
@@ -828,6 +830,8 @@ public final class DictationEngine {
   private var sessionInputTokens = 0
   private var sessionOutputTokens = 0
   private var sessionCostUSD = 0.0
+  private var sessionUnknownUsageTurns = 0
+  private var sessionUnpricedCleanupCount = 0
 
   func printSessionUsageSummary() {
     statsLock.lock()
@@ -835,10 +839,13 @@ public final class DictationEngine {
     let inTok = sessionInputTokens
     let outTok = sessionOutputTokens
     let cost = sessionCostUSD
+    let unknownUsage = sessionUnknownUsageTurns
+    let unpricedCleanup = sessionUnpricedCleanupCount
     statsLock.unlock()
     guard turns > 0 else { return }
-    Log.raw(
-      "\n📈 Session Usage: \(turns) dictation\(turns == 1 ? "" : "s") | \(inTok) in / \(outTok) out tokens | ≈ $\(String(format: "%.4f", cost))"
+    Log.info(
+      "USAGE",
+      "turns=\(turns) reported_input_tokens=\(inTok) reported_output_tokens=\(outTok) unknown_usage_turns=\(unknownUsage) estimated_known_cost_usd=\(String(format: "%.6f", cost)) unpriced_cleanup_count=\(unpricedCleanup)"
     )
   }
 
@@ -973,19 +980,18 @@ public final class DictationEngine {
       let text, let transport, let firstTokenMs, let roundtripMs, let audioDuration, let keyUpTime,
       let captureFinalizeMs, let fallbackReason, let isLiveRoute, let inputTokens, let outputTokens):
       consecutiveNoSpeechTurns = 0
-      handleTranscribedText(
-        text,
-        transport: transport,
-        firstTokenMs: firstTokenMs,
-        roundtripMs: roundtripMs,
-        audioDuration: audioDuration,
-        totalStartTime: keyUpTime,
-        captureFinalizeMs: captureFinalizeMs,
-        fallbackReason: fallbackReason,
-        isLiveRoute: isLiveRoute,
-        inputTokens: inputTokens,
-        outputTokens: outputTokens
-      )
+      postProcessingStage.process(
+        text: text, configuration: config, appName: turnFrontmostName,
+        appBundleId: turnFrontmostBundleId
+      ) { [weak self] processed in
+        guard let self, !self.isStopping, turnId == self.currentTurnId else { return }
+        self.handleTranscribedText(
+          processed.text, transport: transport, firstTokenMs: firstTokenMs,
+          roundtripMs: roundtripMs, audioDuration: audioDuration, totalStartTime: keyUpTime,
+          captureFinalizeMs: captureFinalizeMs, fallbackReason: fallbackReason,
+          isLiveRoute: isLiveRoute, inputTokens: inputTokens, outputTokens: outputTokens,
+          postProcessing: processed.metrics)
+      }
       return
 
     case .empty(let audioDuration):
@@ -1103,7 +1109,8 @@ public final class DictationEngine {
     isLiveRoute: Bool = true,
     inputTokens: Int? = nil,
     outputTokens: Int? = nil,
-    clipboardPrepared: Bool = false
+    clipboardPrepared: Bool = false,
+    postProcessing: PostProcessingMetrics = .off
   ) {
     guard !isStopping else { return }
     var canPrepareClipboard = false
@@ -1125,7 +1132,7 @@ public final class DictationEngine {
             audioDuration: audioDuration, totalStartTime: totalStartTime,
             captureFinalizeMs: captureFinalizeMs, fallbackReason: fallbackReason,
             isLiveRoute: isLiveRoute, inputTokens: inputTokens, outputTokens: outputTokens,
-            clipboardPrepared: true)
+            clipboardPrepared: true, postProcessing: postProcessing)
         }
       }
       return
@@ -1326,9 +1333,21 @@ public final class DictationEngine {
       + Double(effectiveOutputTokens) / 1_000_000.0 * outputPrice
     statsLock.lock()
     sessionTurns += 1
-    sessionInputTokens += effectiveInputTokens
-    sessionOutputTokens += effectiveOutputTokens
-    sessionCostUSD += turnCostUSD
+    sessionInputTokens += (inputTokens ?? 0) + (postProcessing.inputTokens ?? 0)
+    sessionOutputTokens +=
+      (outputTokens ?? 0) + (postProcessing.outputTokens ?? 0)
+      + (postProcessing.thinkingTokens ?? 0)
+    let cleanupAttempted =
+      !["off", "skipped"].contains(postProcessing.status)
+      && postProcessing.errorCode != "invalid_configuration"
+    if inputTokens == nil || outputTokens == nil
+      || (cleanupAttempted
+        && (postProcessing.inputTokens == nil || postProcessing.outputTokens == nil))
+    {
+      sessionUnknownUsageTurns += 1
+    }
+    if cleanupAttempted && postProcessing.costUSD == nil { sessionUnpricedCleanupCount += 1 }
+    sessionCostUSD += turnCostUSD + (postProcessing.costUSD ?? 0)
     statsLock.unlock()
 
     var record = TurnRecord(
@@ -1350,7 +1369,7 @@ public final class DictationEngine {
       inputTokens: inputTokens,
       outputTokens: outputTokens,
       tokensMetered: usageMetered,
-      costUSD: turnCostUSD,
+      costUSD: postProcessing.costUSD.map { turnCostUSD + $0 },
       languageCodes: config.languageCodes.joined(separator: ","),
       smartMode: config.smartTranscription,
       vadMode: config.vadMode,
@@ -1367,6 +1386,17 @@ public final class DictationEngine {
       deliveryOutcome: injected ? "dispatched" : (deliveryError == nil ? "copied" : "failed")
     )
 
+    record.postProcessing = postProcessing
+    record.transcriptionCostUSD = turnCostUSD
+    if postProcessing.status != "off" {
+      let message =
+        "status=\(postProcessing.status) code=\(postProcessing.errorCode ?? "none") original_used=\(postProcessing.status != "completed")"
+      if postProcessing.status == "completed" {
+        Log.debug("CLEANUP", message)
+      } else {
+        Log.warn("CLEANUP", message)
+      }
+    }
     processingLock.lock()
     isProcessing = false
     processingLock.unlock()

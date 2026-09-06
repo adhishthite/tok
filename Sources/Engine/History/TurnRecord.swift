@@ -50,4 +50,6 @@ public struct TurnRecord: Sendable {
   public var eventQueueMs: Double? = nil
   public var readyMs: Double? = nil
   public var deliveryOutcome: String? = nil
+  public var postProcessing: PostProcessingMetrics? = nil
+  public var transcriptionCostUSD: Double? = nil
 }

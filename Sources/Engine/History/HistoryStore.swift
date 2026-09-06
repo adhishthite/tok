@@ -169,6 +169,12 @@ final class HistoryStore {
       sqlite3_exec(opened, migration, nil, nil, nil)
     }
 
+    do { try HistoryPostProcessingSchema.migrate(opened) } catch {
+      failed = true
+      Log.warn("HISTORY", "Could not prepare cleanup metrics in history.")
+      sqlite3_close(opened)
+      return
+    }
     db = opened
   }
 
@@ -218,8 +224,11 @@ final class HistoryStore {
           injected, input_tokens, output_tokens, tokens_metered, cost_usd,
           language_codes, smart_mode, vad_mode, error, app_bundle_id, app_name,
           peak_db, speech_frames, settle_path, endpoint_aligned, chunk_ms, silence_flush_ms,
-          build_id, input_device, input_transport, finish_mode, event_queue_ms, ready_ms, delivery_outcome
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          build_id, input_device, input_transport, finish_mode, event_queue_ms, ready_ms, delivery_outcome,
+          post_process_status, post_process_model, post_process_ms, post_process_input_tokens,
+          post_process_output_tokens, post_process_thinking_tokens, post_process_cost_usd,
+          post_process_error, post_process_app_context, transcription_cost_usd
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
       var stmt: OpaquePointer?
@@ -273,6 +282,16 @@ final class HistoryStore {
       self.bindDouble(stmt, 39, r.eventQueueMs)
       self.bindDouble(stmt, 40, r.readyMs)
       self.bindText(stmt, 41, r.deliveryOutcome)
+      self.bindText(stmt, 42, r.postProcessing?.status)
+      self.bindText(stmt, 43, r.postProcessing?.model)
+      self.bindDouble(stmt, 44, r.postProcessing?.latencyMs)
+      self.bindInt(stmt, 45, r.postProcessing?.inputTokens)
+      self.bindInt(stmt, 46, r.postProcessing?.outputTokens)
+      self.bindInt(stmt, 47, r.postProcessing?.thinkingTokens)
+      self.bindDouble(stmt, 48, r.postProcessing?.costUSD)
+      self.bindText(stmt, 49, r.postProcessing?.errorCode)
+      self.bindBool(stmt, 50, r.postProcessing?.appContextUsed)
+      self.bindDouble(stmt, 51, r.transcriptionCostUSD)
 
       if sqlite3_step(stmt) != SQLITE_DONE {
         self.failed = true

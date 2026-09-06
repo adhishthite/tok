@@ -48,6 +48,28 @@ final class DiagnosticsTests: XCTestCase {
     XCTAssertEqual(LatencySnapshot.milliseconds(snapshot.total), "Not measured")
   }
 
+  func testCleanupMetricsStaySeparateAndUnknownUsageIsNotInvented() {
+    let store = DictationStore()
+    var turn = fixture()
+    turn.totalMs = 1350
+    turn.postProcessing = PostProcessingMetrics(
+      status: "completed", model: "gemini-3.5-flash-lite", latencyMs: 900, inputTokens: 200,
+      outputTokens: 30, costUSD: 0.000135, appContextUsed: true)
+    store.engineDidEmit(.turnSettled(turn))
+    XCTAssertEqual(store.lastLatency?.transcription, 360)
+    XCTAssertEqual(store.lastLatency?.postProcessing?.latencyMs, 900)
+    XCTAssertTrue(store.lastLatencyLine.contains("cleanup_status=completed"))
+    XCTAssertTrue(store.lastLatencyLine.contains("cleanup_input_tokens=200"))
+    XCTAssertTrue(store.lastLatencyLine.contains("cleanup_thinking_tokens=n/a"))
+    XCTAssertTrue(store.lastLatencyLine.contains("app_context=true"))
+    turn.postProcessing = PostProcessingMetrics(
+      status: "timed_out", latencyMs: 2500, errorCode: "timeout")
+    turn.costUSD = nil
+    store.engineDidEmit(.turnSettled(turn))
+    XCTAssertTrue(store.lastLatencyLine.contains("cleanup_cost_usd=n/a"))
+    XCTAssertTrue(store.lastLatencyLine.contains("total_cost_usd=n/a"))
+  }
+
   func testRenderNativeDiagnostics() async throws {
     let entries = [
       DiagnosticEntry(line: "[SESSION] Ready for dictation"),

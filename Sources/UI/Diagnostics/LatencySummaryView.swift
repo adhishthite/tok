@@ -18,7 +18,18 @@ struct LatencySummaryView: View {
         LabeledContent("Audio finish", value: LatencySnapshot.milliseconds(snapshot?.capture))
         LabeledContent(
           "Transcription", value: LatencySnapshot.milliseconds(snapshot?.transcription))
+        LabeledContent(
+          "Cleanup",
+          value: snapshot?.postProcessing.map {
+            $0.status == "off" ? "Off" : LatencySnapshot.milliseconds($0.latencyMs)
+          } ?? "Not recorded")
         LabeledContent("Delivery", value: LatencySnapshot.milliseconds(snapshot?.injection))
+        if let metrics = snapshot?.postProcessing, metrics.status != "off" {
+          Text(metrics.displayStatus).font(.caption).foregroundStyle(.secondary)
+          DisclosureGroup("Cleanup details") {
+            PostProcessingDetailsView(metrics: metrics)
+          }.font(.caption)
+        }
       }.font(.callout).monospacedDigit().frame(width: 250)
     }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
       .background(Color(nsColor: .windowBackgroundColor))

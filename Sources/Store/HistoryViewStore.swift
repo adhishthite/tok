@@ -81,11 +81,24 @@ final class HistoryViewStore {
     do {
       let all = try await repository.entries(limit: 0)
       try await Task.detached(priority: .utility) {
-        var lines = ["Date,Text,Application,Route,Status,Words,Cost USD,Total ms"]
+        var lines = [
+          "Date,Text,Application,Route,Status,Words,Cost USD,Total ms,Cleanup status,Cleanup model,Cleanup ms,Cleanup input tokens,Cleanup output tokens,Cleanup thinking tokens,Cleanup cost USD,Cleanup error,Cleanup app context,Transcription cost USD"
+        ]
         for row in all {
-          let fields = [
+          var fields: [String] = [
             row.date.ISO8601Format(), row.text, row.app, row.route, row.outcome, String(row.words),
             row.cost.map { String($0) } ?? "", row.totalMs.map { String($0) } ?? "",
+          ]
+          let cleanup = row.postProcessing
+          fields += [
+            cleanup?.status ?? "", cleanup?.model ?? "",
+            cleanup?.latencyMs.map { String($0) } ?? "",
+            cleanup?.inputTokens.map { String($0) } ?? "",
+            cleanup?.outputTokens.map { String($0) } ?? "",
+            cleanup?.thinkingTokens.map { String($0) } ?? "",
+            cleanup?.costUSD.map { String($0) } ?? "",
+            cleanup?.errorCode ?? "", cleanup.map { String($0.appContextUsed) } ?? "",
+            row.transcriptionCost.map { String($0) } ?? "",
           ]
           lines.append(fields.map(CSVField.encode).joined(separator: ","))
         }

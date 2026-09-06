@@ -153,3 +153,29 @@ No timed-out command was counted as a successful profile.
 - Refresh-rate scrolling, HUD smoothness, and accessibility interaction.
 
 None of these gates is proven by the startup probe or offline tests.
+
+## Optional cleanup, 2026-09-06
+
+The owner reported that build 3 felt smooth and planned to use Tok exclusively.
+That is qualitative feedback, not a frame-time measurement. A metadata-only query
+found three successful Live dispatch records attributed to `1d181bd6d8a9`:
+median total 596.22 ms, median capture 84.51 ms, median API 497.57 ms, and median
+injection 15.05 ms. The maximum total was 781.47 ms. These three observations do
+not establish the sub-500 ms target or accuracy parity, and component medians
+must not be added together as though they describe one turn.
+
+The optional text cleanup pass defaults to off. Five synthetic text-only checks
+against `gemini-3.5-flash-lite` completed in 891–984 ms initially. The final run,
+which also asserted three separate numbered-list lines, completed in 815–1,025 ms.
+These are cleanup-stage durations alone. They exclude microphone capture, the
+original transcription, and paste delivery. The fixtures cover spoken numbers,
+numbered items, Marathi, mixed language, and a terminal-context question; they do
+not substitute for a real-speech accuracy evaluation.
+
+Measurements and API-reported usage are in
+`build/post-processing-live-check-initial.json` and
+`build/post-processing-live-check.json`. The corresponding test logs are
+`/tmp/tok-cleanup-live-checks.log` and `/tmp/tok-cleanup-final-live.log`.
+The off-path test verifies no cleanup request and inline continuation. No claim
+of zero measured CPU overhead is made. Enabled and disabled dictations must be
+kept separate when assessing the latency target.

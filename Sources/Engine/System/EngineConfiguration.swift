@@ -14,6 +14,12 @@ public struct EngineConfiguration: Sendable {
   public var geminiModel: String = "gemini-3.5-flash-lite"
   public var geminiLiveModel: String = "gemini-3.5-transcribe-live"
   public var smartTranscription: Bool = true
+  public var postProcessEnabled = false
+  public var postProcessAppContext = false
+  public var postProcessModel = "gemini-3.5-flash-lite"
+  public var postProcessTimeoutMs = 2500
+  public var postProcessInputPricePer1M = 0.30
+  public var postProcessOutputPricePer1M = 2.50
   // Region-qualified BCP-47 codes, matching the live-transcribe language table (en-IN, mr-IN,
   // hi-IN, ...). Bare "en"/"mr" is not what the documented table lists.
   public var languageCodes: [String] = ["en-IN", "mr-IN"]

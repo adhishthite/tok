@@ -23,11 +23,65 @@ public enum SettingCatalog {
       config.geminiLiveModel = value
     },
     SettingDefinition(
-      key: "SMART_TRANSCRIPTION", title: "Clean up speech",
-      help: "Remove fillers and format spoken numbers and dates.", group: .transcription,
+      key: "SMART_TRANSCRIPTION", title: "Clean up during live transcription",
+      help:
+        "Ask the live model to remove fillers and format numbers and dates, using the existing transcription request.",
+      group: .transcription,
       kind: .toggle, defaultValue: "true"
     ) { config, value in
       config.smartTranscription = (value.lowercased() == "true" || value == "1")
+    },
+    SettingDefinition(
+      key: "POST_PROCESS_ENABLED", title: "Polish dictations before pasting",
+      help:
+        "Send the transcript through an optional cleanup pass for punctuation, numbers, and lists. Adds response time and API usage. Off by default.",
+      group: .transcription, kind: .toggle, defaultValue: "false"
+    ) { config, value in
+      config.postProcessEnabled = (value.lowercased() == "true" || value == "1")
+    },
+    SettingDefinition(
+      key: "POST_PROCESS_APP_CONTEXT", title: "Adapt formatting to the app",
+      help:
+        "When cleanup is enabled, include the destination app name and identifier. Window titles and contents are not sent.",
+      group: .transcription, kind: .toggle, defaultValue: "false"
+    ) { config, value in
+      config.postProcessAppContext = (value.lowercased() == "true" || value == "1")
+    },
+    SettingDefinition(
+      key: "POST_PROCESS_MODEL", title: "Cleanup model",
+      help:
+        "Default: Gemini 3.5 Flash-Lite. Update cleanup token prices if you choose another model.",
+      group: .advanced, kind: .text, defaultValue: "gemini-3.5-flash-lite"
+    ) { config, value in
+      config.postProcessModel = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    },
+    SettingDefinition(
+      key: "POST_PROCESS_TIMEOUT_MS", title: "Maximum cleanup wait",
+      help:
+        "Milliseconds before using the original transcript. Failed cleanup never blocks delivery indefinitely.",
+      group: .advanced, kind: .integer(500...10000), defaultValue: "2500"
+    ) { config, value in
+      if let value = Int(value) { config.postProcessTimeoutMs = min(10000, max(500, value)) }
+    },
+    SettingDefinition(
+      key: "POST_PROCESS_INPUT_PRICE_PER_1M", title: "Cleanup input price",
+      help:
+        "USD per million input tokens, for cost estimates. Default matches Gemini 3.5 Flash-Lite standard pricing.",
+      group: .advanced, kind: .decimal(0...1000), defaultValue: "0.30"
+    ) { config, value in
+      if let value = Double(value), value.isFinite {
+        config.postProcessInputPricePer1M = min(1000, max(0, value))
+      }
+    },
+    SettingDefinition(
+      key: "POST_PROCESS_OUTPUT_PRICE_PER_1M", title: "Cleanup output price",
+      help:
+        "USD per million output tokens, including reported thinking tokens. Costs remain unknown when usage is not reported.",
+      group: .advanced, kind: .decimal(0...1000), defaultValue: "2.50"
+    ) { config, value in
+      if let value = Double(value), value.isFinite {
+        config.postProcessOutputPricePer1M = min(1000, max(0, value))
+      }
     },
     SettingDefinition(
       key: "LANGUAGE_CODES", title: "Languages",

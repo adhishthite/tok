@@ -9,8 +9,12 @@ struct LatencySnapshot {
   let injection: Double?
   let route: String
   let delivery: String
+  let postProcessing: PostProcessingMetrics?
+  let totalCost: Double?
 
   init(record: TurnRecord) {
+    postProcessing = record.postProcessing
+    totalCost = Self.valid(record.costUSD)
     total = Self.valid(record.totalMs)
     capture = Self.valid(record.captureFinalizeMs)
     transcription = Self.valid(record.roundtripMs)

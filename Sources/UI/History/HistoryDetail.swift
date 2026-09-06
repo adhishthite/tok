@@ -17,6 +17,12 @@ struct HistoryDetail: View {
           "Estimated cost", value: entry.cost.map { String(format: "$%.5f", $0) } ?? "Not reported")
         LabeledContent(
           "Status", value: entry.outcome.replacingOccurrences(of: "_", with: " ").capitalized)
+        if let metrics = entry.postProcessing {
+          LabeledContent("Cleanup", value: metrics.displayStatus)
+          if metrics.status != "off" {
+            DisclosureGroup("Cleanup details") { PostProcessingDetailsView(metrics: metrics) }
+          }
+        }
         DisclosureGroup("Technical details") {
           VStack(spacing: 10) {
             LabeledContent(
@@ -27,7 +33,12 @@ struct HistoryDetail: View {
             LabeledContent("Event queue", value: milliseconds(entry.eventQueueMs))
             LabeledContent("Capture", value: milliseconds(entry.captureMs))
             LabeledContent("First token", value: milliseconds(entry.firstTokenMs))
-            LabeledContent("API", value: milliseconds(entry.apiMs))
+            LabeledContent("Transcription", value: milliseconds(entry.apiMs))
+            LabeledContent(
+              "Transcription cost",
+              value: entry.transcriptionCost.map {
+                String(format: "$%.6f", $0)
+              } ?? "Not reported")
             LabeledContent("Injection", value: milliseconds(entry.injectionMs))
             LabeledContent("Total", value: milliseconds(entry.totalMs))
             LabeledContent("Ready again", value: milliseconds(entry.readyMs))

@@ -7,7 +7,11 @@ struct SettingRow: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 5) {
       control
-        .disabled(store.settings.isOverridden(setting.key))
+        .disabled(
+          store.settings.isOverridden(setting.key)
+            || (setting.key == "POST_PROCESS_APP_CONTEXT"
+              && !store.settings.bool("POST_PROCESS_ENABLED"))
+        )
       Text(setting.help).font(.caption).foregroundStyle(.secondary).fixedSize(
         horizontal: false, vertical: true)
       if store.settings.isOverridden(setting.key) {

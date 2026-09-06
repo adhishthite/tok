@@ -204,6 +204,22 @@ final class DictationStore: DictationEngineDelegate {
         let route = record.isLiveRoute.map { $0 ? "WS" : "REST" } ?? record.transport ?? "none"
         lastLatencyLine =
           "LATENCY route=\(route) capture=\(Self.milliseconds(record.captureFinalizeMs)) api=\(Self.milliseconds(record.roundtripMs)) injection=\(Self.milliseconds(record.injectMs)) total=\(Self.milliseconds(total)) delivery=\(record.deliveryOutcome ?? "none")"
+        if let cleanup = record.postProcessing {
+          lastLatencyLine +=
+            " cleanup_status=\(cleanup.status) cleanup=\(Self.milliseconds(cleanup.latencyMs))"
+          lastLatencyLine += " cleanup_model=\(cleanup.model ?? "none")"
+          lastLatencyLine +=
+            " cleanup_input_tokens=\(cleanup.inputTokens.map(String.init) ?? "n/a")"
+          lastLatencyLine +=
+            " cleanup_output_tokens=\(cleanup.outputTokens.map(String.init) ?? "n/a")"
+          lastLatencyLine +=
+            " cleanup_thinking_tokens=\(cleanup.thinkingTokens.map(String.init) ?? "n/a")"
+          lastLatencyLine +=
+            " cleanup_cost_usd=\(cleanup.costUSD.map { String(format: "%.8f", $0) } ?? "n/a")"
+          lastLatencyLine += " app_context=\(cleanup.appContextUsed)"
+        }
+        lastLatencyLine +=
+          " total_cost_usd=\(record.costUSD.map { String(format: "%.8f", $0) } ?? "n/a")"
         appendDiagnostic(lastLatencyLine)
         reportRuntime()
       }

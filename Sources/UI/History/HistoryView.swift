@@ -13,7 +13,14 @@ struct HistoryView: View {
         HistoryMetric(title: "Completed", value: String(history.statistics.count))
         HistoryMetric(title: "Words", value: String(history.statistics.words))
         HistoryMetric(
-          title: "Estimated cost", value: String(format: "$%.3f", history.statistics.cost))
+          title: "Estimated cost",
+          value: String(format: "$%.3f", history.statistics.cost)
+            + (history.statistics.unpricedCleanupCount > 0 ? "+" : "")
+        )
+        .help(
+          history.statistics.unpricedCleanupCount > 0
+            ? "Includes known costs. Some cleanup requests did not report usage."
+            : "Estimated from reported usage and configured token prices.")
         HistoryMetric(
           title: "Median latency",
           value: history.statistics.medianMs.map { String(format: "%.0f ms", $0) } ?? "Not measured"

@@ -20,6 +20,13 @@ Audio settings include a native microphone picker with System Default,
 automatic lid-based selection, and connected device names. Explicit device
 choices use stable IDs. Disconnected and imported selections are preserved.
 The microphone stays closed between dictations by default.
+Optional cleanup is in Settings > Transcription: enable “Polish dictations before
+pasting” for an extra Gemini 3.5 Flash-Lite pass. It is off by default. The separate
+“Adapt formatting to the app” option includes only the destination app name and
+identifier captured when dictation started, not window titles or contents.
+Cleanup can format numbers and lists while preserving the spoken meaning and
+languages. It adds a model round trip. Failed, timed-out, or unusable results fall
+back to the original transcript. See [POSTPROCESSING.md](POSTPROCESSING.md).
 Diagnostics shows the latest timing breakdown and a searchable session log.
 Warnings and errors can be filtered, selected entries can be copied, and clearing
 the log leaves saved dictations intact. Transcript text is not logged by the
@@ -94,7 +101,9 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 
 | Setting | Key | Default | Values | Description |
 | --- | --- | --- | --- | --- |
-| Clean up speech | <code>SMART_TRANSCRIPTION</code> | <code>true</code> | true, false | Remove fillers and format spoken numbers and dates. |
+| Clean up during live transcription | <code>SMART_TRANSCRIPTION</code> | <code>true</code> | true, false | Ask the live model to remove fillers and format numbers and dates, using the existing transcription request. |
+| Polish dictations before pasting | <code>POST_PROCESS_ENABLED</code> | <code>false</code> | true, false | Send the transcript through an optional cleanup pass for punctuation, numbers, and lists. Adds response time and API usage. Off by default. |
+| Adapt formatting to the app | <code>POST_PROCESS_APP_CONTEXT</code> | <code>false</code> | true, false | When cleanup is enabled, include the destination app name and identifier. Window titles and contents are not sent. |
 | Languages | <code>LANGUAGE_CODES</code> | <code>en-IN,mr-IN</code> | Text | Comma-separated language codes, such as en-IN,mr-IN. Use auto for unrestricted recognition. |
 
 ### Audio
@@ -140,6 +149,10 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | --- | --- | --- | --- | --- |
 | Fallback model | <code>GEMINI_MODEL</code> | <code>gemini-3.5-flash-lite</code> | Text | Used when the live connection cannot finish a dictation. |
 | Live model | <code>GEMINI_LIVE_MODEL</code> | <code>gemini-3.5-transcribe-live</code> | Text | Used for streaming transcription. |
+| Cleanup model | <code>POST_PROCESS_MODEL</code> | <code>gemini-3.5-flash-lite</code> | Text | Default: Gemini 3.5 Flash-Lite. Update cleanup token prices if you choose another model. |
+| Maximum cleanup wait | <code>POST_PROCESS_TIMEOUT_MS</code> | <code>2500</code> | 500 to 10000 | Milliseconds before using the original transcript. Failed cleanup never blocks delivery indefinitely. |
+| Cleanup input price | <code>POST_PROCESS_INPUT_PRICE_PER_1M</code> | <code>0.30</code> | 0.0 to 1000.0 | USD per million input tokens, for cost estimates. Default matches Gemini 3.5 Flash-Lite standard pricing. |
+| Cleanup output price | <code>POST_PROCESS_OUTPUT_PRICE_PER_1M</code> | <code>2.50</code> | 0.0 to 1000.0 | USD per million output tokens, including reported thinking tokens. Costs remain unknown when usage is not reported. |
 | Stream while speaking | <code>ENABLE_LIVE_WEBSOCKET</code> | <code>true</code> | true, false | Use the live connection for lower settlement latency. |
 | Fallback delay | <code>REST_FALLBACK_TIMEOUT</code> | <code>4.0</code> | 0.1 to 30.0 | Seconds to wait before also trying the fallback route. |
 | Pre-roll | <code>PRE_ROLL_MS</code> | <code>400</code> | 0 to 1000 | Milliseconds retained before pressing the shortcut when warm capture is enabled. |
