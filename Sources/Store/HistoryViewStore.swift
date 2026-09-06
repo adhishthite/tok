@@ -5,7 +5,7 @@ import TokEngine
 @MainActor
 @Observable
 final class HistoryViewStore {
-  var search = "" { didSet { reload() } }
+  var search = "" { didSet { reload(debounceSearch: true) } }
   var days = 7 { didSet { reload() } }
   var selection: Set<Int64> = []
   private(set) var entries: [HistoryEntry] = []
@@ -20,14 +20,15 @@ final class HistoryViewStore {
     repository = HistoryRepository(path: path)
     if visible { reload() }
   }
-  func reload() {
+  func reload(debounceSearch: Bool = false) {
     guard visible else { return }
     queryTask?.cancel()
+    loading = true
     queryTask = Task { [weak self] in
       do {
-        try await Task.sleep(for: .milliseconds(180))
+        if debounceSearch { try await Task.sleep(for: .milliseconds(180)) }
+        try Task.checkCancellation()
         guard let self else { return }
-        self.loading = true
         let since =
           self.days == 1
           ? Calendar.current.startOfDay(for: Date())
