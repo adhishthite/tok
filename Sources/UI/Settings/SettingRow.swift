@@ -7,6 +7,7 @@ struct SettingRow: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 5) {
       control
+        .accessibilityHint(setting.help)
         .disabled(
           store.settings.isOverridden(setting.key)
             || (setting.key == "POST_PROCESS_APP_CONTEXT"

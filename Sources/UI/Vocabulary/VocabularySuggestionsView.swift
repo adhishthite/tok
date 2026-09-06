@@ -28,9 +28,12 @@ struct VocabularySuggestionsView: View {
       }
       HStack {
         Button("Cancel") { dismiss() }
+          .keyboardShortcut(.cancelAction)
         Spacer()
         Button("Add selected", action: addSelected).buttonStyle(.borderedProminent).disabled(
-          model.selected.isEmpty)
+          model.selected.isEmpty
+        )
+        .keyboardShortcut(.defaultAction)
       }
     }.padding(24).frame(width: 540, height: 450)
   }
