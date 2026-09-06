@@ -93,3 +93,19 @@ one-frame update targets. No new Instruments capture was performed in this revie
 - Verified cleanup status for the build 4 sample is `off`.
 - Inspected timing/injection code and existing performance evidence. No live API
   calls, recording, benchmark settings changes, or transcript analysis were run.
+
+## Deferred-work refresh, 2026-09-06
+
+A new read-only SQLite query selected only build, outcome, transport, delivery,
+cleanup status, and total timing. It used a two-second database timeout and a
+three-second preference-path lookup. The build 3 and build 4 sample counts and
+timings above are unchanged; there are no build 5 or build 6 records. The reference
+JustSpeak checkout is clean at `06f1e09137be9569f877322257b05b88c7f6da6a`.
+No paired real-speech trials or destination-output inspections have occurred.
+[ACCEPTANCE_SESSION.md](ACCEPTANCE_SESSION.md) provides the prepared protocol.
+
+The current host is macOS 26.6.2 (25G83), arm64. Instruments discovery lists
+SwiftUI and Animation Hitches templates. Native Computer Use attachment to
+installed Tok times out, so reproducible window/scroll/state interactions are
+blocked. No idle trace was substituted for frame-presentation evidence and no
+UI performance optimization is justified by this discovery alone.

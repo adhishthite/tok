@@ -8,15 +8,16 @@ Keep recordings, transcripts, credentials, and private app content out of Git.
 
 Use a separate test macOS account with no Tok preferences, Keychain entry, or
 permission grants. Do not reset permissions or remove data in the owner's account.
-Use the final notarized DMG at `build/package/Tok.dmg`. Match its hash to the
+Use the preserved notarized DMG at `build/package/build-6/Tok.dmg` until a newer
+verified build is recorded below. Match its hash to the
 verified checkpoint in [DISTRIBUTION.md](DISTRIBUTION.md).
 
 1. Open the DMG, drag Tok into Applications, and launch it from Finder. Confirm
    the normal macOS first-open flow accepts the app without an override.
-2. Start the setup timer when the Tok setup window becomes usable. Keep a valid
-   Gemini key available in a password manager before starting. Also record total
-   installation time separately; do not silently exclude installation from a
-   broader setup-time claim.
+2. Start the total timer when opening the DMG and mark when the Tok setup
+   window becomes usable. Keep a valid
+   Gemini key available in a password manager before starting. Report both total installation-to-visible-text and
+   Setup-to-visible-text time. The under-two-minute target applies to the total.
 3. Follow Tok's Microphone, Accessibility, and Input Monitoring steps. Return to
    Tok after each System Settings action. Each granted row must update without
    restarting the app or using a terminal.
@@ -108,3 +109,32 @@ See [DISTRIBUTION.md](DISTRIBUTION.md) for provenance and installation evidence.
 The application-source CI run for `2c22537` passed tests and artifact packaging.
 The remaining gates are still fresh-account setup, interactive accessibility,
 measured frame timing, real-speech comparison, and an installed Sparkle update.
+
+## Deferred-work live audit, 2026-09-06
+
+The checkout was clean on main at `f151dacd04f5b0af26117845e99067e3274f1237`.
+GitHub confirmed the source repository remains private and no releases exist.
+[Exact-commit CI](https://github.com/adhishthite/tok/actions/runs/34048477536)
+completed successfully. Installed build 6 reports source `2c22537f7932` and runs
+from `/Applications/Tok.app` (observed PID 29963). Deep strict code-signature,
+stapled-ticket, and Gatekeeper checks passed again on this installed bundle.
+The observed host is macOS 26.6.2 (25G83), arm64. No Intel or macOS 14 runtime
+coverage was added.
+
+Computer Use attachment to Tok by name and exact installed path returned
+`timeoutReached`; bundle-ID lookup was ambiguous because preserved builds share
+its identifier. Native app inventory was available. No keyboard, VoiceOver,
+window presentation, scrolling, or HUD visual result is inferred from this.
+Interactive checks require working app control or an owner-driven session.
+Instruments lists the host and SwiftUI/Animation Hitches templates, but discovery
+alone is not a profile or presented-frame measurement.
+
+[ACCEPTANCE_SESSION.md](ACCEPTANCE_SESSION.md) contains the smallest isolated
+onboarding test and owner-reviewable synthetic speech protocol. No isolated
+account, reviewed ground truth, or real-speech session has been supplied for this
+run. Those requirements remain untested. The metadata-only history refresh
+contains no build 6 records and does not establish destination output or parity.
+
+[UPDATE_HOSTING.md](UPDATE_HOSTING.md) is the concrete hosting proposal awaiting
+owner approval. Public destination approval and publication remain distinct
+from local preparation. No hosted update or runtime tamper test has run.

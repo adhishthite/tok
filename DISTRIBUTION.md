@@ -234,3 +234,23 @@ reports source `2c22537f7932`; its executable was verified running. The designat
 signing requirement matched the previous build. Build 4 is retained at
 `build/installed-backups/build-4/Tok.app`. This was a local installation, not a
 Sparkle update or a fresh-account setup test. No release was published.
+
+## Deferred-work verification refresh, 2026-09-06
+
+Installed build 6, source `2c22537f7932`, again passed deep strict codesign,
+`stapler validate`, and Gatekeeper execute assessment (`Notarized Developer ID`).
+Its process path is `/Applications/Tok.app/Contents/MacOS/Tok`. The preserved
+build 6 ZIP and DMG SHA-256 values match the table above. No new notarization
+submission or bundle replacement was needed for this refresh.
+
+The bounded local signing check completed with exit 0. The existing Keychain
+key matches the test app's embedded public key; generated feed/archive signatures
+verify, and modified feed/archive copies fail signature verification. New
+test-only artifacts are in `build/sparkle-check-qz8huvx2/`. This uses the local
+Sparkle tools and development bundle, not the installed updater.
+
+[UPDATE_HOSTING.md](UPDATE_HOSTING.md) recommends a separate public binary
+repository with local Keychain signing and no credential export. It remains a
+proposal pending owner approval. The source repo is still private; GitHub reports
+no releases. Build 6 still has no hosted feed. Installed update, preservation,
+anonymous hosting, runtime tamper rejection, and fresh-account gates remain open.

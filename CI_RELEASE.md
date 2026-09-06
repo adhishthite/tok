@@ -133,3 +133,15 @@ the Python CI scripts with Ruff. Install actionlint and uv first, or pass
 Sources: [GitHub macOS runner image](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md),
 [workflow triggers](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows),
 [Sparkle publishing](https://sparkle-project.org/documentation/publishing/).
+
+## Deferred-work hosting proposal, 2026-09-06
+
+[UPDATE_HOSTING.md](UPDATE_HOSTING.md) proposes local signing and a separate
+public binary repository. Destination approval is pending. This route avoids
+exporting or uploading the existing signing credentials. Do not perform the
+hosted signing setup above merely to prepare this proposal.
+
+The current release helper still uses one repository for source provenance and
+asset hosting. It must separate those identities before it can publish private
+source builds into an approved public binary repository. The current private-host
+rejection remains in place. No release workflow was dispatched in this refresh.
