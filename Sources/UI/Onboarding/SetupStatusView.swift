@@ -61,16 +61,6 @@ struct SetupStatusView: View {
           Text("Choose a shortcut")
         }
         Section {
-          Button("Import JustSpeak settings…") {
-            guard let url = FileDialogs.chooseConfiguration() else { return }
-            do {
-              importMessage = try store.settings.importConfiguration(from: url).message
-              importError = nil
-            } catch {
-              importMessage = nil
-              importError = "Choose a readable UTF-8 settings file no larger than 1 MB."
-            }
-          }
           Button("Add vocabulary from file…") {
             guard let url = FileDialogs.chooseVocabulary() else { return }
             do {
@@ -85,7 +75,7 @@ struct SetupStatusView: View {
           if let importMessage { Text(importMessage).foregroundStyle(.secondary).font(.caption) }
         } footer: {
           Text(
-            "Import is optional. Your key goes to Keychain. New vocabulary is added to your existing terms."
+            "Vocabulary is optional. New terms are added to your existing vocabulary."
           )
         }
       }.formStyle(.grouped)

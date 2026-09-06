@@ -34,7 +34,7 @@ verified checkpoint in [DISTRIBUTION.md](DISTRIBUTION.md).
 
 Repeat permission denial and recovery separately. A denied permission must leave
 an actionable setup state. The test must not silently change other user settings.
-Exercise optional settings and vocabulary imports separately, including an open
+Exercise vocabulary imports separately, including an open
 unsaved vocabulary document. Imports must preserve existing text and undo history.
 
 ## Native interaction and accessibility

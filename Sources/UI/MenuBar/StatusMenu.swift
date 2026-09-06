@@ -5,11 +5,17 @@ struct StatusMenu: View {
   @Environment(\.openWindow) private var openWindow
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      HStack(alignment: .firstTextBaseline) {
-        Text("Tok").font(.headline)
+      HStack(spacing: 10) {
+        Image(nsImage: NSApplication.shared.applicationIconImage)
+          .resizable().interpolation(.high).frame(width: 36, height: 36)
+          .accessibilityHidden(true)
+        Text("Tok").font(.title3.weight(.semibold))
         Spacer()
-        Text(store.isPaused ? "Paused" : store.shortcutLabel).font(.callout).foregroundStyle(
-          .secondary)
+        Text(store.isPaused ? "Paused" : store.shortcutLabel)
+          .font(.system(.callout, design: .rounded).weight(.medium))
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 8).padding(.vertical, 4)
+          .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
       }
       if store.needsSetup {
         Text("Finish setup to start dictating.").foregroundStyle(.secondary)
@@ -26,10 +32,10 @@ struct StatusMenu: View {
         )
         .font(.callout).foregroundStyle(.secondary)
       }
-      Button("Vocabulary…", systemImage: "character.book.closed") { store.showVocabulary?() }
-        .buttonStyle(.borderless).font(.callout)
-      Button("History…", systemImage: "clock") { show("history") }
-        .buttonStyle(.borderless).font(.callout)
+      navigationButton("Vocabulary…", symbol: "character.book.closed", color: .purple) {
+        store.showVocabulary?()
+      }
+      navigationButton("History…", symbol: "clock", color: .teal) { show("history") }
       Divider()
       Toggle(
         "Hide dictated words",
@@ -61,6 +67,23 @@ struct StatusMenu: View {
     }
     .padding(18).frame(width: 300, alignment: .leading)
     .onAppear { store.refreshPermissions() }
+  }
+  private func navigationButton(
+    _ title: String, symbol: String, color: Color, action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      HStack(spacing: 10) {
+        Image(systemName: symbol)
+          .font(.system(size: 14, weight: .medium)).foregroundStyle(.white)
+          .frame(width: 26, height: 26)
+          .background(color.gradient, in: RoundedRectangle(cornerRadius: 7))
+          .accessibilityHidden(true)
+        Text(title).font(.callout).foregroundStyle(.primary)
+        Spacer()
+        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+          .accessibilityHidden(true)
+      }.padding(.vertical, 3).contentShape(.rect)
+    }.buttonStyle(.borderless)
   }
   private func show(_ id: String) {
     openWindow(id: id)

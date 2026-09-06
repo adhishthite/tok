@@ -48,15 +48,6 @@ struct SettingsView: View {
         if group == .general {
           Section {
             Button("Review permissions") { store.showSetup?() }
-            Button("Import JustSpeak settings…") {
-              guard let url = FileDialogs.chooseConfiguration() else { return }
-              do {
-                importResult = try store.settings.importConfiguration(from: url).message
-              } catch {
-                importResult = "Choose a readable UTF-8 settings file no larger than 1 MB."
-              }
-            }
-            if let importResult { Text(importResult).font(.caption).foregroundStyle(.secondary) }
           }
         }
         if group == .advanced {

@@ -13,7 +13,9 @@ make check
 
 The app includes a native menu-bar panel, AppKit dictation overlay, Settings,
 searchable History, Vocabulary editing with suggestions, and Diagnostics.
-Setup guides permissions, API key storage, and shortcut testing.
+Setup guides permissions, API key storage, and shortcut testing. The connection
+test shows explicit checking, connected, and failure states. If Tok is missing
+from a permission list, setup can reveal the running app in Finder.
 Audio settings include a native microphone picker with System Default,
 automatic lid-based selection, and connected device names. Explicit device
 choices use stable IDs. Disconnected and imported selections are preserved.
@@ -35,16 +37,19 @@ See [DISTRIBUTION.md](DISTRIBUTION.md) for notarization and update configuration
 drawing in `Scripts/generate_icon.swift`.
 Run `make format` before `make check`. Keep credentials in the ignored `.env`.
 
-For development, `make run` imports the local `.env` at runtime and stores its
-API key in Tok's Keychain item. It never imports the old history database path.
-Imports preserve your existing history retention choice. Change retention in
-History settings, where deleting older records requires confirmation.
-Automatic vocabulary import is limited to the folder containing the selected
-settings file, including symlink resolution. Use “Add vocabulary from file”
-to select a file elsewhere. New lines are merged into Tok’s vocabulary without
-removing existing lines. Imported files must be UTF-8 text, no larger than 1 MB.
-If the destination vocabulary is open in the editor, imports are added to that
-document without overwriting its unsaved edits. Save in the editor to apply them.
+For development only, `make run` seeds settings from the local `.env` and stores
+its API key in Keychain. The app has no JustSpeak configuration-import action.
+Development seeding preserves the current history path and retention choice.
+Change retention in History settings, where deleting older records requires
+confirmation.
+
+“Add vocabulary from file” accepts UTF-8 text up to 1 MB and merges new lines
+without removing existing terms. When the vocabulary is open, additions are
+staged in that document without overwriting unsaved edits. Save to apply them.
+In Vocabulary, “Analyze history…” reviews up to 500 saved dictations from the
+last 30 days, existing vocabulary, and observed corrections through Gemini.
+Review the suggestions, choose the terms or replacements to add, then Save.
+Analysis is explicitly requested and does not run in the dictation path.
 Replacement processing is bounded to 1,000,000 UTF-16 output units, 10,000 matches,
 and 16,000,000 scanned UTF-16 units per dictation. If a limit is reached, Tok does
 not paste the expanded text and keeps the original in History when history is enabled.

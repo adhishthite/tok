@@ -27,7 +27,8 @@ struct VocabularyView: View {
           Text("Finding suggestions…").font(.callout)
           Button("Cancel", action: cancelAnalysis)
         } else {
-          Button("Suggest from history…") { confirmAnalysis = true }
+          Button("Analyze history…", systemImage: "sparkles") { confirmAnalysis = true }
+            .help("Find vocabulary terms and replacements from saved dictations.")
         }
         Spacer()
         Button("Save", action: save).keyboardShortcut("s")
