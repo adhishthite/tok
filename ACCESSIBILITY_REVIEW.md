@@ -51,3 +51,12 @@ changes. It exited 0: 68 XCTest passes, three explicit live-test skips, 18 Pytho
 regression passes, and a matching 53-setting reference. The log is
 `/tmp/tok-accessibility-check.log`. Runtime accessibility acceptance remains open;
 this review does not establish full accessibility.
+
+## Mid-animation Reduce Motion follow-up
+
+[HUD_MOTION_REVIEW.md](HUD_MOTION_REVIEW.md) records a concrete missing preference
+notification and the AppKit/Core Animation fix prepared for build 7. Four new
+synthetic HUD tests pass in the full repository check. This verifies the
+notification response and state transitions, not rendered motion or VoiceOver.
+Computer Use attachment to installed build 6 timed out during this session;
+keyboard, names/roles/states, focus, and suggestion-sheet interaction remain open.

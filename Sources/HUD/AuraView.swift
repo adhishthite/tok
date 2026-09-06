@@ -50,6 +50,17 @@ final class AuraView: NSView {
     updateEmitter()
   }
 
+  // Stop independent GPU motion too: stopping the display tick does not remove
+  // already emitted particles or an in-flight success ripple.
+  func stopMotion() {
+    emitterLayer?.removeFromSuperlayer()
+    emitterLayer = nil
+    for child in layer?.sublayers ?? [] where child.animation(forKey: "successRipple") != nil {
+      child.removeAllAnimations()
+      child.removeFromSuperlayer()
+    }
+  }
+
   // MARK: Particle motes
 
   // CAEmitterCell needs a bitmap; build one soft 12px radial disc once.

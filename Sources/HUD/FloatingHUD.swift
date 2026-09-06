@@ -93,6 +93,11 @@ final class FloatingHUD: NSObject {
   // 120Hz. Pill MOTION stays at native refresh; the slow-breathing glow doesn't need it.
   private var glowAccumulator: CGFloat = 0.0
   private let motionReduced: () -> Bool
+  private let accessibilityNotifications: NotificationCenter
+  private var accessibilityObserver: NSObjectProtocol?
+  private var lastReducedMotion: Bool
+
+  var isTicking: Bool { displayLink != nil || fallbackTimer != nil }
 
   // Everything is assembled in locals first: NSObject subclasses may not touch properties
   // of already-assigned stored objects before super.init(), only initialize them.
@@ -100,8 +105,13 @@ final class FloatingHUD: NSObject {
     self.init(reduceMotion: { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion })
   }
 
-  init(reduceMotion: @escaping () -> Bool) {
+  init(
+    reduceMotion: @escaping () -> Bool,
+    accessibilityNotifications: NotificationCenter = NSWorkspace.shared.notificationCenter
+  ) {
     motionReduced = reduceMotion
+    self.accessibilityNotifications = accessibilityNotifications
+    lastReducedMotion = reduceMotion()
     let screen = NSScreen.main ?? NSScreen.screens.first ?? NSScreen()
     let screenFrame = screen.frame
     let notchInfo = NotchGeometry.detect(screen: screen)
@@ -252,9 +262,58 @@ final class FloatingHUD: NSObject {
       self?.applyScreenLayout()
     }
 
+    accessibilityObserver = accessibilityNotifications.addObserver(
+      forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+      object: nil, queue: .main
+    ) { [weak self] _ in
+      self?.accessibilityDisplayOptionsChanged()
+    }
+
     // On non-notch displays the aura panel must wrap the pill instead of a phantom
     // cutout; applyScreenLayout holds that branch, so run it once at startup.
     applyScreenLayout()
+  }
+
+  deinit {
+    if let accessibilityObserver {
+      accessibilityNotifications.removeObserver(accessibilityObserver)
+    }
+  }
+
+  private func accessibilityDisplayOptionsChanged() {
+    let reduced = reduceMotion
+    guard reduced != lastReducedMotion else { return }
+    lastReducedMotion = reduced
+    lastFrameState = nil
+    hostView.layer?.removeAllAnimations()
+    notchGlowView.layer?.removeAllAnimations()
+    headerLabel.layer?.removeAllAnimations()
+    transcriptLabel.layer?.removeAllAnimations()
+    if reduced {
+      stopTick()
+      presence.snap()
+      widthSpring.snap()
+      lockPulse.snap()
+      notchGlowView.stopMotion()
+      // No display tick remains to release the temporary lock hint.
+      lockHintUntil = 0
+      if locked {
+        updateLockRing(now: CACurrentMediaTime(), dt: 0)
+      } else {
+        lockRingView.progress = 0
+        lockRingView.strength = 0
+      }
+      applyFrame()
+      hostView.alphaValue = shownTarget && !privacyMode ? 1 : 0
+      notchGlowView.alphaValue = shownTarget ? 1 : 0
+      if !shownTarget {
+        hostPanel.orderOut(nil)
+        notchPanel.orderOut(nil)
+      }
+    } else {
+      applyFrame()
+      if shownTarget || !presence.settled || !widthSpring.settled { startTick() }
+    }
   }
 
   private var reduceMotion: Bool {
@@ -688,8 +747,8 @@ final class FloatingHUD: NSObject {
     lockPulse.target = 0.0
     lockHintUntil = 0
     listenStart = CACurrentMediaTime()
-    // The ring needs the display tick, which reduced motion never starts while listening.
-    if !reduceMotion, let lockAfter = lockAfter, lockAfter > 0 {
+    // Keep the deadline so switching Reduce Motion off can restore hold progress.
+    if let lockAfter = lockAfter, lockAfter > 0 {
       self.lockAfter = lockAfter
     }
 
@@ -890,7 +949,7 @@ final class FloatingHUD: NSObject {
     clearLockRing()
     notchGlowView.state = .success
     orbIcon.state = .success
-    notchGlowView.emitSuccessRipple()
+    if !reduceMotion { notchGlowView.emitSuccessRipple() }
 
     crossfadeTextChange()
     setHeader("Done", color: Palette.success)
