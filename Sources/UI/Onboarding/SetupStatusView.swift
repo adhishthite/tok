@@ -37,9 +37,19 @@ struct SetupStatusView: View {
         } header: {
           Text("Allow dictation")
         } footer: {
-          Text(
-            "Tok needs these permissions to capture your voice, detect the shortcut, and paste text. The microphone closes between dictations by default."
-          )
+          VStack(alignment: .leading, spacing: 8) {
+            Text(
+              "Tok needs these permissions to capture your voice, detect the shortcut, and paste text. The microphone closes between dictations by default."
+            )
+            if !store.permissions.accessibility || !store.permissions.inputMonitoring {
+              Text("If Tok isn’t listed in System Settings, click + and add this copy of the app.")
+              Button("Show Tok in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
+              }
+              .controlSize(.small)
+              .help("Reveals the running copy of Tok to add in System Settings.")
+            }
+          }
         }
         APIKeySection()
         Section {

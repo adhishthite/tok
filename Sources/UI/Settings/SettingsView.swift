@@ -73,6 +73,7 @@ struct SettingsView: View {
       .formStyle(.grouped)
       .navigationTitle(group.rawValue)
     }
+    .toolbar(removing: .sidebarToggle)
     .frame(minWidth: 680, idealWidth: 740, minHeight: 480, idealHeight: 580)
     .confirmationDialog("Reset Tok’s settings?", isPresented: $confirmReset) {
       Button("Reset settings", role: .destructive) { store.settings.reset() }

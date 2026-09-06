@@ -10,6 +10,7 @@ struct TokApp: App {
       MenuBarLabel().environment(delegate.store)
     }.menuBarExtraStyle(.window)
     Settings { SettingsView().environment(delegate.store) }
+      .windowToolbarStyle(.unifiedCompact)
     Window("History", id: "history") { HistoryView().environment(delegate.store) }
       .defaultSize(width: 1000, height: 640)
     Window("Tok diagnostics", id: "diagnostics") {
