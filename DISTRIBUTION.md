@@ -199,3 +199,38 @@ The installed build 4 and its artifacts were not changed.
 The signed app, saved notarization state, and `verification.json` are preserved
 in `build/package/build-5/`. No fresh-Mac or installed-update claim follows from
 these local artifact checks.
+
+## Build 6 prepared on 2026-09-06
+
+Version 0.1.0, build 6, was built from clean isolated commit `2c22537f7932`,
+including the History fix and accessibility improvements. Archive and export
+passed within the 120-second deadline. The build log is
+`/tmp/tok-build6-distribution.log`.
+
+Apple accepted app submission `b6b2757d-2ada-4b55-b1d0-dd298b7c9225` and DMG
+submission `63296fd3-1c24-4bb4-9d57-83b5601a84cd`. Each was uploaded once, then
+checked using its saved ID. App and DMG stapling passed. The first container
+rebuild after app stapling returned `hdiutil: create failed - Resource busy`;
+one bounded container-only retry passed. No notarization upload was repeated.
+
+Deep strict app signature, strict DMG signature, app and DMG Gatekeeper,
+extracted ZIP app checks, and read-only mounted DMG app checks all passed.
+The DMG included the Applications shortcut and the mount was detached.
+Metadata confirms macOS 14.0, `x86_64 arm64`, `LSUIElement`, and no hosted feed.
+Build 6 was not installed or published during packaging. Builds 4 and 5 remain
+preserved.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `build/package/build-6/Tok.dmg` | 2725167 | `318cc1dfbef89d3fcfa77334ad44ec6a49e28da17b70b12b02e4564345d8b934` |
+| `build/package/build-6/Tok-distribution.zip` | 2638613 | `a0c043e88f426c37b9ada5541126b50055e8631c01ad33b94ada4116fe72f9b3` |
+
+`build/package/build-6/` also contains the signed app, saved notarization state,
+and `verification.json`. Interactive acceptance and installed updates remain
+separate gates.
+
+After packaging, build 6 replaced `/Applications/Tok.app`. The installed bundle
+reports source `2c22537f7932`; its executable was verified running. The designated
+signing requirement matched the previous build. Build 4 is retained at
+`build/installed-backups/build-4/Tok.app`. This was a local installation, not a
+Sparkle update or a fresh-account setup test. No release was published.

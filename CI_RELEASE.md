@@ -51,7 +51,7 @@ repository or an HTTPS download host. Either requires adapting the release
 workflow and feed URL; a separate binary repository also needs an appropriately
 scoped publishing token. Never embed a GitHub access token in the app.
 
-The currently installed build 4 has no hosted feed configured. The first
+The currently installed build 6 has no hosted feed configured. The first
 GitHub-enabled release needs a one-time manual installation before later
 Sparkle updates can be exercised. A real installed update remains an acceptance
 gate even after signature checks pass.

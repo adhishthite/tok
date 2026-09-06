@@ -101,3 +101,10 @@ The bounded parallel review results are in
 [ACCESSIBILITY_REVIEW.md](ACCESSIBILITY_REVIEW.md) and
 [PERFORMANCE_REVIEW.md](PERFORMANCE_REVIEW.md). Source fixes and offline checks
 do not close the interactive gates above.
+
+Build 6 is now installed locally, including the History and accessibility fixes.
+Its signed app and DMG passed notarization, stapling, and Gatekeeper checks.
+See [DISTRIBUTION.md](DISTRIBUTION.md) for provenance and installation evidence.
+The application-source CI run for `2c22537` passed tests and artifact packaging.
+The remaining gates are still fresh-account setup, interactive accessibility,
+measured frame timing, real-speech comparison, and an installed Sparkle update.
