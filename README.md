@@ -39,7 +39,12 @@ local fallback. Hardened runtime is enabled.
 `make distribute` creates a universal Developer ID-signed app, DMG, and ZIP.
 See [DISTRIBUTION.md](DISTRIBUTION.md) for notarization and update configuration.
 GitHub CI and manual draft-release workflows are described in
-[CI_RELEASE.md](CI_RELEASE.md). They require repository and signing setup before use.
+[CI_RELEASE.md](CI_RELEASE.md). The source repository is private. CI can run after
+the first push; release automation needs a separate update-hosting design and
+signing setup before use.
+
+Contributors and coding agents should start with [AGENTS.md](AGENTS.md) and
+[CLAUDE.md](CLAUDE.md). The original handoff and kickoff are historical briefs.
 
 `project.yml` owns the generated Xcode project. Build output stays in `build/`.
 `make icon` regenerates the committed app-icon sizes from the original vector

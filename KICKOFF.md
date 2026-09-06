@@ -1,5 +1,10 @@
 # Kickoff prompt for the Tok session
 
+> Historical kickoff prompt. The project is implemented; do not restart bootstrap.
+> [CLAUDE.md](CLAUDE.md) contains the current working agreement. Its main-branch
+> workflow and continued execution supersede the feature-branch and milestone-stop
+> instructions below. The JustSpeak configuration-import UI was also removed.
+
 Paste this as the first message in a fresh session opened in the empty `tok/`
 directory that contains `HANDOFF.md`.
 

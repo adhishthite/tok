@@ -14,7 +14,8 @@ Tok is not a Google product and carries no Google branding.
   Engine and HUD may stay in Swift 5 mode until audited.
 - App Sandbox is OFF by design (global event tap, AX, synthesized paste,
   IOKit). Hardened runtime ON. Distribution is Developer ID + notarization.
-- Sparkle is the planned updater. Other dependencies require a concrete engineering benefit.
+- Sparkle is integrated. Hosted updates and an actual installed update remain unverified.
+  Other dependencies require a concrete engineering benefit.
 
 ## Layering
 - `Engine/` has no SwiftUI and no window code. It reports through a delegate.
@@ -44,12 +45,18 @@ Tok is not a Google product and carries no Google branding.
   Settings UI, and README row. API key lives in Keychain only.
 
 ## Verification
-- `make check` = `xcodebuild test` + `swift format lint`. Report what ran.
+- `make check` runs XCTest, Swift format lint, the compiled settings-reference
+  check, shell syntax checks, Python regression tests, and `git diff --check`.
+  `make check-ci` validates workflows and signing helpers. Report what ran.
 - Latency claims require a measured Diagnostics line.
 - Never log or commit secrets. Inspect config by key name only.
 
 ## Current working agreement
 - Work directly on main and commit small, verified changes. Tags and releases require the owner's instruction.
+- The source repository is private: `adhishthite/tok`. Pushes require the owner's
+  authorization. Read [CI_RELEASE.md](CI_RELEASE.md) before release work; the
+  current release workflow requires public hosting and cannot run against this
+  private repository without a separate hosting design.
 - HANDOFF.md is guidance. The reference source wins when the brief disagrees.
 - Continue the full goal autonomously. The owner superseded milestone review stops on 2026-09-05.
 - Treat native behavior, restrained feedback, responsiveness, and performance as design inputs now, not a final cosmetic phase.

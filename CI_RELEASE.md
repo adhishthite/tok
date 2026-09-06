@@ -1,7 +1,9 @@
 # GitHub automation
 
-The workflow files are prepared locally. They have not run on GitHub, no remote
-has been configured, and no signing credentials have been exported or uploaded.
+The source repository is [adhishthite/tok](https://github.com/adhishthite/tok),
+created as private and connected as `origin`. As of 2026-09-06, the workflow files
+are committed locally but have not been pushed or run on GitHub. No signing
+credentials have been exported or uploaded.
 Hosted signing remains unverified until the first configured run succeeds.
 
 ## Continuous integration
@@ -37,9 +39,15 @@ while its workflow is still running. The scripts never publish it themselves.
 The default feed is
 `https://github.com/OWNER/REPO/releases/latest/download/appcast.xml`.
 Anonymous update downloads require this release repository to be public; the
-release preflight rejects a private repository. The source repository and hosting
-decision must therefore be approved before activation. A separate public binary
-repository would require a different publishing-token setup.
+release preflight rejects a private repository. Therefore, the current release
+workflow cannot prepare releases in `adhishthite/tok`. Ordinary CI can run there
+after the first push; it does not use this release preflight.
+
+Keep the source private. Update hosting is still undecided and requires owner
+approval before implementation. Options include a separate public binary
+repository or an HTTPS download host. Either requires adapting the release
+workflow and feed URL; a separate binary repository also needs an appropriately
+scoped publishing token. Never embed a GitHub access token in the app.
 
 The currently installed build 4 has no hosted feed configured. The first
 GitHub-enabled release needs a one-time manual installation before later

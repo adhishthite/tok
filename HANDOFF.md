@@ -1,5 +1,11 @@
 # Tok: Handoff Brief
 
+> Historical brief, retained for design context. Read [CLAUDE.md](CLAUDE.md) for
+> current instructions and [README.md](README.md) for implemented behavior.
+> Work on main, continue without milestone review stops, and omit the JustSpeak
+> configuration-import UI. These decisions supersede the instructions below. Targets here
+> are requirements, not measured results; see [ACCEPTANCE.md](ACCEPTANCE.md).
+
 Status: draft for a fresh implementation session. Written 2026-09-05 against
 the reference repo `adhishthite/justspeak` at commit `06f1e09`
 (branch `feat/astra-changes`).
