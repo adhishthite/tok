@@ -171,3 +171,50 @@ and signed downloads, not an installed Sparkle update. Build 8 remains the local
 validation baseline; neither it nor build 9 has been installed in this work.
 Native app control and isolated-account access still block update/relaunch/data
 preservation and runtime tamper tests. Production promotion is not approved.
+
+## Installed Sparkle update and runtime tamper verification, 2026-09-07
+
+The official sparkle-cli was built from the pinned Sparkle checkout with a
+120-second supervisor. Its probe found the published update for installed build
+6. The installation command used `--check-immediately` and the published HTTPS
+validation feed, without changing app feed settings or granting automatic checks.
+It exited 0 and replaced `/Applications/Tok.app` with version 0.1.2/build 9,
+source `577d9e92f636`. Tok relaunched from that path with PID 45131. This was a
+real Sparkle installation, not a shell bundle replacement. Build 6 was preserved
+in `build/installed-backups/build-6-before-sparkle/Tok.app` before the update.
+Installed signature, stapled ticket, and Gatekeeper checks passed afterward.
+
+Before/after metadata fingerprints are in `build/installed-update-evidence/`.
+Settings (excluding Sparkle and window bookkeeping), vocabulary bytes, all 30
+history rows' count/ID bounds/aggregate word and character counts, API-key item
+presence, and readable user TCC permission records matched. No secret or transcript
+was printed. SQLite database/WAL byte fingerprints differ after shutdown/relaunch;
+full transcript-content equivalence and successful permission use by dictation
+were not tested. Matching metadata is not claimed as full content verification.
+
+A separate signed build 8 copy under
+`build/tok-runtime-tamper-9gz80bqq/` exercised the real Sparkle runtime against a
+loopback-only HTTP fixture server. It served only test feeds and public archive
+bytes. No production feed, app HTTPS configuration, trust store, permission, or
+public release asset changed. Tests returned:
+
+| Fixture | Result | Bundle afterward |
+| --- | --- | --- |
+| Modified signed feed URL | SUSparkleErrorDomain 1000, improperly signed feed | Build 8 |
+| Correctly signed feed with modified ZIP and matching reported length | SUSparkleErrorDomain 4005, improperly signed update | Build 8 |
+| Correctly signed feed and intact ZIP at the same local path | Exit 0, actual Sparkle installation | Build 9 |
+
+Server request records confirm feed retrieval and archive download. The local
+server was stopped after each bounded test. This verifies runtime signature
+rejection with a successful transport control. The public HTTPS update was
+separately verified by the installed build 6 to build 9 transition above.
+
+Limits: sparkle-cli uses the updater API with an explicit feed override. It does
+not verify Tok's in-app Check for Updates button or scheduled background discovery.
+The production latest URL still needs the separately requested release promotion.
+Native Tok attachment continues to time out. Fresh-account onboarding, complete
+permission functionality, VoiceOver/keyboard interaction, real-speech comparison,
+and presented-frame timing remain unverified. No further product build is needed
+for these existing acceptance checks.
+
+Reference: [Sparkle CLI documentation](https://sparkle-project.org/documentation/sparkle-cli/).
