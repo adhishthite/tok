@@ -9,16 +9,22 @@ struct APIKeySection: View {
   private var testing: Bool { checkStatus == .checking }
   var body: some View {
     Section {
-      SecureField(store.settings.hasAPIKey ? "Replace API key" : "Gemini API key", text: $key)
+      LabeledContent("API key") {
+        SecureField(
+          "API key", text: $key,
+          prompt: Text(store.settings.hasAPIKey ? "Paste a new key" : "Paste your Gemini API key")
+        )
+        .labelsHidden().textFieldStyle(.roundedBorder).frame(width: 280)
         .autocorrectionDisabled()
         .disabled(store.settings.apiKeyProvidedByEnvironment || testing)
-        .onChange(of: key) {
-          // A successful save clears the field. Editing a new candidate key
-          // invalidates the prior check without implying it was saved.
-          if !testing && (!key.isEmpty || checkStatus == .failed) {
-            invalidateCheck()
-          }
+      }
+      .onChange(of: key) {
+        // A successful save clears the field. Editing a new candidate key
+        // invalidates the prior check without implying it was saved.
+        if !testing && (!key.isEmpty || checkStatus == .failed) {
+          invalidateCheck()
         }
+      }
       HStack {
         Button(key.isEmpty ? "Test connection" : "Test and save") {
           let candidate = key
@@ -43,20 +49,22 @@ struct APIKeySection: View {
           }
         }.disabled(testing || (key.isEmpty && !store.settings.hasAPIKey))
         Spacer()
-        HStack(spacing: 6) {
-          if testing {
-            ProgressView().controlSize(.small)
-            Text(checkStatus.label)
-          } else {
-            Label(checkStatus.label, systemImage: checkStatus.symbol)
+        if checkStatus != .unchecked {
+          HStack(spacing: 6) {
+            if testing {
+              ProgressView().controlSize(.small)
+              Text(checkStatus.label)
+            } else {
+              Label(checkStatus.label, systemImage: checkStatus.symbol)
+            }
           }
+          .font(.callout.weight(.medium))
+          .foregroundStyle(checkStatus.color)
+          .padding(.horizontal, 10).padding(.vertical, 5)
+          .background(checkStatus.color.opacity(0.12), in: Capsule())
+          .accessibilityElement(children: .combine)
+          .help("Result of the latest connection test.")
         }
-        .font(.callout.weight(.medium))
-        .foregroundStyle(checkStatus.color)
-        .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(checkStatus.color.opacity(0.12), in: Capsule())
-        .accessibilityElement(children: .combine)
-        .help("Result of the latest connection test.")
       }
       if store.settings.apiKeyProvidedByEnvironment {
         Text("API key supplied by environment.").font(.caption).foregroundStyle(.secondary)

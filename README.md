@@ -118,10 +118,10 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | Setting | Key | Default | Values | Description |
 | --- | --- | --- | --- | --- |
 | Microphone | <code>INPUT_DEVICE</code> | (empty) | System Default, Automatic, or a connected microphone | System Default follows your Mac’s sound settings. Automatic uses the built-in microphone with the lid open and an external microphone with it closed. |
+| Keep microphone ready | <code>KEEP_MICROPHONE_WARM</code> | <code>false</code> | true, false | Keep capturing between dictations for pre-roll. macOS will show microphone use while idle. |
+| Release an idle microphone | <code>MIC_IDLE_TIMEOUT</code> | <code>300</code> | 0 to 7200 | Seconds before releasing warm capture. Zero keeps it open. Applies only when “Keep microphone ready” is on. |
 | Lower other audio while dictating | <code>DUCK_AUDIO</code> | <code>false</code> | true, false | Restore the volume after capture. Your manual volume changes take priority. |
 | Background volume fraction | <code>DUCK_FRACTION</code> | <code>0.2</code> | 0.0 to 1.0 | How much output volume to keep while dictating, from zero to one. |
-| Release an idle microphone | <code>MIC_IDLE_TIMEOUT</code> | <code>300</code> | 0 to 7200 | Seconds before releasing warm capture. Zero keeps it open. Applies only when “Keep microphone ready” is on. |
-| Keep microphone ready | <code>KEEP_MICROPHONE_WARM</code> | <code>false</code> | true, false | Keep capturing between dictations for pre-roll. macOS will show microphone use while idle. |
 
 ### Appearance
 
@@ -147,36 +147,36 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 
 | Setting | Key | Default | Values | Description |
 | --- | --- | --- | --- | --- |
-| History retention | <code>HISTORY_RETENTION_DAYS</code> | <code>0</code> | 0 to 3650 | Days to retain history. Zero keeps it indefinitely. |
 | Save dictation history | <code>HISTORY</code> | <code>true</code> | true, false | Store dictations locally on this Mac. |
+| History retention | <code>HISTORY_RETENTION_DAYS</code> | <code>0</code> | 0 to 3650 | Days to retain history. Zero keeps it indefinitely. |
 
 ### Advanced
 
 | Setting | Key | Default | Values | Description |
 | --- | --- | --- | --- | --- |
-| Fallback model | <code>GEMINI_MODEL</code> | <code>gemini-3.5-flash-lite</code> | Text | Used when the live connection cannot finish a dictation. |
 | Live model | <code>GEMINI_LIVE_MODEL</code> | <code>gemini-3.5-transcribe-live</code> | Text | Used for streaming transcription. |
+| Fallback model | <code>GEMINI_MODEL</code> | <code>gemini-3.5-flash-lite</code> | Text | Used when the live connection cannot finish a dictation. |
+| Vocabulary analysis model | <code>ANALYZE_MODEL</code> | <code>gemini-3.7-flash</code> | Text | Used only when you request suggestions from history. |
 | Cleanup model | <code>POST_PROCESS_MODEL</code> | <code>gemini-3.5-flash-lite</code> | Text | Default: Gemini 3.5 Flash-Lite. Update cleanup token prices if you choose another model. |
 | Maximum cleanup wait | <code>POST_PROCESS_TIMEOUT_MS</code> | <code>2500</code> | 500 to 10000 | Milliseconds before using the original transcript. Failed cleanup never blocks delivery indefinitely. |
-| Cleanup input price | <code>POST_PROCESS_INPUT_PRICE_PER_1M</code> | <code>0.30</code> | 0.0 to 1000.0 | USD per million input tokens, for cost estimates. Default matches Gemini 3.5 Flash-Lite standard pricing. |
-| Cleanup output price | <code>POST_PROCESS_OUTPUT_PRICE_PER_1M</code> | <code>2.50</code> | 0.0 to 1000.0 | USD per million output tokens, including reported thinking tokens. Costs remain unknown when usage is not reported. |
 | Stream while speaking | <code>ENABLE_LIVE_WEBSOCKET</code> | <code>true</code> | true, false | Use the live connection for lower settlement latency. |
 | Fallback delay | <code>REST_FALLBACK_TIMEOUT</code> | <code>4.0</code> | 0.1 to 30.0 | Seconds to wait before also trying the fallback route. |
+| Streaming frame size | <code>CHUNK_MS</code> | <code>150</code> | 20 to 500 | Milliseconds of audio sent in each streaming frame. |
+| Trailing silence | <code>SILENCE_FLUSH_MS</code> | <code>700</code> | 0 to 2000 | Milliseconds of synthetic silence sent to help finalize the final word. |
+| Use aligned end signals | <code>WS_ENDPOINT_ALIGNED</code> | <code>false</code> | true, false | Experimental endpoint signaling. Compare latency and last-word accuracy before adopting. |
 | Pre-roll | <code>PRE_ROLL_MS</code> | <code>400</code> | 0 to 1000 | Milliseconds retained before pressing the shortcut when warm capture is enabled. |
 | Trailing quiet window | <code>POST_ROLL_MS</code> | <code>250</code> | 0 to 500 | Milliseconds of quiet needed before finishing capture. |
 | Maximum trailing capture | <code>POST_ROLL_MAX_MS</code> | <code>1500</code> | 0 to 5000 | Milliseconds to wait for speech after release, at most. |
 | Quiet threshold | <code>TRAIL_SILENCE_DB</code> | <code>-40.0</code> | -80.0 to -10.0 | Audio below this level in dBFS counts as quiet. |
 | Speech boundary detection | <code>VAD_MODE</code> | <code>manual</code> | <code>manual</code>, <code>tuned</code>, <code>auto</code> | Manual uses the shortcut. Tuned and automatic use server speech detection. |
 | Server quiet window | <code>VAD_SILENCE_MS</code> | <code>1500</code> | 200 to 5000 | Milliseconds of silence before the tuned server mode finishes speech. |
-| Use aligned end signals | <code>WS_ENDPOINT_ALIGNED</code> | <code>false</code> | true, false | Experimental endpoint signaling. Compare latency and last-word accuracy before adopting. |
-| Streaming frame size | <code>CHUNK_MS</code> | <code>150</code> | 20 to 500 | Milliseconds of audio sent in each streaming frame. |
-| Trailing silence | <code>SILENCE_FLUSH_MS</code> | <code>700</code> | 0 to 2000 | Milliseconds of synthetic silence sent to help finalize the final word. |
-| History database path | <code>HISTORY_DB</code> | (empty) | Text | Empty uses Tok’s Application Support folder. |
-| Vocabulary analysis model | <code>ANALYZE_MODEL</code> | <code>gemini-3.7-flash</code> | Text | Used only when you request suggestions from history. |
 | Live input price | <code>LIVE_INPUT_PRICE_PER_1M</code> | <code>3.50</code> | 0.0 to 1000.0 | US dollars per million tokens, used for cost estimates. |
 | Live output price | <code>LIVE_OUTPUT_PRICE_PER_1M</code> | <code>21.00</code> | 0.0 to 1000.0 | US dollars per million tokens, used for cost estimates. |
 | Rest input price | <code>REST_INPUT_PRICE_PER_1M</code> | <code>0.30</code> | 0.0 to 1000.0 | US dollars per million tokens, used for cost estimates. |
 | Rest output price | <code>REST_OUTPUT_PRICE_PER_1M</code> | <code>2.50</code> | 0.0 to 1000.0 | US dollars per million tokens, used for cost estimates. |
+| Cleanup input price | <code>POST_PROCESS_INPUT_PRICE_PER_1M</code> | <code>0.30</code> | 0.0 to 1000.0 | USD per million input tokens, for cost estimates. Default matches Gemini 3.5 Flash-Lite standard pricing. |
+| Cleanup output price | <code>POST_PROCESS_OUTPUT_PRICE_PER_1M</code> | <code>2.50</code> | 0.0 to 1000.0 | USD per million output tokens, including reported thinking tokens. Costs remain unknown when usage is not reported. |
+| History database path | <code>HISTORY_DB</code> | (empty) | Text | Empty uses Tok’s Application Support folder. |
 | Diagnostic detail | <code>LOG_LEVEL</code> | <code>normal</code> | <code>normal</code>, <code>verbose</code> | Normal records essential events. Verbose includes additional engineering detail. |
 
 <!-- END GENERATED SETTINGS -->
