@@ -34,7 +34,7 @@ struct HistoryRetentionSection: View {
       )
     }
     .confirmationDialog("Delete history older than \(pending) days?", isPresented: $confirm) {
-      Button("Apply retention", role: .destructive) {
+      Button("Delete older history", role: .destructive) {
         store.settings.set("HISTORY_RETENTION_DAYS", String(pending))
       }
     } message: {
