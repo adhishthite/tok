@@ -26,6 +26,8 @@ struct HistoryRetentionSection: View {
         Text("1 year").tag(365)
       }.disabled(store.settings.isOverridden("HISTORY_RETENTION_DAYS"))
       if let error = store.retentionError { Text(error).font(.caption).foregroundStyle(.secondary) }
+    } header: {
+      Text("Retention")
     } footer: {
       Text(
         "A limited retention period automatically deletes older dictations and observed corrections."
