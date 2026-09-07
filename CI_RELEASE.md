@@ -9,7 +9,7 @@ release tags or assets are published. Publication needs approval of exact assets
 
 `.github/workflows/ci.yml` runs on pushes to main, pull requests, and manual
 requests, using macOS 26 and Xcode 26.6. It validates tooling, runs `make check`,
-and packages a development ZIP. Tests use the documented 180-second hosted
+and packages a development ZIP. Tests use the documented 300-second hosted
 check deadline; packaging uses 120 seconds. Artifacts are retained for 14 days.
 These are development artifacts, not signed public releases.
 
