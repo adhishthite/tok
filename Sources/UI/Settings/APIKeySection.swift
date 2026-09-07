@@ -12,9 +12,7 @@ struct APIKeySection: View {
       LabeledContent("API key") {
         SecureField(
           "API key", text: $key,
-          prompt: Text(
-            store.settings.hasAPIKey
-              ? "Paste a key to replace the saved one" : "Paste your Gemini API key")
+          prompt: Text(store.settings.hasAPIKey ? "Paste a new key" : "Paste your Gemini API key")
         )
         .labelsHidden().textFieldStyle(.roundedBorder).frame(width: 280)
         .autocorrectionDisabled()
