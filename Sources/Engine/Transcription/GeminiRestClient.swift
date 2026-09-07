@@ -44,7 +44,7 @@ struct GeminiRestClient {
       completion(
         .failure(
           NSError(
-            domain: "JustSpeak", code: -1,
+            domain: "Tok", code: -1,
             userInfo: [NSLocalizedDescriptionKey: "Add a Gemini API key in Tok Settings."])))
       return
     }
@@ -58,7 +58,7 @@ struct GeminiRestClient {
       completion(
         .failure(
           NSError(
-            domain: "JustSpeak", code: -2,
+            domain: "Tok", code: -2,
             userInfo: [NSLocalizedDescriptionKey: "Invalid REST URL."])))
       return
     }
@@ -104,7 +104,7 @@ struct GeminiRestClient {
         completion(
           .failure(
             NSError(
-              domain: "JustSpeak", code: -3,
+              domain: "Tok", code: -3,
               userInfo: [NSLocalizedDescriptionKey: "Failed to serialize REST JSON."])))
         return
       }
@@ -130,7 +130,7 @@ struct GeminiRestClient {
         completion(
           .failure(
             NSError(
-              domain: "JustSpeak", code: -4,
+              domain: "Tok", code: -4,
               userInfo: [NSLocalizedDescriptionKey: "No data received from Gemini REST API."])))
         return
       }
@@ -205,7 +205,7 @@ struct GeminiRestClient {
             completion(
               .failure(
                 NSError(
-                  domain: "JustSpeak", code: -7,
+                  domain: "Tok", code: -7,
                   userInfo: [
                     NSLocalizedDescriptionKey: "REST result rejected by validation gate: \(reason)"
                   ])))
@@ -228,7 +228,7 @@ struct GeminiRestClient {
         completion(
           .failure(
             NSError(
-              domain: "JustSpeak", code: -6,
+              domain: "Tok", code: -6,
               userInfo: [
                 NSLocalizedDescriptionKey: "Could not extract candidate text from response."
               ])))

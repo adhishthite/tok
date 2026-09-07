@@ -616,7 +616,7 @@ public final class DictationEngine {
         turnId: currentTurnId, route: "microphone",
         outcome: .failure(
           NSError(
-            domain: "JustSpeak.Microphone", code: 1,
+            domain: "Tok.Microphone", code: 1,
             userInfo: [
               NSLocalizedDescriptionKey: "Microphone interrupted. Nothing pasted. Try again."
             ])))
@@ -785,7 +785,7 @@ public final class DictationEngine {
             // the clip's own energy profile agrees, settle empty instead of handing
             // room tone to the REST model, which hallucinates text from silence.
             let nsError = error as NSError
-            if nsError.domain == "JustSpeak", nsError.code == -2,
+            if nsError.domain == "Tok", nsError.code == -2,
               speechFrames < self.wsNoSpeechTrustFrames
             {
               Log.warn(
@@ -1043,7 +1043,7 @@ public final class DictationEngine {
         route == "microphone" ? "MIC" : "TRANSCRIBE", "Turn failed: \(error.localizedDescription)")
       if config.soundFeedback { SoundManager.playErrorSound() }
       let hudMessage =
-        (error as NSError).domain == "JustSpeak.Microphone"
+        (error as NSError).domain == "Tok.Microphone"
         ? "Microphone interrupted. Try again."
         : Self.friendlyFailureMessage(error) ?? "Transcription failed  -  nothing pasted"
       DispatchQueue.main.async { [weak self] in

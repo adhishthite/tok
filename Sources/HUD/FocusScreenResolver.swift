@@ -3,7 +3,8 @@ import ApplicationServices
 import QuartzCore
 
 struct FocusScreenResolver {
-  private static let lookupQueue = DispatchQueue(label: "com.justspeak.focus", qos: .userInitiated)
+  private static let lookupQueue = DispatchQueue(
+    label: "com.adhishthite.tok.focus", qos: .userInitiated)
 
   // Capture AppKit state on main; Accessibility IPC runs away from the event loop.
   static func resolve(frontmostPID pid: pid_t?, completion: @escaping (NSScreen?) -> Void) {

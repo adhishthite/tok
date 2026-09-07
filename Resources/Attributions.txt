@@ -1,4 +1,3 @@
-Tok's dictation engine includes code ported and adapted from JustSpeak.
+Tok dictation engine
 Copyright 2026 Adhish Thite.
-Reference: https://github.com/adhishthite/justspeak
-Licensed under Apache License 2.0. See JustSpeak-LICENSE.txt.
+Licensed under Apache License 2.0. See Tok-LICENSE.txt.

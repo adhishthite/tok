@@ -544,7 +544,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       connectionFailed(
         epoch: epoch,
         error: NSError(
-          domain: "JustSpeak", code: -3,
+          domain: "Tok", code: -3,
           userInfo: [NSLocalizedDescriptionKey: "Live API rejected the request."]))
     }
     if didCompleteSetup {
@@ -652,7 +652,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       connectionFailed(
         epoch: epoch,
         error: NSError(
-          domain: "JustSpeak", code: -4,
+          domain: "Tok", code: -4,
           userInfo: [NSLocalizedDescriptionKey: "Live connection missed part of the recording."]))
       return
     }
@@ -728,7 +728,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       cb?(
         .failure(
           NSError(
-            domain: "JustSpeak", code: -2,
+            domain: "Tok", code: -2,
             userInfo: [NSLocalizedDescriptionKey: "No speech recognized before timeout."])))
     }
     Log.endMeter()
@@ -832,7 +832,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
 
   private static func writeBacklogError() -> NSError {
     NSError(
-      domain: "JustSpeak", code: -4,
+      domain: "Tok", code: -4,
       userInfo: [NSLocalizedDescriptionKey: "Live audio delivery exceeded its queue budget."])
   }
 
@@ -935,7 +935,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       completion(
         .failure(
           NSError(
-            domain: "JustSpeak", code: -4,
+            domain: "Tok", code: -4,
             userInfo: [NSLocalizedDescriptionKey: "Live connection missed part of the recording."]))
       )
       return
@@ -1006,7 +1006,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
         completion(
           .failure(
             NSError(
-              domain: "JustSpeak", code: -1,
+              domain: "Tok", code: -1,
               userInfo: [NSLocalizedDescriptionKey: "Failed to serialize commit payload."])))
         return
       }
@@ -1158,7 +1158,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     completion?(
       .failure(
         NSError(
-          domain: "JustSpeak", code: -4,
+          domain: "Tok", code: -4,
           userInfo: [NSLocalizedDescriptionKey: "Live connection closed."])))
   }
   func shutdown() {

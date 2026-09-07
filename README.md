@@ -52,7 +52,7 @@ drawing in `Scripts/generate_icon.swift`.
 Run `make format` before `make check`. Keep credentials in the ignored `.env`.
 
 For development only, `make run` seeds settings from the local `.env` and stores
-its API key in Keychain. The app has no JustSpeak configuration-import action.
+its API key in Keychain.
 Development seeding preserves the current history path and retention choice.
 Change retention in History settings, where deleting older records requires
 confirmation.
@@ -77,7 +77,7 @@ See [VALIDATION.md](VALIDATION.md) for actual results and the real-dictation gat
 `make profile-microphone` records a bounded Instruments startup profile.
 See [PERFORMANCE.md](PERFORMANCE.md) for the measured main-thread setup delay.
 
-Tok is independent software. Engine behavior is ported from JustSpeak.
+Tok is independent software.
 
 Update the reference below with `make settings-reference`. `make check` verifies
 it against the compiled catalog without reading user configuration.
