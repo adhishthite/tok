@@ -285,3 +285,30 @@ verified, so the owner bundle was not forcibly terminated or replaced. Open Tok'
 Settings or quit Tok normally to permit the next serialized installation attempt.
 This installation blocker is separate from public-host approval and fresh-account
 acceptance. Build 4 rollback remains intact.
+
+## Update-test baseline prepared, 2026-09-07
+
+The approved public binary destination is `adhishthite/tok-releases`; application
+source remains private. No release or tag is published. Public product text and
+bundled notices now use Tok branding. Signing credentials remain in Keychain.
+
+Version 0.1.1/build 8, source `f085cae621b7`, embeds the isolated HTTPS validation
+feed at `/releases/download/v0.1.2/appcast-validation.xml` on the binary host.
+It is preserved under `build/package/build-8/`, with verification.json and saved
+notary records. Both Apple submissions were accepted:
+`f179aa30-0cb3-4898-a2c4-ffa248b25c85` (app),
+`c50030df-0526-4395-8e07-0039bfa30080` (DMG).
+App/DMG signatures, tickets, Gatekeeper, extracted ZIP app, and read-only mounted
+DMG app verification passed. The verification mount was detached. Build, notary,
+and artifact-verification commands each used 120-second outer deadlines.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| build-8/Tok.dmg | dc84f4e35539d906a0e28462dcb31aac548563a76ec506d37baecccf264051d4 |
+| build-8/Tok-distribution.zip | d277561f6343d0d8fa3775b307ab5186fa17d8a6c76fcd8b263a8cb051bdab53 |
+
+This baseline is not installed or publicly available. It does not demonstrate an
+installed update. Build 9 is reserved as version 0.1.2 with the production feed.
+The source checks passed, including 25 Python tests; `make check-ci` passed after
+import/formatting corrections. The live private/public release preflight passed
+without creating a tag or draft.
