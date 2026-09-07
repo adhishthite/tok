@@ -13,6 +13,5 @@ struct MicrophonePickerContent: View {
     Picker("Microphone", selection: $selection) {
       ForEach(choices) { choice in Text(choice.label).tag(choice.id) }
     }
-    .accessibilityHint("Choose the microphone Tok uses for dictation.")
   }
 }

@@ -4,18 +4,19 @@ import TokEngine
 struct SettingRow: View {
   let setting: SettingDefinition
   @Environment(DictationStore.self) private var store
+  private var overridden: Bool { store.settings.isOverridden(setting.key) }
+  private var enabled: Bool {
+    guard let condition = setting.enabledWhen else { return true }
+    return condition.holds(store.settings.string(condition.key))
+  }
   var body: some View {
     VStack(alignment: .leading, spacing: 5) {
       control
         .accessibilityHint(setting.help)
-        .disabled(
-          store.settings.isOverridden(setting.key)
-            || (setting.key == "POST_PROCESS_APP_CONTEXT"
-              && !store.settings.bool("POST_PROCESS_ENABLED"))
-        )
-      Text(setting.help).font(.caption).foregroundStyle(.secondary).fixedSize(
+        .disabled(overridden || !enabled)
+      Text(caption).font(.caption).foregroundStyle(.secondary).fixedSize(
         horizontal: false, vertical: true)
-      if store.settings.isOverridden(setting.key) {
+      if overridden {
         Label("Set by environment", systemImage: "terminal").font(.caption).foregroundStyle(
           .secondary)
       }
@@ -34,7 +35,7 @@ struct SettingRow: View {
         ForEach(options, id: \.self) { option in Text(label(option)).tag(option) }
       }
     case .integer(let range):
-      LabeledContent(setting.title) {
+      numericField {
         TextField(
           setting.title,
           value: Binding(
@@ -42,12 +43,10 @@ struct SettingRow: View {
             set: {
               store.settings.set(
                 setting.key, String(min(range.upperBound, max(range.lowerBound, $0))))
-            }), format: .number
-        )
-        .labelsHidden().multilineTextAlignment(.trailing).frame(width: 85)
+            }), format: .number.grouping(.never))
       }
     case .decimal(let range):
-      LabeledContent(setting.title) {
+      numericField {
         TextField(
           setting.title,
           value: Binding(
@@ -55,15 +54,45 @@ struct SettingRow: View {
             set: {
               store.settings.set(
                 setting.key, String(min(range.upperBound, max(range.lowerBound, $0))))
-            }), format: .number
-        )
-        .labelsHidden().multilineTextAlignment(.trailing).frame(width: 85)
+            }),
+          format: .number.grouping(.never).precision(.fractionLength(fractionDigits)))
       }
     case .text:
-      TextField(setting.title, text: stringBinding)
+      LabeledContent(setting.title) {
+        TextField(setting.title, text: stringBinding, prompt: Text(setting.prompt ?? setting.title))
+          .labelsHidden().textFieldStyle(.roundedBorder).frame(width: 280)
+      }
     case .microphone:
       MicrophonePicker(selection: stringBinding)
     }
+  }
+  /// A right-aligned bordered value field with its unit beside it, so an editable
+  /// number is visibly different from a read-only value.
+  private func numericField(@ViewBuilder field: () -> some View) -> some View {
+    LabeledContent(setting.title) {
+      HStack(spacing: 6) {
+        field().labelsHidden().multilineTextAlignment(.trailing)
+          .textFieldStyle(.roundedBorder).frame(width: 96)
+        if let unit = setting.unit {
+          Text(unit.label).foregroundStyle(.secondary).frame(minWidth: 30, alignment: .leading)
+        }
+      }
+    }
+  }
+  private var fractionDigits: ClosedRange<Int> { setting.unit?.fractionDigits ?? 0...2 }
+  /// The catalog help plus the allowed range, shown before a value is rejected.
+  private var caption: String {
+    switch setting.kind {
+    case .integer(let range):
+      "\(setting.help) Range \(range.lowerBound) to \(range.upperBound)\(unitSuffix)."
+    case .decimal(let range):
+      "\(setting.help) Range \(bound(range.lowerBound)) to \(bound(range.upperBound))\(unitSuffix)."
+    default: setting.help
+    }
+  }
+  private var unitSuffix: String { setting.unit.map { " \($0.label)" } ?? "" }
+  private func bound(_ value: Double) -> String {
+    value.formatted(.number.grouping(.never).precision(.fractionLength(0...2)))
   }
   private var stringBinding: Binding<String> {
     Binding(
