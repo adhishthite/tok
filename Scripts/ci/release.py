@@ -1,4 +1,4 @@
-"""Build a bounded, resumable release and populate a GitHub draft. Never publish."""
+"""Stage verified local assets or prepare an explicitly authorized draft. Never publish."""
 
 import contextlib
 import hashlib
@@ -9,10 +9,13 @@ import posixpath
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
+import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -25,6 +28,7 @@ def run(arguments, seconds=120, accepted=(0,)):
     environment = os.environ.copy()
     if Path(arguments[0]).name != "gh":
         environment.pop("GH_TOKEN", None)
+        environment.pop("GITHUB_TOKEN", None)
     process = subprocess.Popen(
         [str(value) for value in arguments],
         cwd=ROOT,
@@ -69,13 +73,74 @@ def save(state):
     staged.replace(STATE)
 
 
+def checkout_repository():
+    remote = run(["git", "remote", "get-url", "origin"], 5).stdout.strip()
+    if remote.startswith("git@github.com:"):
+        return remote.split(":", 1)[1].removesuffix(".git")
+    parsed = urlparse(remote)
+    return (
+        parsed.path.lstrip("/").removesuffix(".git")
+        if parsed.hostname == "github.com"
+        else ""
+    )
+
+
+def require_draft_authorization():
+    fields = [
+        os.environ.get(name, "")
+        for name in [
+            "TOK_RELEASE_REPOSITORY",
+            "TOK_RELEASE_TAG",
+            "TOK_RELEASE_HOSTING_COMMIT",
+        ]
+    ]
+    if not all(fields) or os.environ.get("TOK_RELEASE_DRAFT_AUTHORIZATION") != ":".join(
+        fields
+    ):
+        raise RuntimeError(
+            "Explicit authorization for this hosting repository, tag, and draft is required."
+        )
+
+
+def verify_destinations(state):
+    for field, private in [("source_repository", True), ("hosting_repository", False)]:
+        info = json.loads(run(["gh", "api", "repos/" + state[field]], 30).stdout)
+        if (
+            info.get("private") is not private
+            or info.get("full_name", "").lower() != state[field].lower()
+        ):
+            raise RuntimeError(
+                "Source must remain private and approved binary hosting must be public."
+            )
+    target = json.loads(
+        run(
+            [
+                "gh",
+                "api",
+                f"repos/{state['hosting_repository']}/commits/{state['hosting_commit']}",
+            ],
+            30,
+        ).stdout
+    )
+    if target.get("sha") != state["hosting_commit"]:
+        raise RuntimeError("Public hosting commit could not be verified.")
+
+
 def configuration():
     tag = os.environ.get("TOK_RELEASE_TAG", "")
-    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    source_repository = os.environ.get("GITHUB_REPOSITORY", "")
+    repository = os.environ.get("TOK_RELEASE_REPOSITORY", "")
+    hosting_commit = os.environ.get("TOK_RELEASE_HOSTING_COMMIT", "")
     if not re.fullmatch(r"v\d+\.\d+\.\d+", tag):
         raise RuntimeError("Use a version tag such as v0.1.0.")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise RuntimeError("A GitHub repository is required.")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", source_repository):
+        raise RuntimeError("An explicit source repository is required.")
+    if source_repository.lower() == repository.lower():
+        raise RuntimeError("Source and binary hosting repositories must differ.")
+    if not re.fullmatch(r"[0-9a-f]{40}", hosting_commit):
+        raise RuntimeError("An exact public hosting commit is required.")
     project = (ROOT / "project.yml").read_text()
     version = re.search(r"MARKETING_VERSION:\s*'([^']+)'", project).group(1)
     build = re.search(r"CURRENT_PROJECT_VERSION:\s*'(\d+)'", project).group(1)
@@ -86,13 +151,36 @@ def configuration():
     commit = run(["git", "rev-parse", "HEAD"], 5).stdout.strip()
     if run(["git", "status", "--porcelain"], 5).stdout:
         raise RuntimeError("Release from a clean checkout.")
-    run(["git", "merge-base", "--is-ancestor", commit, "origin/main"], 5)
+    if checkout_repository().lower() != source_repository.lower():
+        raise RuntimeError("Source repository does not match this checkout.")
+    if run(["git", "branch", "--show-current"], 5).stdout.strip() != "main":
+        raise RuntimeError("Release from main.")
+    if run(["git", "rev-parse", "origin/main"], 5).stdout.strip() != commit:
+        raise RuntimeError("Release source must match the fetched origin/main exactly.")
+    feed_url = os.environ.get("TOK_UPDATE_FEED_URL") or (
+        f"https://github.com/{repository}/releases/latest/download/appcast.xml"
+    )
+    parsed_feed = urlparse(feed_url)
+    if (
+        parsed_feed.scheme != "https"
+        or parsed_feed.netloc != "github.com"
+        or parsed_feed.query
+        or parsed_feed.fragment
+        or not parsed_feed.path.startswith(f"/{repository}/releases/")
+        or not parsed_feed.path.endswith(".xml")
+    ):
+        raise RuntimeError(
+            "Feed must be credential-free HTTPS XML in the approved hosting repository."
+        )
     return {
-        "repository": repository,
+        "feed_url": feed_url,
+        "source_repository": source_repository,
+        "hosting_repository": repository,
+        "hosting_commit": hosting_commit,
         "tag": tag,
         "version": version,
         "build": build,
-        "commit": commit,
+        "source_commit": commit,
         "stage": "build",
     }
 
@@ -103,7 +191,7 @@ def verify_tag(state):
         [
             "gh",
             "api",
-            f"repos/{state['repository']}/git/ref/tags/{state['tag']}",
+            f"repos/{state['hosting_repository']}/git/ref/tags/{state['tag']}",
             "--include",
         ],
         30,
@@ -121,9 +209,9 @@ def verify_tag(state):
     reference = json.loads(payload[-1])["object"]
     for _ in range(8):
         if reference["type"] == "commit":
-            if reference["sha"] != state["commit"]:
+            if reference["sha"] != state["hosting_commit"]:
                 raise RuntimeError(
-                    "Existing release tag does not match the recorded source commit."
+                    "Existing release tag does not match the recorded hosting commit."
                 )
             return
         if reference["type"] != "tag":
@@ -133,7 +221,7 @@ def verify_tag(state):
                 [
                     "gh",
                     "api",
-                    f"repos/{state['repository']}/git/tags/{reference['sha']}",
+                    f"repos/{state['hosting_repository']}/git/tags/{reference['sha']}",
                 ],
                 30,
             ).stdout
@@ -143,9 +231,10 @@ def verify_tag(state):
 
 def preflight():
     state = configuration()
+    verify_destinations(state)
     verify_tag(state)
     repository = json.loads(
-        run(["gh", "api", "repos/" + state["repository"]], 30).stdout
+        run(["gh", "api", "repos/" + state["hosting_repository"]], 30).stdout
     )
     if repository.get("private"):
         raise RuntimeError(
@@ -158,7 +247,7 @@ def preflight():
             "view",
             state["tag"],
             "--repo",
-            state["repository"],
+            state["hosting_repository"],
             "--json",
             "isDraft",
         ],
@@ -170,6 +259,7 @@ def preflight():
             "This release already exists. Resume its recorded attempt rather than rebuilding it."
         )
     print("Release version, source, and repository checks passed.")
+    return state
 
 
 def notarize(kind):
@@ -182,7 +272,7 @@ def notarize(kind):
             )
         result = run(
             ["bash", "Scripts/notarize_distribution.sh", kind],
-            min(180, remaining),
+            min(120, remaining),
             accepted=(0, 75),
         )
         if result.returncode == 0:
@@ -199,23 +289,112 @@ def notarize(kind):
         time.sleep(20)
 
 
-def prepare(resume=False):
-    if resume:
-        state = json.loads(STATE.read_text())
-        remote = run(["git", "remote", "get-url", "origin"], 5).stdout.strip()
-        if remote.startswith("git@github.com:"):
-            repository = remote.split(":", 1)[1].removesuffix(".git")
-        else:
-            parsed = urlparse(remote)
-            repository = (
-                parsed.path.lstrip("/").removesuffix(".git")
-                if parsed.hostname == "github.com"
-                else ""
+def verify_update_flags(info):
+    if any(
+        info.get(key) is not True
+        for key in ["SURequireSignedFeed", "SUVerifyUpdateBeforeExtraction"]
+    ):
+        raise RuntimeError(
+            "Release requires signed feeds and verification before extraction."
+        )
+
+
+def app_inventory(app):
+    inventory = {}
+    for path in sorted(app.rglob("*")):
+        relative = path.relative_to(app).as_posix()
+        if path.is_symlink():
+            if not path.resolve().is_relative_to(app.resolve()):
+                raise RuntimeError("App contains an external symbolic link.")
+            inventory[relative] = ("link", os.readlink(path))
+        elif path.is_file():
+            inventory[relative] = (
+                "file",
+                path.stat().st_mode & 0o777,
+                hashlib.sha256(path.read_bytes()).hexdigest(),
             )
-        if repository.lower() != state["repository"].lower():
-            raise RuntimeError("Recovery repository does not match this checkout.")
-        if run(["git", "rev-parse", "HEAD"], 5).stdout.strip() != state["commit"]:
-            raise RuntimeError("Resume from the original recorded source commit.")
+        elif path.is_dir():
+            inventory[relative] = ("directory",)
+        else:
+            raise RuntimeError("App contains an unsupported filesystem entry.")
+    return inventory
+
+
+def verify_update_archive(app, archive):
+    # Reject unsafe entries before ditto processes framework symlinks or metadata.
+    with zipfile.ZipFile(archive) as zipped:
+        entries = zipped.infolist()
+        if (
+            len(entries) > 20000
+            or sum(entry.file_size for entry in entries) > 500000000
+        ):
+            raise RuntimeError("Update archive is unexpectedly large.")
+        for entry in entries:
+            parts = entry.filename.split("/")
+            if (
+                entry.filename.startswith("/")
+                or ".." in parts
+                or parts[0] not in {"Tok.app", "__MACOSX"}
+            ):
+                raise RuntimeError("Unsafe update archive path.")
+            if stat.S_ISLNK(entry.external_attr >> 16):
+                target = zipped.read(entry).decode("utf-8")
+                destination = posixpath.normpath(
+                    posixpath.join(posixpath.dirname(entry.filename), target)
+                )
+                if target.startswith("/") or not destination.startswith("Tok.app/"):
+                    raise RuntimeError("Unsafe update archive symbolic link.")
+    with tempfile.TemporaryDirectory(prefix="tok-archive-check-") as directory:
+        run(["ditto", "-x", "-k", archive, directory], 30)
+        extracted = Path(directory) / "Tok.app"
+        if not extracted.is_dir() or app_inventory(extracted) != app_inventory(app):
+            raise RuntimeError(
+                "Update ZIP does not contain the exact verified application."
+            )
+        original_info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
+        extracted_info = plistlib.loads(
+            (extracted / "Contents/Info.plist").read_bytes()
+        )
+        if extracted_info != original_info:
+            raise RuntimeError("Update ZIP application metadata differs.")
+        verify_update_flags(extracted_info)
+        run(["codesign", "--verify", "--deep", "--strict", extracted], 30)
+        run(["xcrun", "stapler", "validate", extracted], 30)
+        run(["spctl", "--assess", "--type", "execute", extracted], 30)
+
+
+def prepare(resume=False, local_only=False):
+    if not local_only:
+        require_draft_authorization()
+    if local_only:
+        state = configuration()
+        verify_destinations(state)
+        for name in ["release-assets", "release-updates"]:
+            path = ROOT / "build" / name
+            if path.exists() and any(path.iterdir()):
+                raise RuntimeError(
+                    "Preserve existing staged assets before staging another build."
+                )
+        state["stage"] = "assets"
+    elif resume:
+        state = json.loads(STATE.read_text())
+        current = configuration()
+        for field in [
+            "source_repository",
+            "source_commit",
+            "hosting_repository",
+            "hosting_commit",
+            "tag",
+            "version",
+            "build",
+            "feed_url",
+        ]:
+            if current[field] != state[field]:
+                raise RuntimeError(
+                    "Recovery identity does not match the release request."
+                )
+        verify_destinations(state)
+        verify_tag(state)
         release = json.loads(
             run(
                 [
@@ -224,18 +403,22 @@ def prepare(resume=False):
                     "view",
                     state["tag"],
                     "--repo",
-                    state["repository"],
+                    state["hosting_repository"],
                     "--json",
                     "isDraft,targetCommitish",
                 ],
                 30,
             ).stdout
         )
-        if not release["isDraft"] or release["targetCommitish"] != state["commit"]:
+        if (
+            not release["isDraft"]
+            or release["targetCommitish"] != state["hosting_commit"]
+        ):
             raise RuntimeError("Only the matching unpublished draft can be resumed.")
     else:
-        preflight()
-        state = configuration()
+        if STATE.exists():
+            raise RuntimeError("Release state exists; resume the recorded attempt.")
+        state = preflight()
         notes = ROOT / "build/release-notes.md"
         notes.parent.mkdir(parents=True, exist_ok=True)
         notes.write_text(
@@ -248,10 +431,10 @@ def prepare(resume=False):
                 "create",
                 state["tag"],
                 "--repo",
-                state["repository"],
+                state["hosting_repository"],
                 "--draft",
                 "--target",
-                state["commit"],
+                state["hosting_commit"],
                 "--title",
                 "Tok " + state["version"],
                 "--notes-file",
@@ -260,12 +443,10 @@ def prepare(resume=False):
             30,
         )
         save(state)
-    os.environ["TOK_UPDATE_FEED_URL"] = (
-        f"https://github.com/{state['repository']}/releases/latest/download/appcast.xml"
-    )
+    os.environ["TOK_UPDATE_FEED_URL"] = state["feed_url"]
     if state["stage"] == "build":
         print("Building signed release.", flush=True)
-        run(["make", "distribute"], 360)
+        run(["make", "distribute"], 120)
         state["stage"] = "app"
         save(state)
     if state["stage"] == "app":
@@ -273,7 +454,7 @@ def prepare(resume=False):
         state["stage"] = "containers"
         save(state)
     if state["stage"] == "containers":
-        run(["make", "containers"], 180)
+        run(["make", "containers"], 120)
         state["stage"] = "dmg"
         save(state)
     if state["stage"] == "dmg":
@@ -282,10 +463,11 @@ def prepare(resume=False):
         save(state)
     app = ROOT / "build/distribution/Tok.app"
     info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
+    verify_update_flags(info)
     expected = (
         state["version"],
         state["build"],
-        state["commit"][:12],
+        state["source_commit"][:12],
         os.environ["TOK_UPDATE_FEED_URL"],
     )
     actual = tuple(
@@ -334,6 +516,7 @@ def prepare(resume=False):
     assets.mkdir(exist_ok=True)
     updates.mkdir(exist_ok=True)
     shutil.copy2(ROOT / "build/package/Tok-distribution.zip", updates / "Tok.zip")
+    verify_update_archive(app, updates / "Tok.zip")
     key = os.environ.get("TOK_SPARKLE_KEY_FILE")
     signing = ["--ed-key-file", key] if key else ["--account", "com.adhishthite.tok"]
     run(
@@ -343,7 +526,7 @@ def prepare(resume=False):
             "--maximum-deltas",
             "0",
             "--download-url-prefix",
-            f"https://github.com/{state['repository']}/releases/download/{state['tag']}/",
+            f"https://github.com/{state['hosting_repository']}/releases/download/{state['tag']}/",
             "-o",
             assets / "appcast.xml",
             updates,
@@ -378,6 +561,19 @@ def prepare(resume=False):
             for name in ["Tok.dmg", "Tok.zip", "appcast.xml"]
         )
     )
+    state["artifact_sha256"] = {
+        name: hashlib.sha256((assets / name).read_bytes()).hexdigest()
+        for name in ["Tok.dmg", "Tok.zip", "appcast.xml", "checksums.txt"]
+    }
+    if local_only:
+        state["stage"] = "local-assets-ready"
+        (assets / "release-manifest.json").write_text(
+            json.dumps(state, indent=2) + "\n"
+        )
+        print(
+            "Verified assets staged locally. No tag, draft, upload, or publication occurred."
+        )
+        return
     current = json.loads(
         run(
             [
@@ -386,14 +582,14 @@ def prepare(resume=False):
                 "view",
                 state["tag"],
                 "--repo",
-                state["repository"],
+                state["hosting_repository"],
                 "--json",
                 "isDraft,targetCommitish",
             ],
             30,
         ).stdout
     )
-    if not current["isDraft"] or current["targetCommitish"] != state["commit"]:
+    if not current["isDraft"] or current["targetCommitish"] != state["hosting_commit"]:
         raise RuntimeError(
             "The release changed during preparation; no assets were replaced."
         )
@@ -405,7 +601,7 @@ def prepare(resume=False):
             "upload",
             state["tag"],
             "--repo",
-            state["repository"],
+            state["hosting_repository"],
             "--clobber",
             *[
                 assets / name
@@ -420,7 +616,7 @@ def prepare(resume=False):
     notes.write_text(
         f"Tok {state['version']} (build {state['build']}).\n\n"
         "Signed, notarized, and stapled for macOS 14 or later, on Apple silicon and Intel.\n\n"
-        f"Source: `{state['commit']}`.\n\n"
+        f"Source: `{state['source_commit']}`.\n\n"
         "Package verification completed. Review this draft before publishing.\n"
     )
     run(
@@ -430,7 +626,7 @@ def prepare(resume=False):
             "edit",
             state["tag"],
             "--repo",
-            state["repository"],
+            state["hosting_repository"],
             "--notes-file",
             notes,
         ],
@@ -506,6 +702,7 @@ if __name__ == "__main__":
         {
             "preflight": preflight,
             "prepare": prepare,
+            "stage-assets": lambda: prepare(local_only=True),
             "resume": lambda: prepare(True),
             "bundle": bundle,
             "restore": lambda: restore(sys.argv[2]),

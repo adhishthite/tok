@@ -1,8 +1,12 @@
-name: Prepare release
+name: Check release readiness
 
 on:
   workflow_dispatch:
     inputs:
+      hosting_commit:
+        description: 'Exact main commit in the public binary repository'
+        required: true
+        type: string
       tag:
         description: 'Release tag matching MARKETING_VERSION, for example v0.1.0'
         required: true
@@ -22,10 +26,12 @@ jobs:
     timeout-minutes: 30
     environment: release
     permissions:
-      contents: write
+      contents: read
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       TOK_RELEASE_TAG: ${{ inputs.tag }}
+      TOK_RELEASE_REPOSITORY: adhishthite/tok-releases
+      TOK_RELEASE_HOSTING_COMMIT: ${{ inputs.hosting_commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,33 +55,7 @@ jobs:
         env:
           TOK_BUILD_TIMEOUT_SECONDS: 180
         run: python3 Scripts/bounded_run.py --seconds 180 --label release-check -- make check
-      - name: Prepare temporary signing credentials
-        env:
-          TOK_CERTIFICATE_P12_BASE64: ${{ secrets.TOK_CERTIFICATE_P12_BASE64 }}
-          TOK_CERTIFICATE_PASSWORD: ${{ secrets.TOK_CERTIFICATE_PASSWORD }}
-          TOK_NOTARY_KEY_BASE64: ${{ secrets.TOK_NOTARY_KEY_BASE64 }}
-          TOK_NOTARY_KEY_ID: ${{ secrets.TOK_NOTARY_KEY_ID }}
-          TOK_NOTARY_ISSUER_ID: ${{ secrets.TOK_NOTARY_ISSUER_ID }}
-          TOK_SPARKLE_PRIVATE_KEY: ${{ secrets.TOK_SPARKLE_PRIVATE_KEY }}
-          TOK_EXPECTED_TEAM_ID: ${{ vars.TOK_EXPECTED_TEAM_ID }}
-        run: python3 Scripts/ci/signing.py prepare
-      - name: Build and notarize release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TOK_EXPECTED_TEAM_ID: ${{ vars.TOK_EXPECTED_TEAM_ID }}
-        run: python3 Scripts/ci/release.py prepare
-      - name: Preserve recovery bundle
-        if: always()
-        run: python3 Scripts/ci/release.py bundle
-      - name: Upload release and recovery files
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: Tok-release-${{ github.run_id }}
-          path: |
-            build/release-assets/
-            build/release-recovery.tar
-          retention-days: 14
-      - name: Remove temporary signing credentials
-        if: always()
-        run: python3 Scripts/ci/signing.py cleanup
+      - name: Local signing and publication handoff
+        run: |
+          echo 'Release checks passed. Build and stage assets locally with the Keychain workflow in CI_RELEASE.md.'
+          echo 'This workflow does not export credentials, create tags, upload assets, or publish releases.'

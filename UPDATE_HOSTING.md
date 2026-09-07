@@ -1,8 +1,12 @@
 # Proposed update hosting
 
-Status: prepared on 2026-09-06 for owner review. No destination is approved by
-this document. No public repository, tag, release, or feed was created during
-this review. Installed-update and runtime tamper tests remain unperformed.
+Status: destination and minimal repository creation approved by the owner on
+2026-09-07. The public binary repository now contains only README.md and the
+Tok/Sparkle license notices, at public commit
+`bc63f4f69a41ee6189e68e2da629999294bc8771`. The private source repository remains
+private. Tags, release assets, validation publication, and production publication
+still require approval of the concrete assets. Installed-update and runtime
+tamper tests remain unperformed.
 
 ## Recommendation
 
@@ -42,15 +46,9 @@ GitHub documents the stable latest-release asset URL form. Versioned archive
 URLs prevent a feed from silently referring to a different archive when latest
 changes. [GitHub release links](https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases)
 
-## Existing implementation and required changes
+## Implemented release separation
 
-The current `Scripts/ci/release.py` uses one `repository` for source provenance,
-release tag checks, draft targets, asset upload, feed URLs, and recovery. Its
-public-host preflight correctly rejects the private source repository. Changing
-only `GITHUB_REPOSITORY` to the binary repository would break provenance and
-recovery validation.
-
-After destination approval, separate these fields explicitly:
+The release helper now separates these identities explicitly:
 
 - `source_repository` and `source_commit`: private checkout and exact tested
   source revision. Recovery must require this checkout and commit.
@@ -164,8 +162,10 @@ repository contents, release tags, publication of the named validation assets,
 and subsequent production publication. Approval for one destination or test
 release must not be interpreted as approval for unrelated public resources.
 
-Until that approval arrives, implementation of this hosting approach, public
-resource creation, and hosted verification are blocked. Isolation availability
+Destination and minimal repository creation are approved. Implementation and
+local asset preparation may proceed. Release tags and publication remain blocked
+until the owner approves the exact assets. Isolation availability
 and interactive permission/dictation access are separate runtime blockers.
-The current release scripts need the repository/provenance separation described
-above before use. No hosted or installed-update result is claimed here.
+The helper now provides read-only preflight and local-only asset staging.
+It validates the exact ZIP contents against the verified application and records
+asset hashes. Draft preparation requires a separate target-specific authorization. No hosted or installed-update result is claimed here.

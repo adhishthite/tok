@@ -1,13 +1,16 @@
+import hashlib
 import importlib.util
 import io
 import json
 import os
+import plistlib
 import subprocess
 import sys
 import tarfile
 import tempfile
 import time
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -52,9 +55,14 @@ class CIReleaseTests(unittest.TestCase):
             root = Path(directory)
             state_path = root / "state.json"
             state = {
-                "commit": "a" * 40,
+                "hosting_commit": "a" * 40,
+                "source_commit": "b" * 40,
+                "source_repository": "owner/repo",
+                "feed_url": "https://github.com/owner/releases/releases/latest/download/appcast.xml",
+                "version": "1.2.3",
+                "build": "7",
                 "stage": "dmg",
-                "repository": "owner/repo",
+                "hosting_repository": "owner/releases",
                 "tag": "v1.2.3",
             }
             state_path.write_text(json.dumps(state))
@@ -63,16 +71,20 @@ class CIReleaseTests(unittest.TestCase):
                 result = (
                     "git@github.com:owner/repo.git"
                     if args[:2] == ["git", "remote"]
-                    else state["commit"]
+                    else state["hosting_commit"]
                     if args[0] == "git"
                     else json.dumps(
-                        {"isDraft": True, "targetCommitish": state["commit"]}
+                        {"isDraft": True, "targetCommitish": state["hosting_commit"]}
                     )
                 )
                 return subprocess.CompletedProcess(args, 0, result, "")
 
             with (
                 patch.object(release, "STATE", state_path),
+                patch.object(release, "require_draft_authorization"),
+                patch.object(release, "configuration", return_value=state),
+                patch.object(release, "verify_destinations"),
+                patch.object(release, "verify_tag"),
                 patch.object(release, "run", side_effect=run) as calls,
                 patch.object(
                     release, "notarize", side_effect=RuntimeError("pending")
@@ -85,6 +97,175 @@ class CIReleaseTests(unittest.TestCase):
                     any(call.args[0][0] == "make" for call in calls.call_args_list)
                 )
                 self.assertEqual(json.loads(state_path.read_text())["stage"], "dmg")
+
+    def test_prepare_and_resume_require_exact_draft_authorization_before_commands(self):
+        for resume in [False, True]:
+            with (
+                self.subTest(resume=resume),
+                patch.dict(
+                    os.environ,
+                    {
+                        "TOK_RELEASE_REPOSITORY": "owner/releases",
+                        "TOK_RELEASE_TAG": "v1.2.3",
+                        "TOK_RELEASE_HOSTING_COMMIT": "a" * 40,
+                        "TOK_RELEASE_DRAFT_AUTHORIZATION": "owner/releases:v1.2.3:wrong",
+                    },
+                    clear=True,
+                ),
+                patch.object(release, "run") as run,
+                self.assertRaisesRegex(RuntimeError, "Explicit authorization"),
+            ):
+                release.prepare(resume=resume)
+            run.assert_not_called()
+
+    def test_exact_draft_authorization_is_scoped_to_target(self):
+        with patch.dict(
+            os.environ,
+            {
+                "TOK_RELEASE_REPOSITORY": "owner/releases",
+                "TOK_RELEASE_TAG": "v1.2.3",
+                "TOK_RELEASE_HOSTING_COMMIT": "a" * 40,
+                "TOK_RELEASE_DRAFT_AUTHORIZATION": "owner/releases:v1.2.3:" + "a" * 40,
+            },
+            clear=True,
+        ):
+            release.require_draft_authorization()
+
+    def test_source_must_remain_private(self):
+        state = {
+            "source_repository": "owner/source",
+            "hosting_repository": "owner/releases",
+        }
+        with (
+            patch.object(
+                release,
+                "run",
+                return_value=subprocess.CompletedProcess(
+                    [],
+                    0,
+                    json.dumps({"private": False, "full_name": "owner/source"}),
+                    "",
+                ),
+            ),
+            self.assertRaisesRegex(RuntimeError, "remain private"),
+        ):
+            release.verify_destinations(state)
+
+    def test_local_staging_never_creates_draft_before_artifact_validation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = {
+                "hosting_repository": "owner/releases",
+                "tag": "v1.2.3",
+                "feed_url": "https://github.com/owner/releases/releases/latest/download/appcast.xml",
+            }
+            with (
+                patch.object(release, "ROOT", Path(directory)),
+                patch.object(release, "configuration", return_value=state),
+                patch.object(release, "verify_destinations"),
+                patch.object(release, "run") as run,
+                self.assertRaises(FileNotFoundError),
+            ):
+                release.prepare(local_only=True)
+            run.assert_not_called()
+
+    def test_update_security_flags_must_be_true_booleans(self):
+        for key in ["SURequireSignedFeed", "SUVerifyUpdateBeforeExtraction"]:
+            for value in [False, None, 1, "true"]:
+                info = {
+                    "SURequireSignedFeed": True,
+                    "SUVerifyUpdateBeforeExtraction": True,
+                }
+                info[key] = value
+                with (
+                    self.subTest(key=key, value=value),
+                    self.assertRaisesRegex(RuntimeError, "signed feeds"),
+                ):
+                    release.verify_update_flags(info)
+
+    def test_wrong_zip_is_rejected_before_code_verification(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app = root / "Tok.app"
+            app.mkdir()
+            (app / "payload").write_bytes(b"current")
+            archive = root / "Tok.zip"
+            with zipfile.ZipFile(archive, "w") as zipped:
+                zipped.writestr("Tok.app/payload", b"stale")
+
+            def run(args, *unused):
+                self.assertEqual(args[0], "ditto")
+                with zipfile.ZipFile(args[3]) as zipped:
+                    zipped.extractall(args[4])
+                return subprocess.CompletedProcess(args, 0, "", "")
+
+            with (
+                patch.object(release, "run", side_effect=run) as calls,
+                self.assertRaisesRegex(RuntimeError, "exact verified"),
+            ):
+                release.verify_update_archive(app, archive)
+            self.assertEqual(calls.call_count, 1)
+
+    def test_local_stage_success_preserves_archive_hash_and_never_mutates_github(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app = root / "build/distribution/Tok.app"
+            (app / "Contents").mkdir(parents=True)
+            state = {
+                "hosting_repository": "owner/releases",
+                "source_commit": "a" * 40,
+                "tag": "v1.2.3",
+                "version": "1.2.3",
+                "build": "8",
+                "feed_url": "https://github.com/owner/releases/releases/latest/download/appcast.xml",
+            }
+            info = {
+                "CFBundleShortVersionString": "1.2.3",
+                "CFBundleVersion": "8",
+                "TokSourceRevision": "a" * 12,
+                "SUFeedURL": state["feed_url"],
+                "LSMinimumSystemVersion": "14.0",
+                "SURequireSignedFeed": True,
+                "SUVerifyUpdateBeforeExtraction": True,
+            }
+            (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
+            package = root / "build/package"
+            package.mkdir()
+            (package / "Tok.dmg").write_bytes(b"synthetic dmg")
+            archive = package / "Tok-distribution.zip"
+            with zipfile.ZipFile(archive, "w") as zipped:
+                zipped.write(app / "Contents/Info.plist", "Tok.app/Contents/Info.plist")
+
+            def run(args, *unused):
+                command = str(args[0])
+                self.assertNotEqual(command, "gh")
+                if command == "ditto":
+                    with zipfile.ZipFile(args[3]) as zipped:
+                        zipped.extractall(args[4])
+                if Path(command).name == "generate_appcast":
+                    Path(args[args.index("-o") + 1]).write_text("synthetic signed feed")
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    "arm64 x86_64" if command == "lipo" else "signature",
+                    "TeamIdentifier=FIXTURE" if command == "codesign" else "",
+                )
+
+            with (
+                patch.object(release, "ROOT", root),
+                patch.object(release, "configuration", return_value=state),
+                patch.object(release, "verify_destinations"),
+                patch.object(release, "run", side_effect=run),
+                patch.dict(os.environ, {"TOK_EXPECTED_TEAM_ID": "FIXTURE"}, clear=True),
+            ):
+                release.prepare(local_only=True)
+            assets = root / "build/release-assets"
+            manifest = json.loads((assets / "release-manifest.json").read_text())
+            self.assertEqual(manifest["stage"], "local-assets-ready")
+            self.assertEqual(
+                manifest["artifact_sha256"]["Tok.zip"],
+                hashlib.sha256(archive.read_bytes()).hexdigest(),
+            )
+            self.assertFalse((root / "build/release-state.json").exists())
 
     def test_timeout_stops_child_after_parent_exits_on_interrupt(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -106,7 +287,11 @@ class CIReleaseTests(unittest.TestCase):
             )
 
     def test_existing_tag_must_resolve_to_recorded_commit(self):
-        state = {"repository": "owner/repo", "tag": "v1.2.3", "commit": "a" * 40}
+        state = {
+            "hosting_repository": "owner/releases",
+            "tag": "v1.2.3",
+            "hosting_commit": "a" * 40,
+        }
         for kind in ["commit", "tag"]:
             with self.subTest(kind=kind):
                 first = subprocess.CompletedProcess(
@@ -129,7 +314,11 @@ class CIReleaseTests(unittest.TestCase):
                     release.verify_tag(state)
 
     def test_missing_tag_requires_explicit_not_found_response(self):
-        state = {"repository": "owner/repo", "tag": "v1.2.3", "commit": "a" * 40}
+        state = {
+            "hosting_repository": "owner/releases",
+            "tag": "v1.2.3",
+            "hosting_commit": "a" * 40,
+        }
         for status, permitted in [(404, True), (401, False), (500, False)]:
             with (
                 self.subTest(status=status),
