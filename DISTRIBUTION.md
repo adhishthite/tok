@@ -337,3 +337,18 @@ hashes, public tag target, proposed prerelease notes, and limits. No tag, draft,
 asset upload, or release publication occurred. Builds 8 and 9 are not installed;
 build 6 remains in Applications because native app control is unavailable.
 The source commit passed GitHub CI run 34085789871.
+
+## Validation prerelease published, 2026-09-07
+
+The owner approved the exact five assets in PUBLICATION_REVIEW.md. Release
+[v0.1.2](https://github.com/adhishthite/tok-releases/releases/tag/v0.1.2) was
+published at 05:42:55 UTC as a prerelease with `latest=false`. Its public tag
+resolves to `bc63f4f69a41ee6189e68e2da629999294bc8771`. The source repo remains private.
+
+All five uploaded asset digests matched the approved SHA-256 values. Anonymous
+HTTPS downloads of each published asset matched those hashes, and the downloaded
+validation feed and ZIP signatures verified. This establishes anonymous hosting
+and signed downloads, not an installed Sparkle update. Build 8 remains the local
+validation baseline; neither it nor build 9 has been installed in this work.
+Native app control and isolated-account access still block update/relaunch/data
+preservation and runtime tamper tests. Production promotion is not approved.

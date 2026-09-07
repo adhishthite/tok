@@ -1,6 +1,6 @@
 # Publication review: Tok 0.1.2, build 9
 
-Prepared locally, not published. Request: publish a validation prerelease in
+Approved and published on 2026-09-07 at 05:42:55 UTC as a validation prerelease in
 `adhishthite/tok-releases`, tag `v0.1.2`, targeting public commit
 `bc63f4f69a41ee6189e68e2da629999294bc8771`. Do not mark it latest.
 Private app source: `577d9e92f636900506efbbc63b49efde2f1115b8`.
@@ -48,3 +48,14 @@ No runtime updater tamper test has run. Native Tok control timed out, and an
 isolated test account/Mac remains unavailable for installed-update preservation.
 Neither build 8 nor build 9 is installed. The owner app is unchanged. No automatic
 discovery, installed update, relaunch, or data-preservation result is claimed.
+
+## Publication result
+
+[Public validation release](https://github.com/adhishthite/tok-releases/releases/tag/v0.1.2)
+is published, not draft, and marked prerelease. It was explicitly published with
+`latest=false`. The public tag resolves to the reviewed public commit above.
+All five server-reported asset digests matched the reviewed hashes before
+publication. Anonymous HTTPS downloads of all five published assets then matched
+again. The downloaded validation feed and ZIP passed Sparkle signature checks.
+Anonymous verification files remain in `build/anonymous-release-verification/`.
+No installed update or production promotion was performed.
