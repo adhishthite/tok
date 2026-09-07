@@ -146,3 +146,13 @@ HUD tests. Real keyboard/VoiceOver and mid-animation visual verification remain
 untested. Final installation, hosting approval/publication, isolated onboarding,
 owner speech review, hardware coverage, and presented-frame measurements are still
 required. The deferred task is incomplete.
+
+## Approved-host preparation, 2026-09-07
+
+The owner approved the public binary destination. Its current tree contains only
+Tok-branded README and license notices. Source remains private. Builds 8 (0.1.1,
+validation feed) and 9 (0.1.2, production feed) are notarized and locally verified.
+PUBLICATION_REVIEW.md contains the concrete test-prerelease approval request.
+No binaries or tags have been published, neither build is installed, and no
+installed Sparkle update or preservation test has occurred. All previously open
+human, hardware, VoiceOver, real-speech, and presented-frame gates remain open.

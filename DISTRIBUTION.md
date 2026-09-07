@@ -312,3 +312,28 @@ installed update. Build 9 is reserved as version 0.1.2 with the production feed.
 The source checks passed, including 25 Python tests; `make check-ci` passed after
 import/formatting corrections. The live private/public release preflight passed
 without creating a tag or draft.
+
+## Signed update target prepared, 2026-09-07
+
+Version 0.1.2/build 9, source `577d9e92f636`, embeds the production HTTPS feed.
+Artifacts, verification.json, notary records, and signed release assets are
+preserved under `build/package/build-9/`. App and DMG submissions were accepted:
+`220c6443-22a6-4a81-ae41-3b3c6d3f129a` and
+`2f9a5e06-54fb-4f5a-89fe-e776b2ef445c`.
+
+The first app upload returned notarytool exit 69 without an ID. Apple history
+confirmed no new submission; the failed-upload marker was preserved before one
+retry. The resulting saved ID was then resumed. No successful upload was repeated.
+App/DMG signatures, stapling, Gatekeeper, ZIP app, and mounted DMG app checks
+passed. All long local operations used 120-second supervisors.
+
+The local-only release helper successfully verified and staged the exact build,
+compared the full ZIP app against the signed bundle, and generated a signed feed.
+Modified signed feed content and a changed archive failed signature verification.
+This is local cryptographic testing, not running-updater rejection.
+
+[PUBLICATION_REVIEW.md](PUBLICATION_REVIEW.md) lists the five exact upload assets,
+hashes, public tag target, proposed prerelease notes, and limits. No tag, draft,
+asset upload, or release publication occurred. Builds 8 and 9 are not installed;
+build 6 remains in Applications because native app control is unavailable.
+The source commit passed GitHub CI run 34085789871.
