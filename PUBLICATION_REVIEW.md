@@ -59,3 +59,43 @@ publication. Anonymous HTTPS downloads of all five published assets then matched
 again. The downloaded validation feed and ZIP passed Sparkle signature checks.
 Anonymous verification files remain in `build/anonymous-release-verification/`.
 No installed update or production promotion was performed.
+
+# Publication review: Tok 0.1.3, build 10
+
+Approved by the owner and published on 2026-09-07 at 16:14:51 UTC as the latest
+release in `adhishthite/tok-releases`, tag `v0.1.3`, targeting public commit
+`bc63f4f69a41ee6189e68e2da629999294bc8771`. Private app source:
+`1312f18bc0f8888895f3a6ec094d7b3763136d53`. This is the first production-feed
+release; it carries the Settings audit fixes merged in pull request 1.
+
+| Upload asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Tok.dmg | 2764670 | ddeb73ed01a838021935de424dbe08d9771d64ac558ff57a8f4098e0d51bf27b |
+| Tok.zip | 2676207 | a23b3f6807583b386006786ce5ac5638405a319566022c66183b64b3fe1effe3 |
+| appcast.xml | 1177 | 6eddd894e3058ec997ba1fb35c69f386b3f0a81a16f49d55dc165dd17697a8fc |
+| checksums.txt | 226 | 70efeeed2e3dc2d03aa30927424c8da17b7841705f0805826c7a8160b8e8e64d |
+
+Exact files: `build/package/build-10/release-assets/`. The local manifest was not
+uploaded. No validation feed was published; the production latest URL serves
+this appcast directly.
+
+## Verification
+
+Apple accepted the app ZIP (`b8a3e20e-b719-4315-8cec-688fc9ef8475`) and the
+final DMG (`93e9bb6c-143e-4e79-baea-66c74ca4f1f3`). Both were stapled and
+validated, and `spctl` reported `Notarized Developer ID`. `stage-assets`
+verified the universal binary, macOS 14.0 minimum, team identifier, and ZIP
+contents before signing the feed with the Keychain Sparkle key.
+
+Anonymous HTTPS downloads of all four assets through both the versioned and the
+latest URLs matched the staged hashes. The downloaded feed and archive passed
+`sign_update --verify`. The tag resolves to the reviewed public commit and the
+repository's latest release is `v0.1.3`.
+
+The owner installed the update on the primary Mac from installed build 9. The
+installed application afterwards reports 0.1.3 (10), source `1312f18bc0f8`, a
+valid signature, a stapled ticket, and `Notarized Developer ID`. The Sparkle
+last-check time is 16:16:56 UTC, two minutes after publication. Whether the
+install went through the in-app Check for Updates button or a scheduled check
+was not recorded; the earlier limits on scheduled-discovery evidence still apply.
+Build 9 is preserved in `build/installed-backups/build-9-before-sparkle/`.
