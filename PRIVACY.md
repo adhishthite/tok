@@ -109,7 +109,7 @@ One dictation finished, with or without text.
 | `outcome` | category | success, empty, error, delivery_failed, or other. |
 | `route` | category | live, fallback, or none. |
 | `delivery` | category | dispatched, copied, failed, or none. |
-| `finish` | category | release, lock_press, lock_limit, or other. |
+| `finish` | category | release, lock_press, lock_limit, session_limit, input_interrupted, or other. |
 | `latency` | bucket | Release to delivery in milliseconds: <500, 500-1000, 1000-2000, 2000-4000, or 4000+. |
 | `audio` | bucket | Audio seconds: <2, 2-5, 5-15, 15-60, or 60+. |
 | `smart` | boolean | Live cleanup was on. |

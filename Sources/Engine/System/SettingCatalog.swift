@@ -31,7 +31,9 @@ public enum SettingCatalog {
     },
     SettingDefinition(
       key: "LOCK_LIMIT", title: "Locked recording limit",
-      help: "Maximum seconds for hands-free recording. Zero removes the limit.", group: .general,
+      help:
+        "Maximum seconds for hands-free recording. Zero removes the limit. Every dictation still ends before the 10 minute live session limit.",
+      group: .general,
       section: "Shortcut",
       kind: .decimal(0...600), unit: .seconds, enabledWhen: .isPositive("HOLD_TO_LOCK"),
       defaultValue: "120.0"
@@ -326,8 +328,8 @@ public enum SettingCatalog {
     SettingDefinition(
       key: "WS_ENDPOINT_ALIGNED", title: "Use aligned end signals",
       help:
-        "Experimental endpoint signaling. Compare latency and last-word accuracy before adopting.",
-      group: .advanced, section: "Streaming", kind: .toggle, defaultValue: "false"
+        "Send only the documented end-of-turn signal. Turn off to compare latency and last-word accuracy with the earlier triple signal.",
+      group: .advanced, section: "Streaming", kind: .toggle, defaultValue: "true"
     ) { config, value in
       config.wsEndpointAligned = (value.lowercased() == "true" || value == "1")
     },

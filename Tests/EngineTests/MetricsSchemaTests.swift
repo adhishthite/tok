@@ -63,6 +63,11 @@ final class MetricsSchemaTests: XCTestCase {
     XCTAssertEqual(MetricsBucket.days(91), .string("90+"))
     XCTAssertEqual(MetricsBucket.category(nil, allowed: ["a"]), .string("none"))
     XCTAssertEqual(MetricsBucket.category("b", allowed: ["a"]), .string("other"))
+    var record = Self.record()
+    record.finishMode = "session_limit"
+    XCTAssertEqual(
+      MetricEvent.dictation(envelope: envelope, record: record).fields["finish"],
+      .string("session_limit"))
   }
 
   func testSchemaMarkdownListsEveryEventAndField() {

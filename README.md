@@ -102,7 +102,7 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | Dictation shortcut | <code>HOTKEY</code> | <code>fn</code> | <code>fn</code>, <code>right_option</code>, <code>left_option</code>, <code>right_control</code>, <code>left_control</code>, <code>right_cmd</code>, <code>left_cmd</code>, <code>f13</code>, <code>f14</code>, <code>f15</code>, <code>f16</code>, <code>f17</code>, <code>f18</code>, <code>f19</code>, <code>f20</code> | Hold this key to dictate. Fn requires “Do Nothing” in Keyboard settings. |
 | Shortcut behavior | <code>HOTKEY_MODE</code> | <code>push_to_talk</code> | <code>push_to_talk</code>, <code>toggle</code> | Hold to speak, or press once to start and again to finish. |
 | Hold to lock | <code>HOLD_TO_LOCK</code> | <code>15.0</code> | 0.0 to 60.0 | Seconds before a held shortcut locks recording. Zero disables it. |
-| Locked recording limit | <code>LOCK_LIMIT</code> | <code>120.0</code> | 0.0 to 600.0 | Maximum seconds for hands-free recording. Zero removes the limit. |
+| Locked recording limit | <code>LOCK_LIMIT</code> | <code>120.0</code> | 0.0 to 600.0 | Maximum seconds for hands-free recording. Zero removes the limit. Every dictation still ends before the 10 minute live session limit. |
 | Play dictation sounds | <code>SOUND_FEEDBACK</code> | <code>false</code> | true, false | Quiet cues when recording starts, finishes, locks, or fails. |
 | Play a release cue | <code>RELEASE_SOUND</code> | <code>false</code> | true, false | An additional short cue when you release the shortcut. |
 | Restore clipboard | <code>RESTORE_CLIPBOARD</code> | <code>true</code> | true, false | Put your previous clipboard back after pasting, unless you copied something new. |
@@ -168,7 +168,7 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | Fallback delay | <code>REST_FALLBACK_TIMEOUT</code> | <code>4.0</code> | 0.1 to 30.0 | Seconds to wait before also trying the fallback route. |
 | Streaming frame size | <code>CHUNK_MS</code> | <code>150</code> | 20 to 500 | Milliseconds of audio sent in each streaming frame. |
 | Trailing silence | <code>SILENCE_FLUSH_MS</code> | <code>700</code> | 0 to 2000 | Milliseconds of synthetic silence sent to help finalize the final word. |
-| Use aligned end signals | <code>WS_ENDPOINT_ALIGNED</code> | <code>false</code> | true, false | Experimental endpoint signaling. Compare latency and last-word accuracy before adopting. |
+| Use aligned end signals | <code>WS_ENDPOINT_ALIGNED</code> | <code>true</code> | true, false | Send only the documented end-of-turn signal. Turn off to compare latency and last-word accuracy with the earlier triple signal. |
 | Pre-roll | <code>PRE_ROLL_MS</code> | <code>400</code> | 0 to 1000 | Milliseconds retained before pressing the shortcut when warm capture is enabled. |
 | Trailing quiet window | <code>POST_ROLL_MS</code> | <code>250</code> | 0 to 500 | Milliseconds of quiet needed before finishing capture. |
 | Maximum trailing capture | <code>POST_ROLL_MAX_MS</code> | <code>1500</code> | 0 to 5000 | Milliseconds to wait for speech after release, at most. |

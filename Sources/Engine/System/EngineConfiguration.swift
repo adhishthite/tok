@@ -24,6 +24,12 @@ public struct EngineConfiguration: Sendable {
   // hi-IN, ...). Bare "en"/"mr" is not what the documented table lists.
   public var languageCodes: [String] = ["en-IN", "hi-IN", "mr-IN"]
   public var customVocabulary: [String] = []
+  /// The service accepts at most this many vocabulary terms per request.
+  public static let vocabularyLimit = 1000
+  /// The documented sweet spot; more terms dilute the bias.
+  public static let vocabularyRecommended = 100
+  /// Terms beyond the limit that were dropped at load, for a startup warning.
+  public var customVocabularyDropped = 0
   public var customVocabularyFile: String = ""
   var replacementRules: [ReplacementRule] = []
   // Sorted + regex-compiled form of replacementRules, built once at load (the raw rules
@@ -89,7 +95,7 @@ public struct EngineConfiguration: Sendable {
   // Aligned endpointing sends only the documented end-of-turn signal for transcribe models
   // (manual VAD -> activityEnd; auto/tuned -> audioStreamEnd) instead of the legacy
   // audioStreamEnd + activityEnd + clientContent.turnComplete triple.
-  public var wsEndpointAligned: Bool = false
+  public var wsEndpointAligned: Bool = true
   // Streaming chunk size; docs recommend ~100ms for the dedicated model (150 = shipped).
   public var chunkMs: Int = 150
   // Synthetic trailing silence appended after key-up so the speech encoder's lookahead
@@ -248,11 +254,13 @@ public struct EngineConfiguration: Sendable {
     config.replacementRules = split.rules
     config.compiledReplacementRules = ReplacementEngine.compile(split.rules)
     var seen = Set<String>()
-    config.customVocabulary = (split.vocab + split.rules.map { $0.right }).compactMap { value in
+    let terms = (split.vocab + split.rules.map { $0.right }).compactMap { value -> String? in
       let term = value.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !term.isEmpty, seen.insert(term.lowercased()).inserted else { return nil }
       return term
     }
+    config.customVocabularyDropped = max(0, terms.count - vocabularyLimit)
+    config.customVocabulary = Array(terms.prefix(vocabularyLimit))
     Log.isVerbose = config.logLevel == "verbose"
     return config
   }

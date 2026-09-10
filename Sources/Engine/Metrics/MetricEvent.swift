@@ -77,7 +77,9 @@ public struct MetricEvent: Equatable, Sendable {
         "delivery": MetricsBucket.category(
           record.deliveryOutcome, allowed: ["dispatched", "copied", "failed"]),
         "finish": MetricsBucket.category(
-          record.finishMode, allowed: ["release", "lock_press", "lock_limit"], empty: "other"),
+          record.finishMode,
+          allowed: ["release", "lock_press", "lock_limit", "session_limit", "input_interrupted"],
+          empty: "other"),
         "latency": MetricsBucket.latency(record.totalMs),
         "audio": MetricsBucket.audio(record.audioSeconds),
         "smart": .bool(record.smartMode),

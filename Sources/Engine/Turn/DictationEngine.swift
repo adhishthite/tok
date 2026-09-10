@@ -55,6 +55,7 @@ public final class DictationEngine {
   private var turnLocked: Bool = false
   private var lockWorkItem: DispatchWorkItem?
   private var lockLimitWorkItem: DispatchWorkItem?
+  private var sessionLimitWorkItem: DispatchWorkItem?
   // How the current turn's hold ended (finish_mode in history): written on main in
   // handleKeyUp before the pipeline is dispatched, read on sessionQueue like the
   // turnFrontmost* fields.
@@ -193,6 +194,17 @@ public final class DictationEngine {
 
   public func start() {
     SoundManager.prepare()
+    if config.customVocabularyDropped > 0 {
+      Log.warn(
+        "VOCAB",
+        "\(config.customVocabularyDropped) vocabulary terms beyond the \(EngineConfiguration.vocabularyLimit)-term limit were not sent. Recognition works best near \(EngineConfiguration.vocabularyRecommended) terms."
+      )
+    } else if config.customVocabulary.count > EngineConfiguration.vocabularyRecommended {
+      Log.info(
+        "VOCAB",
+        "\(config.customVocabulary.count) vocabulary terms sent. Recognition works best near \(EngineConfiguration.vocabularyRecommended) terms."
+      )
+    }
     // Connectivity truth for the key-down offline gate.
     NetworkMonitor.shared.start()
 
@@ -461,6 +473,7 @@ public final class DictationEngine {
     feedback.captureStarted(pid: turnFrontmostPID, followFocus: config.hudFollowFocus)
     if config.restoreClipboard { TextInjector.prepareClipboard() }
     armHoldToLock()
+    armSessionLimit()
 
     // Duck AFTER the begin earcon has played, not with it - Talkify's ordering. The
     // 350ms delay covers the cue; captureActive gates the item so it can't fire after
@@ -504,6 +517,8 @@ public final class DictationEngine {
     lockWorkItem = nil
     lockLimitWorkItem?.cancel()
     lockLimitWorkItem = nil
+    sessionLimitWorkItem?.cancel()
+    sessionLimitWorkItem = nil
 
     // Release acknowledged, before the settle race: on a slow REST fallback there are
     // otherwise seconds of silence between letting go and the commit earcon. While the
@@ -558,6 +573,34 @@ public final class DictationEngine {
     }
     lockWorkItem = item
     DispatchQueue.main.asyncAfter(deadline: .now() + lockAfter, execute: item)
+  }
+
+  /// Margin kept before the live session limit so the final audio and end signals
+  /// still land inside the session.
+  static let sessionLimitMargin = 15.0
+
+  // Main thread. Scheduled at capture start in every shortcut mode: the live service
+  // ends a session at ten minutes, so a turn must finish before the current session
+  // does, whatever LOCK_LIMIT says. REST-only configurations have no session to protect.
+  private func armSessionLimit() {
+    sessionLimitWorkItem?.cancel()
+    sessionLimitWorkItem = nil
+    guard let liveClient else { return }
+    let remaining =
+      liveClient.sessionRemainingSeconds ?? GeminiLiveClient.sessionLimitSeconds
+    let limit = max(5.0, remaining - Self.sessionLimitMargin)
+    let item = DispatchWorkItem { [weak self] in
+      guard let self = self, self.captureActive else { return }
+      self.sessionLimitWorkItem = nil
+      Log.warn(
+        "LIMIT",
+        "Dictation reached the live session limit after \(String(format: "%.0f", limit))s - finishing it now."
+      )
+      self.turnLocked = false
+      self.handleKeyUp(finish: "session_limit")
+    }
+    sessionLimitWorkItem = item
+    DispatchQueue.main.asyncAfter(deadline: .now() + limit, execute: item)
   }
 
   // Main thread. A locked turn with nobody coming back to finish it is an open mic billing

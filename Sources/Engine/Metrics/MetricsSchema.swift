@@ -56,7 +56,8 @@ public enum MetricsSchema {
         MetricFieldDefinition(
           "delivery", kind: "category", "dispatched, copied, failed, or none."),
         MetricFieldDefinition(
-          "finish", kind: "category", "release, lock_press, lock_limit, or other."),
+          "finish", kind: "category",
+          "release, lock_press, lock_limit, session_limit, input_interrupted, or other."),
         MetricFieldDefinition(
           "latency", kind: "bucket",
           "Release to delivery in milliseconds: <500, 500-1000, 1000-2000, 2000-4000, or 4000+."),
