@@ -140,3 +140,44 @@ appended byte was rejected. Verification files are in
 The public release notes omit the menu-panel focus change because it was not
 verified by hand. No installed Sparkle update from build 10 has been recorded
 yet.
+
+# Publication review: Tok 0.1.5, build 12
+
+Approved by the owner and published on 2026-09-10 at 17:18:12 UTC as the latest
+release in `adhishthite/tok-releases`, tag `v0.1.5`, targeting public commit
+`bc63f4f69a41ee6189e68e2da629999294bc8771`. Private app source:
+`0296b9baccdeb51c2b594ae4c2c1d6414e6aff20`, which passed CI run 34506648469.
+It carries the live session cap, the vocabulary limit, and the aligned
+end-of-turn signal default from pull request 4.
+
+| Upload asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Tok.dmg | 2871084 | c28293b59ce6580448273b156db29b3ca6dc71c3ca77a48e0eeacefe29adfe14 |
+| Tok.zip | 2792291 | 6adffdae6615209c70bd073e64b662905e72faccd7025e86f91e2c6d098b3d68 |
+| appcast.xml | 1177 | 5b68c76259f869bca8bdbc8c88b0717bd0ebbe994bf3e199a78d0cc03673f071 |
+| checksums.txt | 226 | 2205e6e5c505b2d77e0b27efbf93b1a47b25b47a131ea6b8457d3f7b8505203a |
+
+Exact files: `build/package/build-12/release-assets/`. The local manifest was not
+uploaded. The production latest URL serves this appcast directly.
+
+## Verification
+
+Apple accepted the app ZIP (`6fb0f4bf-7242-4c7b-86ce-d91cc080ccf9`) and the
+final DMG (`7f63861d-bd39-4bcd-9cdd-949f9cd3047a`). Each was uploaded once and
+resumed from its saved ID. Both were stapled and validated, and `spctl` reported
+`Notarized Developer ID`. `stage-assets` verified the universal binary, macOS
+14.0 minimum, team identifier, and ZIP contents before signing the feed with the
+Keychain Sparkle key. All long steps ran under bounded supervisors.
+
+The release is not a draft and not a prerelease. All four server-reported asset
+digests matched the staged hashes. The tag resolves to the reviewed public
+commit and the repository's latest release is `v0.1.5`. Anonymous HTTPS
+downloads of all four assets through both the versioned and the latest URLs
+matched the staged hashes. The downloaded feed and both downloaded archives
+passed `sign_update --verify` with the Keychain account, and an archive with one
+appended byte was rejected. Verification files are in
+`build/anonymous-release-verification/v0.1.5/`.
+
+The aligned end-signal default shipped before a latency comparison against the
+legacy signal was measured. The legacy signal remains available through
+`WS_ENDPOINT_ALIGNED=false` for that comparison.
