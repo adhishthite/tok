@@ -7,47 +7,43 @@ struct PrivacyStatementsSection: View {
   @Environment(\.openWindow) private var openWindow
   var body: some View {
     Section {
-      statement(
-        "Audio goes to the Gemini API only while you dictate, and only to transcribe it. Tok keeps no audio."
-      )
-      statement(
-        "Your API key stays in the macOS Keychain and travels only in the request header to Google.",
-        action: "Open Keychain Access", openKeychainAccess)
-      statement(
-        "Usage metrics are off unless you turn them on below. They never include transcripts, audio, vocabulary, or your key.",
-        action: "View queued events", { openWindow(id: "diagnostics") })
-      statement(
-        "Update checks fetch a signed appcast and send no profile information.",
-        action: "Open appcast", openAppcast)
+      PrivacyStatementRow(
+        emoji: "🎙️", title: "Audio, only while you dictate",
+        detail: "Sent to the Gemini API only to transcribe it. Tok keeps no audio.")
+      PrivacyStatementRow(
+        emoji: "🔑", title: "Your API key, in the request header",
+        detail: "Stored in the macOS Keychain. Sent only to Google.",
+        action: "Open Keychain Access", perform: openKeychainAccess)
+      PrivacyStatementRow(
+        emoji: "📊", title: "Usage metrics, only if you turn them on",
+        detail: "Off by default. Never transcripts, audio, vocabulary, or your key.",
+        action: "View queued events", perform: { openWindow(id: "diagnostics") })
+      PrivacyStatementRow(
+        emoji: "🔄", title: "Update checks",
+        detail: "Fetch a signed appcast. No profile information is sent.",
+        action: "Open appcast", perform: openAppcast)
     } header: {
       Text("Leaves this Mac")
     }
     Section {
-      statement(
-        "Dictations are stored in a local database on this Mac. Retention is set below.",
-        action: "Show history file", { reveal(historyURL) })
-      statement(
-        "Vocabulary and learned corrections stay in local files.",
-        action: "Show vocabulary file", { reveal(store.settings.resolvedVocabularyURL) })
-      statement(
-        "The overlay and menu can hide dictated words during screen sharing.")
+      PrivacyStatementRow(
+        emoji: "🗂️", title: "Dictation history",
+        detail: "A local database on this Mac. Retention is set below.",
+        action: "Show history file", perform: { reveal(historyURL) })
+      PrivacyStatementRow(
+        emoji: "📖", title: "Vocabulary and learned corrections",
+        detail: "Local files that never leave this Mac.",
+        action: "Show vocabulary file",
+        perform: { reveal(store.settings.resolvedVocabularyURL) })
+      PrivacyStatementRow(
+        emoji: "🙈", title: "Dictated words during screen sharing",
+        detail: "The overlay and menu can hide them while you share your screen.")
     } header: {
       Text("Stays on this Mac")
     } footer: {
       Button("Read the full privacy document") { PrivacyDocument.open() }
         .controlSize(.small).padding(.top, 4)
     }
-  }
-  private func statement(
-    _ text: String, action: String? = nil, _ perform: @escaping () -> Void = {}
-  ) -> some View {
-    HStack(alignment: .firstTextBaseline, spacing: 12) {
-      Text(text).fixedSize(horizontal: false, vertical: true)
-      Spacer(minLength: 0)
-      if let action {
-        Button(action, action: perform).controlSize(.small).fixedSize()
-      }
-    }.padding(.vertical, 2)
   }
   private var historyURL: URL {
     let raw = store.settings.configuration.historyDbPath
