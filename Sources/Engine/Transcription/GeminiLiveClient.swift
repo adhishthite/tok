@@ -151,7 +151,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     apiKey: String,
     model: String = "gemini-3.5-transcribe-live",
     smartTranscription: Bool = true,
-    languageCodes: [String] = ["en-IN", "mr-IN"],
+    languageCodes: [String] = ["en-IN", "hi-IN", "mr-IN"],
     customVocabulary: [String] = [],
     vadMode: String = "manual",
     vadSilenceMs: Int = 1500,

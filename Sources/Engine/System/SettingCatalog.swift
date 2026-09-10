@@ -98,9 +98,9 @@ public enum SettingCatalog {
     SettingDefinition(
       key: "LANGUAGE_CODES", title: "Languages",
       help:
-        "Comma-separated language codes, such as en-IN,mr-IN. Use auto for unrestricted recognition.",
-      group: .transcription, section: "Languages", kind: .text, prompt: "en-IN,mr-IN",
-      defaultValue: "en-IN,mr-IN"
+        "Comma-separated language codes, such as en-IN,hi-IN,mr-IN. Use auto for unrestricted recognition.",
+      group: .transcription, section: "Languages", kind: .text, prompt: "en-IN,hi-IN,mr-IN",
+      defaultValue: "en-IN,hi-IN,mr-IN"
     ) { config, value in
       config.languageCodes = EngineConfiguration.parseLanguages(
         value, fallback: config.languageCodes)
