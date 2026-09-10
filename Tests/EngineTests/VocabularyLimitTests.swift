@@ -6,16 +6,20 @@ final class VocabularyLimitTests: XCTestCase {
   func testVocabularyBeyondTheServiceLimitIsDroppedAndCounted() {
     let terms = (1...1205).map { "term\($0)" }.joined(separator: ",")
     let config = EngineConfiguration.load(values: ["CUSTOM_VOCABULARY": terms])
-    XCTAssertEqual(config.customVocabulary.count, EngineConfiguration.vocabularyLimit)
+    XCTAssertEqual(config.recognitionVocabulary.count, EngineConfiguration.vocabularyLimit)
     XCTAssertEqual(config.customVocabularyDropped, 205)
-    XCTAssertEqual(config.customVocabulary.first, "term1")
-    XCTAssertEqual(config.customVocabulary.last, "term1000")
+    XCTAssertEqual(config.recognitionVocabulary.first, "term1")
+    XCTAssertEqual(config.recognitionVocabulary.last, "term1000")
+    // The complete list stays available so the analyzer never re-suggests a saved term.
+    XCTAssertEqual(config.customVocabulary.count, 1205)
+    XCTAssertEqual(config.customVocabulary.last, "term1205")
   }
 
   func testVocabularyWithinTheLimitIsSentUnchanged() {
     let config = EngineConfiguration.load(
       values: ["CUSTOM_VOCABULARY": "Kubernetes, gemini => Gemini, Kubernetes"])
     XCTAssertEqual(config.customVocabulary, ["Kubernetes", "Gemini"])
+    XCTAssertEqual(config.recognitionVocabulary, config.customVocabulary)
     XCTAssertEqual(config.customVocabularyDropped, 0)
   }
 

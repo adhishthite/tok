@@ -174,7 +174,7 @@ public final class DictationEngine {
         model: config.geminiLiveModel,
         smartTranscription: config.smartTranscription,
         languageCodes: config.languageCodes,
-        customVocabulary: config.customVocabulary,
+        customVocabulary: config.recognitionVocabulary,
         vadMode: config.vadMode,
         vadSilenceMs: config.vadSilenceMs,
         endpointAligned: config.wsEndpointAligned
@@ -199,10 +199,10 @@ public final class DictationEngine {
         "VOCAB",
         "\(config.customVocabularyDropped) vocabulary terms beyond the \(EngineConfiguration.vocabularyLimit)-term limit were not sent. Recognition works best near \(EngineConfiguration.vocabularyRecommended) terms."
       )
-    } else if config.customVocabulary.count > EngineConfiguration.vocabularyRecommended {
+    } else if config.recognitionVocabulary.count > EngineConfiguration.vocabularyRecommended {
       Log.info(
         "VOCAB",
-        "\(config.customVocabulary.count) vocabulary terms sent. Recognition works best near \(EngineConfiguration.vocabularyRecommended) terms."
+        "\(config.recognitionVocabulary.count) vocabulary terms sent. Recognition works best near \(EngineConfiguration.vocabularyRecommended) terms."
       )
     }
     // Connectivity truth for the key-down offline gate.
@@ -909,7 +909,7 @@ public final class DictationEngine {
       apiKey: config.geminiApiKey,
       model: config.geminiModel,
       languageCodes: config.languageCodes,
-      customVocabulary: config.customVocabulary
+      customVocabulary: config.recognitionVocabulary
     ) { [weak self] result in
       guard let self = self else { return }
       self.sessionQueue.async {

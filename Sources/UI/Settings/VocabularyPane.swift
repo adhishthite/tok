@@ -28,7 +28,7 @@ struct VocabularyPane: View {
   }
   private var dropped: Int { store.settings.configuration.customVocabularyDropped }
   private var termSummary: String {
-    let count = store.settings.configuration.customVocabulary.count
+    let count = store.settings.configuration.recognitionVocabulary.count
     if dropped > 0 {
       return
         "\(count) terms sent. \(dropped) more exceed the \(EngineConfiguration.vocabularyLimit)-term limit and are not sent."

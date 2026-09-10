@@ -28,8 +28,13 @@ public struct EngineConfiguration: Sendable {
   public static let vocabularyLimit = 1000
   /// The documented sweet spot; more terms dilute the bias.
   public static let vocabularyRecommended = 100
-  /// Terms beyond the limit that were dropped at load, for a startup warning.
-  public var customVocabularyDropped = 0
+  /// The terms sent with recognition requests: the first `vocabularyLimit` entries.
+  /// `customVocabulary` itself stays complete for the analyzer and correction watcher.
+  public var recognitionVocabulary: [String] {
+    Array(customVocabulary.prefix(Self.vocabularyLimit))
+  }
+  /// Terms beyond the limit that recognition requests leave out.
+  public var customVocabularyDropped: Int { max(0, customVocabulary.count - Self.vocabularyLimit) }
   public var customVocabularyFile: String = ""
   var replacementRules: [ReplacementRule] = []
   // Sorted + regex-compiled form of replacementRules, built once at load (the raw rules
@@ -254,13 +259,11 @@ public struct EngineConfiguration: Sendable {
     config.replacementRules = split.rules
     config.compiledReplacementRules = ReplacementEngine.compile(split.rules)
     var seen = Set<String>()
-    let terms = (split.vocab + split.rules.map { $0.right }).compactMap { value -> String? in
+    config.customVocabulary = (split.vocab + split.rules.map { $0.right }).compactMap { value in
       let term = value.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !term.isEmpty, seen.insert(term.lowercased()).inserted else { return nil }
       return term
     }
-    config.customVocabularyDropped = max(0, terms.count - vocabularyLimit)
-    config.customVocabulary = Array(terms.prefix(vocabularyLimit))
     Log.isVerbose = config.logLevel == "verbose"
     return config
   }
