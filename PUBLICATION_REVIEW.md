@@ -99,3 +99,44 @@ last-check time is 16:16:56 UTC, two minutes after publication. Whether the
 install went through the in-app Check for Updates button or a scheduled check
 was not recorded; the earlier limits on scheduled-discovery evidence still apply.
 Build 9 is preserved in `build/installed-backups/build-9-before-sparkle/`.
+
+# Publication review: Tok 0.1.4, build 11
+
+Approved by the owner and published on 2026-09-10 at 16:50:10 UTC as the latest
+release in `adhishthite/tok-releases`, tag `v0.1.4`, targeting public commit
+`bc63f4f69a41ee6189e68e2da629999294bc8771`. Private app source:
+`2b9463235f70710319260c8a2c4317a48a275b04`, which passed CI run 34479534400.
+It carries the Hindi default language, the About pane, the Privacy pane and
+setup step, and opt-in local usage metrics from pull requests 2 and 3.
+
+| Upload asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Tok.dmg | 2862324 | ec45a3ed6fa2e75cc6b43974862e1766eff791f86d10f30a88c9536e877ae5b1 |
+| Tok.zip | 2786275 | 26d52ef8f34e27a25f66a028f025c3df50e328352c85691ca6e5fe40522d39d3 |
+| appcast.xml | 1177 | 7e415c6206ab65fba2b53414398a087ff6a434ea87bdaf18a025dfca3c31e290 |
+| checksums.txt | 226 | 5752cf2bc5fffca63dd8b20ecb130775d2925fe79292e94dbfa8160187412611 |
+
+Exact files: `build/package/build-11/release-assets/`. The local manifest was not
+uploaded. The production latest URL serves this appcast directly.
+
+## Verification
+
+Apple accepted the app ZIP (`1689fd7b-a8ca-44ff-a1a4-ffcc1b1df14c`) and the
+final DMG (`492a467d-6fb9-4413-aa6f-f14dfac22bd3`). Each was uploaded once and
+resumed from its saved ID. Both were stapled and validated, and `spctl` reported
+`Notarized Developer ID`. `stage-assets` verified the universal binary, macOS
+14.0 minimum, team identifier, and ZIP contents before signing the feed with the
+Keychain Sparkle key. All long steps ran under bounded supervisors.
+
+The release is not a draft and not a prerelease. All four server-reported asset
+digests matched the staged hashes. The tag resolves to the reviewed public
+commit and the repository's latest release is `v0.1.4`. Anonymous HTTPS
+downloads of all four assets through both the versioned and the latest URLs
+matched the staged hashes. The downloaded feed and both downloaded archives
+passed `sign_update --verify` with the Keychain account, and an archive with one
+appended byte was rejected. Verification files are in
+`build/anonymous-release-verification/v0.1.4/`.
+
+The public release notes omit the menu-panel focus change because it was not
+verified by hand. No installed Sparkle update from build 10 has been recorded
+yet.
