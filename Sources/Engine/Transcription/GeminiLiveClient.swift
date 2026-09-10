@@ -38,6 +38,12 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   var writeDeadline: DispatchWorkItem?
   private static let maxPendingWriteBytes = 256 * 1024
   private static let maxPendingWriteAge = 3.0
+  /// The documented maximum for one live transcription session.
+  static let sessionLimitSeconds = 600.0
+  /// Age at which an idle session is replaced so a turn never starts near the limit.
+  static let sessionRotationSeconds = 480.0
+  private var sessionEstablishedAt: TimeInterval = 0
+  private var sessionRotationWorkItem: DispatchWorkItem?
   var isConnected: Bool {
     lock.lock()
     defer { lock.unlock() }
@@ -47,6 +53,14 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     lock.lock()
     defer { lock.unlock() }
     return readyState
+  }
+  /// Seconds left before the current session reaches the documented limit, or nil when
+  /// no session is established.
+  var sessionRemainingSeconds: Double? {
+    lock.lock()
+    defer { lock.unlock() }
+    guard readyState, sessionEstablishedAt > 0 else { return nil }
+    return Self.sessionLimitSeconds - (ProcessInfo.processInfo.systemUptime - sessionEstablishedAt)
   }
   var canCommitTurn: Bool {
     lock.lock()
@@ -155,7 +169,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     customVocabulary: [String] = [],
     vadMode: String = "manual",
     vadSilenceMs: Int = 1500,
-    endpointAligned: Bool = false
+    endpointAligned: Bool = true
   ) {
     self.apiKey = apiKey
     self.model = model
@@ -201,6 +215,9 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     }
     reconnectWorkItem?.cancel()
     reconnectWorkItem = nil
+    sessionRotationWorkItem?.cancel()
+    sessionRotationWorkItem = nil
+    sessionEstablishedAt = 0
     reconnectEnabled = true
     connectionID &+= 1
     let epoch = connectionID
@@ -428,6 +445,8 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       self.readyState = true
       self.reconnectAttempts = 0
       didCompleteSetup = true
+      self.sessionEstablishedAt = ProcessInfo.processInfo.systemUptime
+      scheduleSessionRotationLocked(epoch: epoch)
       // Fresh session: server-side cumulative token counters restart from zero.
       self.lastSeenPromptTokens = 0
       self.lastSeenResponseTokens = 0
@@ -1099,6 +1118,25 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     return !currentTurnText.isEmpty || firstTokenLatencyMs > 0
   }
 
+  /// Sessions are capped at ten minutes by the service. Replacing an idle session at
+  /// eight minutes means a turn never starts with only seconds left. A turn in progress
+  /// defers the swap until it completes. Caller holds `lock`.
+  private func scheduleSessionRotationLocked(epoch: UInt64) {
+    sessionRotationWorkItem?.cancel()
+    let item = DispatchWorkItem { [weak self] in
+      guard let self else { return }
+      self.lock.lock()
+      let current = self.connectionID == epoch && self.reconnectEnabled
+      self.sessionRotationWorkItem = nil
+      self.lock.unlock()
+      guard current else { return }
+      Log.info("WS", "Live session is 8 minutes old - replacing it when idle.")
+      self.scheduleReconnect(epoch: epoch, onlyWhenIdle: true)
+    }
+    sessionRotationWorkItem = item
+    settleQueue.asyncAfter(deadline: .now() + Self.sessionRotationSeconds, execute: item)
+  }
+
   private func scheduleReconnect(epoch: UInt64, onlyWhenIdle: Bool = false) {
     lock.lock()
     guard epoch == connectionID, reconnectEnabled, reconnectWorkItem == nil else {
@@ -1138,6 +1176,9 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     lock.lock()
     connectionID &+= 1
     reconnectEnabled = false
+    sessionRotationWorkItem?.cancel()
+    sessionRotationWorkItem = nil
+    sessionEstablishedAt = 0
     reconnectWorkItem?.cancel()
     reconnectWorkItem = nil
     settleWorkItem?.cancel()

@@ -51,8 +51,8 @@ final class LiveRecoveryRegressionTests: XCTestCase {
     startupProbe.finish(2)
     startupClient.recoveryDrain()
     check(
-      startupProbe.sent.count == 4 && startupProbe.sent[3].contains("audioStreamEnd"),
-      "commit begins after replay")
+      startupProbe.sent.count == 4 && startupProbe.sent[3].contains("activityEnd"),
+      "commit begins after replay with the documented end signal")
     startupClient.disconnect()
     check(
       recoveryCommitResults == 1 && startupClient.recoveryPending == 0,
@@ -107,8 +107,9 @@ final class LiveRecoveryRegressionTests: XCTestCase {
       "stale callback cannot consume next turn")
     failureClient.disconnect()
 
+    // The legacy triple terminator stays available behind WS_ENDPOINT_ALIGNED=false.
     let endingProbe = LiveWriteProbe()
-    let endingClient = GeminiLiveClient(apiKey: "")
+    let endingClient = GeminiLiveClient(apiKey: "", endpointAligned: false)
     endingClient.recoveryFixture(endingProbe)
     endingClient.startNewTurn()
     endingClient.recoveryReady()

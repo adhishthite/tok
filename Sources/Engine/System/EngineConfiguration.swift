@@ -24,6 +24,17 @@ public struct EngineConfiguration: Sendable {
   // hi-IN, ...). Bare "en"/"mr" is not what the documented table lists.
   public var languageCodes: [String] = ["en-IN", "hi-IN", "mr-IN"]
   public var customVocabulary: [String] = []
+  /// The service accepts at most this many vocabulary terms per request.
+  public static let vocabularyLimit = 1000
+  /// The documented sweet spot; more terms dilute the bias.
+  public static let vocabularyRecommended = 100
+  /// The terms sent with recognition requests: the first `vocabularyLimit` entries.
+  /// `customVocabulary` itself stays complete for the analyzer and correction watcher.
+  public var recognitionVocabulary: [String] {
+    Array(customVocabulary.prefix(Self.vocabularyLimit))
+  }
+  /// Terms beyond the limit that recognition requests leave out.
+  public var customVocabularyDropped: Int { max(0, customVocabulary.count - Self.vocabularyLimit) }
   public var customVocabularyFile: String = ""
   var replacementRules: [ReplacementRule] = []
   // Sorted + regex-compiled form of replacementRules, built once at load (the raw rules
@@ -89,7 +100,7 @@ public struct EngineConfiguration: Sendable {
   // Aligned endpointing sends only the documented end-of-turn signal for transcribe models
   // (manual VAD -> activityEnd; auto/tuned -> audioStreamEnd) instead of the legacy
   // audioStreamEnd + activityEnd + clientContent.turnComplete triple.
-  public var wsEndpointAligned: Bool = false
+  public var wsEndpointAligned: Bool = true
   // Streaming chunk size; docs recommend ~100ms for the dedicated model (150 = shipped).
   public var chunkMs: Int = 150
   // Synthetic trailing silence appended after key-up so the speech encoder's lookahead
