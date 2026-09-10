@@ -41,12 +41,14 @@ public final class StatsRepository: @unchecked Sendable {
   /// Adds one settled turn. Words are counted only for successful dictations, and only
   /// when `trackWords` is on.
   public func record(_ turn: TurnRecord, trackWords: Bool, date: Date = Date()) async throws {
-    let words =
-      trackWords && turn.outcome == "success"
-      ? Self.counts(StatsWordTokenizer.words(in: turn.text ?? "")) : [:]
     let day = StatsCalculator.dayKey(for: date, calendar: calendar)
     try await withDatabase(create: true) { db in
       guard let db else { throw StatsRepositoryError.databaseUnavailable }
+      // Tokenized here, on the repository queue, so the transcript is read once and
+      // only its normalized word counts ever reach the database.
+      let words =
+        trackWords && turn.outcome == "success"
+        ? Self.counts(StatsWordTokenizer.words(in: turn.text ?? "")) : [:]
       try Self.execute(db, "BEGIN IMMEDIATE")
       do {
         let insert = try Self.prepare(

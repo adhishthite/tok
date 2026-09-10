@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 
 /// Splits dictated text into countable words. Function words, fillers, and bare numbers
 /// are dropped so the most-used list shows vocabulary rather than grammar.
@@ -25,10 +26,22 @@ public enum StatsWordTokenizer {
   ]
 
   private static let wordScalars = CharacterSet.alphanumerics.union(.nonBaseCharacters)
+  /// Longer tokens are not words. This is a second guard, after segmentation, so a
+  /// sentence can never be stored as one "word" even if the tokenizer misjudges a script.
+  static let maximumScalars = 48
 
   /// Lowercased words in reading order. Repeats are kept so callers can count them.
+  /// Segmentation follows Unicode word boundaries, so scripts written without spaces
+  /// such as Chinese, Japanese, and Thai are split into words, not kept as sentences.
   public static func words(in text: String) -> [String] {
-    text.split(whereSeparator: \.isWhitespace).compactMap { normalize(String($0)) }
+    let tokenizer = NLTokenizer(unit: .word)
+    tokenizer.string = text
+    var words: [String] = []
+    tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+      if let word = normalize(String(text[range])) { words.append(word) }
+      return true
+    }
+    return words
   }
 
   /// Lowercases, strips edge punctuation, and rejects numbers, single letters, and stop words.
@@ -41,7 +54,8 @@ public enum StatsWordTokenizer {
       end = trimmed.index(before: end)
     }
     let word = String(trimmed[trimmed.startIndex..<end])
-    guard word.unicodeScalars.count >= 2,
+    let length = word.unicodeScalars.count
+    guard length >= 2, length <= maximumScalars,
       word.unicodeScalars.contains(where: CharacterSet.letters.contains),
       !stopWords.contains(word)
     else { return nil }
