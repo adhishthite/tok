@@ -3,6 +3,7 @@ import SwiftUI
 struct StatusMenu: View {
   @Environment(DictationStore.self) private var store
   @Environment(\.openWindow) private var openWindow
+  @Environment(\.openSettings) private var openSettings
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
       HStack(spacing: 10) {
@@ -53,7 +54,7 @@ struct StatusMenu: View {
       .toggleStyle(.checkbox).controlSize(.small)
       Divider()
       HStack {
-        SettingsLink { Text("Settings…") }.keyboardShortcut(",")
+        Button("Settings…") { showSettings() }.keyboardShortcut(",")
         Spacer()
         Button(store.isPaused ? "Resume" : "Pause") { store.setPaused(!store.isPaused) }
         Button("Quit") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
@@ -87,6 +88,22 @@ struct StatusMenu: View {
   }
   private func show(_ id: String) {
     openWindow(id: id)
-    NSApplication.shared.activate(ignoringOtherApps: true)
+    focusWindow(identifier: id)
+  }
+  /// `SettingsLink` neither closes this panel nor focuses the new window.
+  private func showSettings() {
+    openSettings()
+    focusWindow(identifier: "com_apple_SwiftUI_Settings_window")
+  }
+  /// A menu-bar-only app is inactive while this panel is open, so a window
+  /// SwiftUI opens stays behind the previous app until it is made key, which
+  /// is what activation alone failed to do on macOS 14 and 15.
+  private func focusWindow(identifier: String) {
+    DispatchQueue.main.async {
+      let windows = NSApplication.shared.windows
+      let window = windows.first { $0.identifier?.rawValue == identifier }
+      window?.makeKeyAndOrderFront(nil)
+      NSApplication.shared.activate(ignoringOtherApps: true)
+    }
   }
 }

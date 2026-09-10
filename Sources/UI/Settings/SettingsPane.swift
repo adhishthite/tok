@@ -28,6 +28,7 @@ struct SettingsPane: View {
     case .vocabulary: VocabularyPane()
     case .history: HistoryPane()
     case .advanced: AdvancedPane()
+    case .about: AboutPane()
     }
   }
 }
