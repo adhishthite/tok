@@ -37,6 +37,9 @@ struct StatusMenu: View {
         store.showVocabulary?()
       }
       navigationButton("History…", symbol: "clock", color: .teal) { show("history") }
+      navigationButton("Stats…", symbol: "chart.bar.xaxis", color: .orange, detail: statsDetail) {
+        show("stats")
+      }
       Divider()
       Toggle(
         "Hide dictated words",
@@ -67,10 +70,18 @@ struct StatusMenu: View {
       #endif
     }
     .padding(18).frame(width: 300, alignment: .leading)
-    .onAppear { store.refreshPermissions() }
+    .onAppear {
+      store.refreshPermissions()
+      store.stats.refreshGlance()
+    }
+  }
+  private var statsDetail: String? {
+    let words = store.stats.wordsToday
+    return words > 0 ? "\(StatsFormat.count(words)) today" : nil
   }
   private func navigationButton(
-    _ title: String, symbol: String, color: Color, action: @escaping () -> Void
+    _ title: String, symbol: String, color: Color, detail: String? = nil,
+    action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
       HStack(spacing: 10) {
@@ -81,6 +92,7 @@ struct StatusMenu: View {
           .accessibilityHidden(true)
         Text(title).font(.callout).foregroundStyle(.primary)
         Spacer()
+        if let detail { Text(detail).font(.caption).foregroundStyle(.tertiary) }
         Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
           .accessibilityHidden(true)
       }.padding(.vertical, 3).contentShape(.rect)

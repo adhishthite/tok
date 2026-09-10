@@ -31,6 +31,11 @@ struct PrivacyStatementsSection: View {
         detail: "A local database on this Mac. Retention is set below.",
         action: "Show history file", perform: { reveal(historyURL) })
       PrivacyStatementRow(
+        emoji: "📈", title: "Dictation stats",
+        detail: "Counts, timing, and per-day word counts in a local database. Never transcripts.",
+        action: "Show stats file",
+        perform: { reveal(store.stats.fileURL ?? store.settings.supportDirectory) })
+      PrivacyStatementRow(
         emoji: "📖", title: "Vocabulary and learned corrections",
         detail: "Local files that never leave this Mac.",
         action: "Show vocabulary file",

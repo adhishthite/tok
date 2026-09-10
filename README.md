@@ -12,7 +12,8 @@ make check
 ```
 
 The app includes a native menu-bar panel, AppKit dictation overlay, Settings,
-searchable History, Vocabulary editing with suggestions, and Diagnostics.
+searchable History, a Stats dashboard, Vocabulary editing with suggestions, and
+Diagnostics.
 Setup guides permissions, API key storage, and shortcut testing. The connection
 test shows explicit checking, connected, and failure states. If Tok is missing
 from a permission list, setup can reveal the running app in Finder.
@@ -27,6 +28,13 @@ identifier captured when dictation started, not window titles or contents.
 Cleanup can format numbers and lists while preserving the spoken meaning and
 languages. It adds a model round trip. Failed, timed-out, or unusable results fall
 back to the original transcript. See [POSTPROCESSING.md](POSTPROCESSING.md).
+Stats shows words dictated, speaking rate, time saved against your typing speed,
+streaks, activity by day and hour, words by application, and the most and least
+used words for today, this week, this month, this year, or all time. It reads a
+separate local database, `stats.db`, that holds per-dictation counts and timing
+plus per-day word counts and never transcripts, so totals survive history being
+off, pruned, or cleared. Stats tracking and word counting are separate toggles in
+Settings > Privacy, and Reset deletes the database contents.
 Diagnostics shows the latest timing breakdown and a searchable session log.
 Warnings and errors can be filtered, selected entries can be copied, and clearing
 the log leaves saved dictations intact. Transcript text is not logged by the
@@ -107,6 +115,7 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | Play a release cue | <code>RELEASE_SOUND</code> | <code>false</code> | true, false | An additional short cue when you release the shortcut. |
 | Restore clipboard | <code>RESTORE_CLIPBOARD</code> | <code>true</code> | true, false | Put your previous clipboard back after pasting, unless you copied something new. |
 | Add a trailing space | <code>TRAILING_SPACE</code> | <code>true</code> | true, false | Keep consecutive dictations separated. |
+| Typing speed | <code>TYPING_WPM</code> | <code>40</code> | 10 to 200 | Your typing speed. Stats uses it to estimate the time dictation saves. |
 
 ### Transcription
 
@@ -153,6 +162,8 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | Hide dictated words on screen | <code>PRIVACY_MODE</code> | <code>false</code> | true, false | Hide live words in the overlay and menu. Local history is controlled separately. |
 | Save dictation history | <code>HISTORY</code> | <code>true</code> | true, false | Store dictations locally on this Mac. |
 | History retention | <code>HISTORY_RETENTION_DAYS</code> | <code>0</code> | 0 to 3650 | Days to retain history. Zero keeps it indefinitely. |
+| Track dictation stats | <code>STATS</code> | <code>true</code> | true, false | Count words, dictations, speaking time, and time saved in a local stats database. No transcripts are stored there. |
+| Track word usage | <code>STATS_WORDS</code> | <code>true</code> | true, false | Count how often each word is dictated for the most and least used lists. Stored as per-day counts, never as sentences. |
 | Share anonymous usage metrics | <code>SHARE_USAGE_METRICS</code> | <code>false</code> | true, false | Off by default. Records counts, categories, and timing buckets only. Never transcripts, audio, vocabulary, or your API key. See PRIVACY.md. |
 
 ### Advanced

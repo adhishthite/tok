@@ -4,6 +4,7 @@ public enum SettingUnit: Sendable {
   case days
   case decibels
   case usdPerMillionTokens
+  case wordsPerMinute
 
   /// Short label shown beside the value field.
   public var label: String {
@@ -13,6 +14,7 @@ public enum SettingUnit: Sendable {
     case .days: "days"
     case .decibels: "dBFS"
     case .usdPerMillionTokens: "USD"
+    case .wordsPerMinute: "wpm"
     }
   }
 
@@ -20,7 +22,7 @@ public enum SettingUnit: Sendable {
   public var fractionDigits: ClosedRange<Int> {
     switch self {
     case .seconds, .decibels: 0...1
-    case .milliseconds, .days: 0...0
+    case .milliseconds, .days, .wordsPerMinute: 0...0
     case .usdPerMillionTokens: 2...2
     }
   }

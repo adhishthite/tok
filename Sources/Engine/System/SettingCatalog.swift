@@ -72,6 +72,14 @@ public enum SettingCatalog {
       config.trailingSpace = (value.lowercased() == "true" || value == "1")
     },
     SettingDefinition(
+      key: "TYPING_WPM", title: "Typing speed",
+      help: "Your typing speed. Stats uses it to estimate the time dictation saves.",
+      group: .general, section: "Dictation stats", kind: .integer(10...200),
+      unit: .wordsPerMinute, defaultValue: "40"
+    ) { config, value in
+      if let wpm = Int(value) { config.typingWordsPerMinute = min(200, max(10, wpm)) }
+    },
+    SettingDefinition(
       key: "SMART_TRANSCRIPTION", title: "Clean up during live transcription",
       help:
         "Ask the live model to remove fillers and format numbers and dates, using the existing transcription request.",
@@ -244,6 +252,23 @@ public enum SettingCatalog {
       kind: .integer(0...3650), unit: .days, defaultValue: "0"
     ) { config, value in
       if let days = Int(value) { config.historyRetentionDays = min(3650, max(0, days)) }
+    },
+    SettingDefinition(
+      key: "STATS", title: "Track dictation stats",
+      help:
+        "Count words, dictations, speaking time, and time saved in a local stats database. No transcripts are stored there.",
+      group: .privacy, section: "Dictation stats", kind: .toggle, defaultValue: "true"
+    ) { config, value in
+      config.statsEnabled = (value.lowercased() == "true" || value == "1")
+    },
+    SettingDefinition(
+      key: "STATS_WORDS", title: "Track word usage",
+      help:
+        "Count how often each word is dictated for the most and least used lists. Stored as per-day counts, never as sentences.",
+      group: .privacy, section: "Dictation stats", kind: .toggle, enabledWhen: .isOn("STATS"),
+      defaultValue: "true"
+    ) { config, value in
+      config.statsWordsEnabled = (value.lowercased() == "true" || value == "1")
     },
     SettingDefinition(
       key: "SHARE_USAGE_METRICS", title: "Share anonymous usage metrics",
