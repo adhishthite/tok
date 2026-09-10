@@ -33,6 +33,10 @@ the log leaves saved dictations intact. Transcript text is not logged by the
 live-stream or completed-turn paths.
 REST failures use safe messages that direct you to Tok Settings; raw response
 bodies and provider-supplied error text are not copied into error descriptions.
+Settings > Privacy states what leaves the Mac and what stays, with a button
+beside each statement to check it. Usage metrics are off by default, record
+only counts and categories, and this version sends nothing. See
+[PRIVACY.md](PRIVACY.md), which also carries the generated event schema.
 Builds use an available Apple Development identity, with ad-hoc signing as a
 local fallback. Hardened runtime is enabled.
 `make package` creates a local ZIP in `build/package/`; it is not a notarized release.
@@ -131,7 +135,6 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | Follow the focused display | <code>HUD_FOLLOW_FOCUS</code> | <code>true</code> | true, false | Show the overlay on the display where you are writing. |
 | Overlay motion | <code>HUD_REVEAL</code> | <code>drift</code> | <code>drift</code>, <code>slide</code>, <code>bloom</code>, <code>unfurl</code>, <code>morph</code> | Preview the entrance and exit before choosing. |
 | Ambient particles | <code>HUD_PARTICLES</code> | <code>false</code> | true, false | Optional particles while listening. Disabled with Reduce Motion. |
-| Hide dictated words on screen | <code>PRIVACY_MODE</code> | <code>false</code> | true, false | Hide live words in the overlay and menu. Local history is controlled separately. |
 
 ### Vocabulary
 
@@ -143,12 +146,14 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | Learn from typed corrections | <code>LEARN_CORRECTIONS</code> | <code>false</code> | true, false | Observe word corrections after a paste. Only word pairs are stored, never the surrounding field. |
 | Correction observation delay | <code>LEARN_DELAY_MS</code> | <code>8000</code> | 2000 to 60000 | Milliseconds after a paste before checking for a correction. |
 
-### History
+### Privacy
 
 | Setting | Key | Default | Values | Description |
 | --- | --- | --- | --- | --- |
+| Hide dictated words on screen | <code>PRIVACY_MODE</code> | <code>false</code> | true, false | Hide live words in the overlay and menu. Local history is controlled separately. |
 | Save dictation history | <code>HISTORY</code> | <code>true</code> | true, false | Store dictations locally on this Mac. |
 | History retention | <code>HISTORY_RETENTION_DAYS</code> | <code>0</code> | 0 to 3650 | Days to retain history. Zero keeps it indefinitely. |
+| Share anonymous usage metrics | <code>SHARE_USAGE_METRICS</code> | <code>false</code> | true, false | Off by default. Records counts, categories, and timing buckets only. Never transcripts, audio, vocabulary, or your API key. See PRIVACY.md. |
 
 ### Advanced
 

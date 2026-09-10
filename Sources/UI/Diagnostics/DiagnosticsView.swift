@@ -8,6 +8,8 @@ struct DiagnosticsView: View {
       Divider()
       DiagnosticLogView(entries: store.diagnostics, clear: store.clearDiagnostics)
       Divider()
+      MetricsPayloadView()
+      Divider()
       Text("Build \(BuildIdentity.revision)").font(.caption).foregroundStyle(.secondary)
         .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12).padding(.vertical, 6)

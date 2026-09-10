@@ -10,6 +10,7 @@ final class DictationStore: DictationEngineDelegate {
   let updates = UpdateStore()
   let loginItem = LoginItemStore()
   let history = HistoryViewStore()
+  let metrics: MetricsStore
   @ObservationIgnored var showVocabulary: (() -> Void)?
   @ObservationIgnored var showSetup: (() -> Void)?
   private(set) var status = DictationStatus.setup
@@ -28,6 +29,8 @@ final class DictationStore: DictationEngineDelegate {
   private(set) var hasLoaded = false
   private(set) var isPaused = false
   @ObservationIgnored private var settingsWorkItem: DispatchWorkItem?
+  /// Setup state is recorded once after launch and again only when completeness flips.
+  @ObservationIgnored private var lastSetupComplete: Bool?
   var needsSetup: Bool { !permissions.allGranted || !settings.hasAPIKey }
   var shortcutLabel: String {
     hotkey == "fn" ? "Fn" : hotkey.replacingOccurrences(of: "_", with: " ").capitalized
@@ -42,6 +45,7 @@ final class DictationStore: DictationEngineDelegate {
   var hotkey: String { settings.configuration.hotkey }
   init(settings: SettingsStore = SettingsStore()) {
     self.settings = settings
+    self.metrics = MetricsStore(supportDirectory: settings.supportDirectory)
     settings.didChange = { [weak self] in self?.settingsChanged() }
   }
   func start() {
@@ -49,6 +53,11 @@ final class DictationStore: DictationEngineDelegate {
     updates.start()
     configureVocabularyWatcher()
     hasLoaded = true
+    metrics.configure(enabled: settings.configuration.shareUsageMetrics)
+    metrics.record(
+      .launch(
+        envelope: metrics.envelope(), configuration: settings.configuration,
+        daysSinceInstall: metrics.daysSinceInstall))
     applyRetention()
     retentionTimer?.invalidate()
     retentionTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
@@ -60,6 +69,10 @@ final class DictationStore: DictationEngineDelegate {
   func refreshPermissions() {
     defer { reportRuntime() }
     permissions = .current()
+    if hasLoaded, lastSetupComplete != !needsSetup {
+      lastSetupComplete = !needsSetup
+      recordSetupState()
+    }
     guard engine == nil, !isPaused else { return }
     if let error = settings.loadError {
       message = error
@@ -113,6 +126,9 @@ final class DictationStore: DictationEngineDelegate {
     if settings.configuration.privacyMode {
       lastText = ""
       liveText = ""
+    }
+    if metrics.enabled != settings.configuration.shareUsageMetrics {
+      metrics.configure(enabled: settings.configuration.shareUsageMetrics)
     }
     applyRetention()
     configureVocabularyWatcher()
@@ -197,6 +213,7 @@ final class DictationStore: DictationEngineDelegate {
     case .liveText(let text): liveText = settings.configuration.privacyMode ? "" : text
     case .turnSettled(let record):
       history.reload()
+      metrics.record(.dictation(envelope: metrics.envelope(), record: record))
       if let text = record.text { lastText = settings.configuration.privacyMode ? "" : text }
       if record.outcome == "success" { completedTurns += 1 }
       if let total = record.totalMs {
@@ -231,6 +248,14 @@ final class DictationStore: DictationEngineDelegate {
   private static func milliseconds(_ value: Double?) -> String {
     guard let value, value.isFinite else { return "n/a" }
     return String(format: "%.1fms", value)
+  }
+
+  private func recordSetupState() {
+    metrics.record(
+      .setup(
+        envelope: metrics.envelope(), microphone: permissions.microphone,
+        accessibility: permissions.accessibility, inputMonitoring: permissions.inputMonitoring,
+        apiKey: settings.hasAPIKey))
   }
 
   func reportRuntime() {

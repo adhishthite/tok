@@ -60,6 +60,8 @@ targets:
       - Sources/Support
       - path: Resources
         buildPhase: resources
+      - path: PRIVACY.md
+        buildPhase: resources
     dependencies:
       - target: TokEngine
       - target: TokHUD

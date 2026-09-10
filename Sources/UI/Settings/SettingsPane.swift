@@ -26,7 +26,7 @@ struct SettingsPane: View {
     case .audio: AudioPane()
     case .appearance: AppearancePane()
     case .vocabulary: VocabularyPane()
-    case .history: HistoryPane()
+    case .privacy: PrivacyPane()
     case .advanced: AdvancedPane()
     case .about: AboutPane()
     }
