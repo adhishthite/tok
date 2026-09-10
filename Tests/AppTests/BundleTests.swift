@@ -17,6 +17,7 @@ final class BundleTests: XCTestCase {
     }
     let copyright = Bundle.main.object(forInfoDictionaryKey: "NSHumanReadableCopyright") as? String
     XCTAssertEqual(copyright?.contains("Adhish Thite"), true)
+    XCTAssertNotNil(Bundle.main.url(forResource: "PRIVACY", withExtension: "md"))
     XCTAssertFalse(BuildIdentity.version.isEmpty)
     XCTAssertTrue(BuildIdentity.report.hasPrefix("Tok "))
   }

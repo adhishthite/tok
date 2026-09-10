@@ -60,6 +60,7 @@ struct SetupStatusView: View {
         } header: {
           Text("Choose a shortcut")
         }
+        SetupPrivacySection()
         Section {
           Button("Add vocabulary from file…") {
             guard let url = FileDialogs.chooseVocabulary() else { return }

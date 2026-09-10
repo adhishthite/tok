@@ -182,7 +182,7 @@ public enum SettingCatalog {
     SettingDefinition(
       key: "PRIVACY_MODE", title: "Hide dictated words on screen",
       help: "Hide live words in the overlay and menu. Local history is controlled separately.",
-      group: .appearance, section: "Privacy", kind: .toggle, defaultValue: "false"
+      group: .privacy, section: "On screen", kind: .toggle, defaultValue: "false"
     ) { config, value in
       config.privacyMode = (value.lowercased() == "true" || value == "1")
     },
@@ -229,7 +229,7 @@ public enum SettingCatalog {
     },
     SettingDefinition(
       key: "HISTORY", title: "Save dictation history",
-      help: "Store dictations locally on this Mac.", group: .history, section: "History",
+      help: "Store dictations locally on this Mac.", group: .privacy, section: "Local history",
       kind: .toggle,
       defaultValue: "true"
     ) { config, value in
@@ -237,11 +237,19 @@ public enum SettingCatalog {
     },
     SettingDefinition(
       key: "HISTORY_RETENTION_DAYS", title: "History retention",
-      help: "Days to retain history. Zero keeps it indefinitely.", group: .history,
-      section: "History",
+      help: "Days to retain history. Zero keeps it indefinitely.", group: .privacy,
+      section: "Local history",
       kind: .integer(0...3650), unit: .days, defaultValue: "0"
     ) { config, value in
       if let days = Int(value) { config.historyRetentionDays = min(3650, max(0, days)) }
+    },
+    SettingDefinition(
+      key: "SHARE_USAGE_METRICS", title: "Share anonymous usage metrics",
+      help:
+        "Off by default. Records counts, categories, and timing buckets only. Never transcripts, audio, vocabulary, or your API key. See PRIVACY.md.",
+      group: .privacy, section: "Usage metrics", kind: .toggle, defaultValue: "false"
+    ) { config, value in
+      config.shareUsageMetrics = (value.lowercased() == "true" || value == "1")
     },
     SettingDefinition(
       key: "GEMINI_LIVE_MODEL", title: "Live model", help: "Used for streaming transcription.",

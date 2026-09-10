@@ -114,6 +114,8 @@ public struct EngineConfiguration: Sendable {
   // so usage/latency/cost can be analyzed later. Plaintext on disk; disable with HISTORY=false.
   public var historyEnabled: Bool = true
   public var historyRetentionDays: Int = 0
+  // Opt-in usage metrics: counts, categories, and buckets only. See PRIVACY.md.
+  public var shareUsageMetrics: Bool = false
   public var historyDbPath: String = ""  // empty = ~/Library/Application Support/Tok/history.db
   // Source revision from Tok's built bundle, including a dirty-worktree marker.
   // Assigned by SettingsStore; never a user preference or imported .env setting.

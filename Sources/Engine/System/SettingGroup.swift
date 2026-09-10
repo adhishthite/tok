@@ -4,7 +4,7 @@ public enum SettingGroup: String, CaseIterable, Identifiable, Sendable {
   case audio = "Audio"
   case appearance = "Appearance"
   case vocabulary = "Vocabulary"
-  case history = "History"
+  case privacy = "Privacy"
   case advanced = "Advanced"
   case about = "About"
   public var id: String { rawValue }
@@ -15,7 +15,7 @@ public enum SettingGroup: String, CaseIterable, Identifiable, Sendable {
     case .audio: "mic"
     case .appearance: "circle.lefthalf.filled"
     case .vocabulary: "character.book.closed"
-    case .history: "clock"
+    case .privacy: "lock.shield"
     case .advanced: "slider.horizontal.3"
     case .about: "info.circle"
     }

@@ -47,6 +47,13 @@ struct AboutPane: View {
         } label: {
           Text(BuildIdentity.copyright)
         }
+        LabeledContent {
+          Button("Read") { PrivacyDocument.open() }
+        } label: {
+          Text("Privacy")
+          Text("What stays on this Mac and what leaves it.").font(.caption)
+            .foregroundStyle(.secondary)
+        }
       }
       Section("Acknowledgements") {
         Text("Transcription is provided by the Gemini API. Tok is not a Google product.")

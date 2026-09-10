@@ -5,6 +5,8 @@ import TokEngine
 struct SettingsReference {
   static let start = "<!-- BEGIN GENERATED SETTINGS -->"
   static let end = "<!-- END GENERATED SETTINGS -->"
+  static let schemaStart = "<!-- BEGIN GENERATED METRICS SCHEMA -->"
+  static let schemaEnd = "<!-- END GENERATED METRICS SCHEMA -->"
 
   static func main() {
     do { try run() } catch {
@@ -15,26 +17,42 @@ struct SettingsReference {
 
   static func run() throws {
     let arguments = CommandLine.arguments
-    guard arguments.count == 3, ["--check", "--write"].contains(arguments[1]) else {
-      throw failure("Usage: TokSettingsReference --check|--write README.md")
+    guard [3, 4].contains(arguments.count), ["--check", "--write"].contains(arguments[1]) else {
+      throw failure("Usage: TokSettingsReference --check|--write README.md [PRIVACY.md]")
     }
     for setting in SettingCatalog.all { try validateDefault(setting) }
-    let url = URL(fileURLWithPath: arguments[2])
+    let write = arguments[1] == "--write"
+    try update(
+      URL(fileURLWithPath: arguments[2]), between: start, and: end, content: reference(),
+      write: write, name: "Settings reference", count: "\(SettingCatalog.all.count) settings")
+    if arguments.count == 4 {
+      try update(
+        URL(fileURLWithPath: arguments[3]), between: schemaStart, and: schemaEnd,
+        content: MetricsSchema.markdown(), write: write, name: "Metrics schema",
+        count: "\(MetricsSchema.events.count) metric events")
+    }
+  }
+
+  /// Replaces or verifies the generated block between two markers in a document.
+  static func update(
+    _ url: URL, between start: String, and end: String, content body: String, write: Bool,
+    name: String, count: String
+  ) throws {
     let original = try String(contentsOf: url, encoding: .utf8)
     guard let opening = original.range(of: start),
       let closing = original.range(of: end, range: opening.upperBound..<original.endIndex)
-    else { throw failure("The README is missing its generated-settings markers.") }
-    let content = "\n\n" + reference() + "\n"
+    else { throw failure("\(url.lastPathComponent) is missing its generated markers.") }
+    let content = "\n\n" + body + "\n"
     let range = opening.upperBound..<closing.lowerBound
-    if arguments[1] == "--write" {
+    if write {
       try original.replacingCharacters(in: range, with: content).write(
         to: url, atomically: true, encoding: .utf8)
-      print("Generated reference for \(SettingCatalog.all.count) settings.")
+      print("Generated \(name.lowercased()) for \(count).")
     } else {
       guard String(original[range]) == content else {
-        throw failure("Settings reference is outdated. Run make settings-reference.")
+        throw failure("\(name) is outdated. Run make settings-reference.")
       }
-      print("PASS: README matches all \(SettingCatalog.all.count) catalog settings.")
+      print("PASS: \(url.lastPathComponent) matches all \(count).")
     }
   }
 
