@@ -111,7 +111,7 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | Clean up during live transcription | <code>SMART_TRANSCRIPTION</code> | <code>true</code> | true, false | Ask the live model to remove fillers and format numbers and dates, using the existing transcription request. |
 | Polish dictations before pasting | <code>POST_PROCESS_ENABLED</code> | <code>false</code> | true, false | Send the transcript through an optional cleanup pass for punctuation, numbers, and lists. Adds response time and API usage. Off by default. |
 | Adapt formatting to the app | <code>POST_PROCESS_APP_CONTEXT</code> | <code>false</code> | true, false | When cleanup is enabled, include the destination app name and identifier. Window titles and contents are not sent. |
-| Languages | <code>LANGUAGE_CODES</code> | <code>en-IN,mr-IN</code> | Text | Comma-separated language codes, such as en-IN,mr-IN. Use auto for unrestricted recognition. |
+| Languages | <code>LANGUAGE_CODES</code> | <code>en-IN,hi-IN,mr-IN</code> | Text | Comma-separated language codes, such as en-IN,hi-IN,mr-IN. Use auto for unrestricted recognition. |
 
 ### Audio
 

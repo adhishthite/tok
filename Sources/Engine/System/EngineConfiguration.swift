@@ -22,7 +22,7 @@ public struct EngineConfiguration: Sendable {
   public var postProcessOutputPricePer1M = 2.50
   // Region-qualified BCP-47 codes, matching the live-transcribe language table (en-IN, mr-IN,
   // hi-IN, ...). Bare "en"/"mr" is not what the documented table lists.
-  public var languageCodes: [String] = ["en-IN", "mr-IN"]
+  public var languageCodes: [String] = ["en-IN", "hi-IN", "mr-IN"]
   public var customVocabulary: [String] = []
   public var customVocabularyFile: String = ""
   var replacementRules: [ReplacementRule] = []

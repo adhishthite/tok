@@ -6,6 +6,7 @@ public enum SettingGroup: String, CaseIterable, Identifiable, Sendable {
   case vocabulary = "Vocabulary"
   case history = "History"
   case advanced = "Advanced"
+  case about = "About"
   public var id: String { rawValue }
   public var symbol: String {
     switch self {
@@ -16,6 +17,7 @@ public enum SettingGroup: String, CaseIterable, Identifiable, Sendable {
     case .vocabulary: "character.book.closed"
     case .history: "clock"
     case .advanced: "slider.horizontal.3"
+    case .about: "info.circle"
     }
   }
 }
