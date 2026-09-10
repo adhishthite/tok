@@ -10,6 +10,7 @@ final class DictationStore: DictationEngineDelegate {
   let updates = UpdateStore()
   let loginItem = LoginItemStore()
   let history = HistoryViewStore()
+  let stats = StatsViewStore()
   let metrics: MetricsStore
   @ObservationIgnored var showVocabulary: (() -> Void)?
   @ObservationIgnored var showSetup: (() -> Void)?
@@ -53,6 +54,8 @@ final class DictationStore: DictationEngineDelegate {
     updates.start()
     configureVocabularyWatcher()
     hasLoaded = true
+    configureStats()
+    stats.refreshGlance()
     metrics.configure(enabled: settings.configuration.shareUsageMetrics)
     metrics.record(
       .launch(
@@ -105,6 +108,13 @@ final class DictationStore: DictationEngineDelegate {
     }
     watchedVocabularyURL = url
   }
+  private func configureStats() {
+    let configuration = settings.configuration
+    stats.configure(
+      directory: settings.supportDirectory, enabled: configuration.statsEnabled,
+      trackWords: configuration.statsWordsEnabled,
+      typingWordsPerMinute: configuration.typingWordsPerMinute)
+  }
   private func applyRetention() {
     let days = settings.configuration.historyRetentionDays
     guard days > 0, !retaining else { return }
@@ -130,6 +140,7 @@ final class DictationStore: DictationEngineDelegate {
     if metrics.enabled != settings.configuration.shareUsageMetrics {
       metrics.configure(enabled: settings.configuration.shareUsageMetrics)
     }
+    configureStats()
     applyRetention()
     configureVocabularyWatcher()
     hud?.update(configuration: settings.configuration)
@@ -213,6 +224,7 @@ final class DictationStore: DictationEngineDelegate {
     case .liveText(let text): liveText = settings.configuration.privacyMode ? "" : text
     case .turnSettled(let record):
       history.reload()
+      stats.record(record)
       metrics.record(.dictation(envelope: metrics.envelope(), record: record))
       if let text = record.text { lastText = settings.configuration.privacyMode ? "" : text }
       if record.outcome == "success" { completedTurns += 1 }

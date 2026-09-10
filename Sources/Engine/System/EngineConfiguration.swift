@@ -128,6 +128,12 @@ public struct EngineConfiguration: Sendable {
   // Opt-in usage metrics: counts, categories, and buckets only. See PRIVACY.md.
   public var shareUsageMetrics: Bool = false
   public var historyDbPath: String = ""  // empty = ~/Library/Application Support/Tok/history.db
+  // Local dictation stats: counts, timing, and word frequencies in stats.db, never
+  // transcripts. Separate from history so totals survive history settings. See PRIVACY.md.
+  public var statsEnabled: Bool = true
+  public var statsWordsEnabled: Bool = true
+  // The typing speed the stats dashboard assumes when it estimates time saved.
+  public var typingWordsPerMinute: Int = 40
   // Source revision from Tok's built bundle, including a dirty-worktree marker.
   // Assigned by SettingsStore; never a user preference or imported .env setting.
   public var buildId: String = ""

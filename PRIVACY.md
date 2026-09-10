@@ -27,6 +27,10 @@ each one there has a button to check the claim.
 - **Dictation history** is a SQLite database in Tok's Application Support
   folder, or the path you set. Retention is controlled in Settings > Privacy.
   Turning history off stops new rows. Deleting the file deletes the history.
+- **Dictation stats** are a second SQLite database, `stats.db`, in the same
+  folder. It holds per-dictation counts and timing plus per-day word counts,
+  never transcripts or the order of words. Stats tracking and word counting are
+  separate toggles in Settings > Privacy, and Reset deletes the contents.
 - **Vocabulary and learned corrections** are local text and database files.
   Correction learning is off by default and stores only word pairs.
 - **The overlay and menu** can hide dictated words during screen sharing with
