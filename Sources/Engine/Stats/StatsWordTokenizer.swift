@@ -1,5 +1,4 @@
 import Foundation
-import NaturalLanguage
 
 /// Splits dictated text into countable words. Function words, fillers, and bare numbers
 /// are dropped so the most-used list shows vocabulary rather than grammar.
@@ -34,14 +33,7 @@ public enum StatsWordTokenizer {
   /// Segmentation follows Unicode word boundaries, so scripts written without spaces
   /// such as Chinese, Japanese, and Thai are split into words, not kept as sentences.
   public static func words(in text: String) -> [String] {
-    let tokenizer = NLTokenizer(unit: .word)
-    tokenizer.string = text
-    var words: [String] = []
-    tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
-      if let word = normalize(String(text[range])) { words.append(word) }
-      return true
-    }
-    return words
+    WordTokenizer.words(in: text).compactMap(normalize)
   }
 
   /// Lowercases, strips edge punctuation, and rejects numbers, single letters, and stop words.

@@ -46,4 +46,14 @@ final class StatsWordTokenizerTests: XCTestCase {
   func testRejectsSingleLettersAndEmptyTokens() {
     XCTAssertEqual(StatsWordTokenizer.words(in: "a - … b  \n c"), [])
   }
+  func testTotalsKeepFunctionWordsNumbersAndSingleLetterWords() {
+    XCTAssertEqual(WordTokenizer.count(in: "I am a developer with 2 cats."), 7)
+    XCTAssertEqual(WordTokenizer.count(in: "... — 🎙️"), 0)
+    XCTAssertEqual(WordTokenizer.count(in: ""), 0)
+    for text in ["我喜欢北京的天气", "今日は良い天気ですね、また明日", "วันนี้อากาศดีมาก"] {
+      XCTAssertGreaterThan(WordTokenizer.count(in: text), 1)
+    }
+    XCTAssertEqual(WordTokenizer.count(in: "मी आज घरी आहे"), 4)
+  }
+
 }

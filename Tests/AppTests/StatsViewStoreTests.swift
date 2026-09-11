@@ -65,4 +65,47 @@ final class StatsViewStoreTests: XCTestCase {
     let words = try await XCTUnwrap(store.repository).words(since: Date(timeIntervalSince1970: 0))
     XCTAssertEqual(words, 0)
   }
+  func testRefreshReloadsLocalWritesAndRollsOverTodayWithoutNewDictation() async throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    var now = calendar.date(from: DateComponents(year: 2026, month: 9, day: 10, hour: 23))!
+    let store = StatsViewStore(now: { now }, calendar: calendar)
+    store.configure(directory: directory, enabled: true, trackWords: true, typingWordsPerMinute: 40)
+    store.range = .today
+    store.visible = true
+    let repository = try XCTUnwrap(store.repository)
+    try await repository.record(turn("hello stats"), trackWords: true, date: now)
+    store.refresh()
+    await waitUntil { !store.loading && store.wordsToday == 2 }
+    XCTAssertEqual(store.report.words, 2)
+
+    now = now.addingTimeInterval(2 * 3600)
+    store.refresh()
+    await waitUntil { !store.loading && store.wordsToday == 0 }
+    XCTAssertEqual(store.report.words, 0)
+    XCTAssertEqual(store.wordsToday, 0)
+    XCTAssertEqual(store.report.currentStreakDays, 1)
+
+    try await repository.record(turn("new local entry"), trackWords: true, date: now)
+    store.refresh()
+    await waitUntil { !store.loading && store.wordsToday == 3 }
+    XCTAssertEqual(store.report.words, 3)
+    XCTAssertEqual(store.report.currentStreakDays, 2)
+  }
+
+  func testFailedResetDoesNotLeaveRefreshDisabled() async throws {
+    let store = StatsViewStore()
+    store.configure(directory: directory, enabled: true, trackWords: true, typingWordsPerMinute: 40)
+    let url = try XCTUnwrap(store.fileURL)
+    // A directory in place of the database forces a read/delete error without
+    // depending on file permission behavior under different test accounts.
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    store.visible = true
+    store.reload()
+    XCTAssertTrue(store.loading)
+    await store.clear()
+    XCTAssertFalse(store.loading)
+    XCTAssertNotNil(store.error)
+  }
+
 }

@@ -23,10 +23,10 @@ public enum StatsRange: String, CaseIterable, Identifiable, Sendable {
   /// How the equal window before this one is named in a comparison, or nil for all time.
   public var previousTitle: String? {
     switch self {
-    case .today: "yesterday"
-    case .week: "last week"
-    case .month: "last month"
-    case .year: "last year"
+    case .today: "the same elapsed time yesterday"
+    case .week: "the same elapsed time last week"
+    case .month: "the same elapsed time last month"
+    case .year: "the same elapsed time last year"
     case .all: nil
     }
   }
@@ -47,7 +47,19 @@ public enum StatsRange: String, CaseIterable, Identifiable, Sendable {
     return calendar.dateInterval(of: component, for: now)
   }
 
-  /// Start of the equal window before this one, or nil for all time.
+  /// Match the elapsed duration of this period, not the entire previous period.
+  /// Omit the comparison if the previous period is shorter than the elapsed duration
+  /// (for example, March 31 compared with February). There is no equal window then.
+  public func previousComparisonInterval(now: Date, calendar: Calendar) -> DateInterval? {
+    guard let current = interval(now: now, calendar: calendar),
+      let start = previousStart(now: now, calendar: calendar)
+    else { return nil }
+    let elapsed = now.timeIntervalSince(current.start)
+    guard elapsed > 0, elapsed <= current.start.timeIntervalSince(start) else { return nil }
+    return DateInterval(start: start, duration: elapsed)
+  }
+
+  /// Start of the calendar period before this one, or nil for all time.
   public func previousStart(now: Date, calendar: Calendar) -> Date? {
     guard let component, let interval = interval(now: now, calendar: calendar) else { return nil }
     return calendar.date(byAdding: component, value: -1, to: interval.start)

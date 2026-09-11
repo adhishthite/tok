@@ -52,6 +52,12 @@ struct StatsView: View {
         }.pickerStyle(.segmented).frame(width: 440)
       }
       ToolbarItem {
+        Button("Refresh", systemImage: "arrow.clockwise") { stats.refresh() }
+          .keyboardShortcut("r")
+          .help("Refresh stats from this Mac (Command-R)")
+          .disabled(stats.loading)
+      }
+      ToolbarItem {
         Menu {
           Button("Show stats file") { revealFile() }
           Divider()
@@ -64,9 +70,21 @@ struct StatsView: View {
     .frame(minWidth: 840, minHeight: 600)
     .task {
       stats.visible = true
-      stats.reload()
+      stats.refresh()
     }
     .onDisappear { stats.visible = false }
+    .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+      stats.refresh()
+    }
+    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification))
+    { _ in
+      stats.refresh()
+    }
+    .onReceive(
+      NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
+    ) { _ in
+      stats.refresh()
+    }
     .confirmationDialog("Reset all dictation stats?", isPresented: $confirmReset) {
       Button("Reset stats", role: .destructive) { Task { await stats.clear() } }
     } message: {

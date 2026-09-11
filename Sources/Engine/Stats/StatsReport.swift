@@ -7,7 +7,7 @@ public struct StatsReport: Sendable, Equatable {
   /// The typing speed the time-saved estimate assumes.
   public var typingWordsPerMinute: Int
   public var words = 0
-  /// Words in the equal window before this one, or nil when there is no such window.
+  /// Words in the matching elapsed window of the previous period, or nil if unavailable.
   public var previousWords: Int? = nil
   /// Successful dictations, the only ones that produced words.
   public var dictations = 0

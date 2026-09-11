@@ -38,17 +38,18 @@ public final class StatsRepository: @unchecked Sendable {
     self.calendar = calendar
   }
 
-  /// Adds one settled turn. Words are counted only for successful dictations, and only
-  /// when `trackWords` is on.
+  /// Adds one settled turn. Total counts do not depend on word-usage tracking.
+  /// Only successful dictations contribute individual words to the frequency lists.
   public func record(_ turn: TurnRecord, trackWords: Bool, date: Date = Date()) async throws {
     let day = StatsCalculator.dayKey(for: date, calendar: calendar)
     try await withDatabase(create: true) { db in
       guard let db else { throw StatsRepositoryError.databaseUnavailable }
       // Tokenized here, on the repository queue, so the transcript is read once and
       // only its normalized word counts ever reach the database.
+      let tokens = WordTokenizer.words(in: turn.text ?? "")
       let words =
         trackWords && turn.outcome == "success"
-        ? Self.counts(StatsWordTokenizer.words(in: turn.text ?? "")) : [:]
+        ? Self.counts(tokens.compactMap(StatsWordTokenizer.normalize)) : [:]
       try Self.execute(db, "BEGIN IMMEDIATE")
       do {
         let insert = try Self.prepare(
@@ -59,7 +60,7 @@ public final class StatsRepository: @unchecked Sendable {
         sqlite3_bind_double(insert, 1, date.timeIntervalSince1970)
         Self.bind(insert, 2, day)
         Self.bind(insert, 3, turn.outcome)
-        sqlite3_bind_int64(insert, 4, Int64(turn.wordCount))
+        sqlite3_bind_int64(insert, 4, Int64(tokens.count))
         sqlite3_bind_int64(insert, 5, Int64(turn.charCount))
         Self.bind(insert, 6, turn.audioSeconds)
         Self.bind(insert, 7, turn.totalMs)
@@ -104,8 +105,8 @@ public final class StatsRepository: @unchecked Sendable {
         range: range, turns: try Self.turns(db, since: since), previousWords: nil,
         successDays: try Self.successDays(db), typingWordsPerMinute: typingWordsPerMinute,
         now: now, calendar: calendar)
-      if let previous = range.previousStart(now: now, calendar: calendar) {
-        input.previousWords = try Self.words(db, since: previous, before: since)
+      if let previous = range.previousComparisonInterval(now: now, calendar: calendar) {
+        input.previousWords = try Self.words(db, since: previous.start, before: previous.end)
       }
       input.topWords = try Self.words(db, sinceDay: sinceDay, ascending: false)
       input.rareWords = try Self.words(db, sinceDay: sinceDay, ascending: true)

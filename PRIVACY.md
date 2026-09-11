@@ -1,8 +1,8 @@
 # Privacy
 
 Tok is a dictation app. This document says what leaves your Mac, what stays,
-and what you control. The same statements appear in Settings > Privacy, and
-each one there has a button to check the claim.
+and what you control. The same statements appear in Settings > Privacy, with
+links to inspect local files and supporting details.
 
 ## What leaves your Mac
 
@@ -16,8 +16,11 @@ each one there has a button to check the claim.
   pasting) sends the transcript text to the Gemini API once more. It is off by
   default. The separate "Adapt formatting to the app" option adds the
   destination app name and bundle identifier, never window titles or contents.
+- **Vocabulary for recognition** sends your vocabulary terms to Gemini to help
+  recognize them. The vocabulary file is stored locally.
 - **Vocabulary suggestions** ("Analyze history" in Vocabulary) send up to 500
-  saved dictations to the Gemini API only when you ask for suggestions.
+  saved dictations, existing vocabulary, learned corrections, and any context you
+  provide to the Gemini API only when you ask for suggestions.
 - **Update checks** fetch a signed appcast from GitHub and send no profile
   information. Sparkle's profile reporting is disabled in the build.
 - **Usage metrics** are off by default. See below.
@@ -28,9 +31,10 @@ each one there has a button to check the claim.
   folder, or the path you set. Retention is controlled in Settings > Privacy.
   Turning history off stops new rows. Deleting the file deletes the history.
 - **Dictation stats** are a second SQLite database, `stats.db`, in the same
-  folder. It holds per-dictation counts and timing plus per-day word counts,
+  folder. It holds per-dictation counts, timing, and app names plus per-day word counts,
   never transcripts or the order of words. Stats tracking and word counting are
-  separate toggles in Settings > Privacy, and Reset deletes the contents.
+  separate toggles in Settings > Privacy, both on by default. These counts survive
+  history being disabled or cleared. Reset stats deletes the stats contents.
 - **Vocabulary and learned corrections** are local text and database files.
   Correction learning is off by default and stores only word pairs.
 - **The overlay and menu** can hide dictated words during screen sharing with
