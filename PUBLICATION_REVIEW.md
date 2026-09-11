@@ -181,3 +181,54 @@ appended byte was rejected. Verification files are in
 The aligned end-signal default shipped before a latency comparison against the
 legacy signal was measured. The legacy signal remains available through
 `WS_ENDPOINT_ALIGNED=false` for that comparison.
+
+# Publication review: Tok 0.1.6, build 13
+
+Proposed on 2026-09-11 for publication as the latest release in
+`adhishthite/tok-releases`, tag `v0.1.6`, targeting public commit
+`bc63f4f69a41ee6189e68e2da629999294bc8771`. Private app source:
+`ba86aa654cb9` (Bump to 0.1.6, build 13), which passed CI run 34515559697.
+It carries the Stats dashboard and separate stats database from pull request 5,
+the Unicode word segmentation fix from that pull request's review, and the
+emoji-led Privacy pane rows.
+
+| Upload asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Tok.dmg | 2990399 | e4c9ccb056b8ce721b1025aae85a2c1582e74d5cdc738cdb26b5ec369a9e7269 |
+| Tok.zip | 3056952 | 50bb4956cac278e0e5fcf64454c165aefe984bbdcd98f5eceb99cef7c0edb89d |
+| appcast.xml | 1177 | 6146b798c291d643e23dea0240911c913e3cf499c370ea0cc6f6485d6cb80b9c |
+| checksums.txt | 226 | 0695b9f6f6fa0b649f08df3cec53ff24aa17466f38a050a0231c1edd89a0401f |
+
+Exact files: `build/package/build-13/release-assets/`. Upload only the four
+files above. The local manifest is not uploaded.
+
+## Proposed public release notes
+
+Tok 0.1.6 (build 13)
+
+- New Stats window, from the menu panel, with words dictated, speaking rate,
+  time saved compared with your typing speed, streaks, activity by day and hour,
+  words by application, and your most and least used words, for today, this
+  week, this month, this year, or all time.
+- Stats are kept in a separate local database of counts and timing that never
+  stores transcripts, so totals survive history being off, pruned, or cleared.
+  Stats tracking and word counting are separate toggles in Settings > Privacy,
+  with a Reset.
+- The menu panel shows today's word count beside the Stats row.
+- Settings > Privacy now lists each privacy statement with a short detail line
+  and a button to check the claim.
+
+Signed, notarized, and stapled for macOS 14 or later, Apple silicon and Intel.
+
+## Verification
+
+Apple accepted the app ZIP (`57ddc0b9-20f9-46e2-b4f5-6b2b00cf7af4`) and the
+final DMG (`8f96b509-a18e-47b3-b6c3-fd39ae8f4384`). Each was uploaded once and
+resumed from its saved ID. Both were stapled and validated, and `spctl` reported
+`Notarized Developer ID`. `stage-assets` verified the universal binary, macOS
+14.0 minimum, team identifier, and ZIP contents before signing the feed with the
+Keychain Sparkle key. All long steps ran under bounded supervisors.
+
+The Stats window was not opened by hand before packaging; its behavior is
+covered by unit tests and a zero-context code review only. No installed Sparkle
+update from build 12 has been recorded yet.
