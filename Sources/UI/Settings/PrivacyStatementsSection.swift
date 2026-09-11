@@ -11,6 +11,18 @@ struct PrivacyStatementsSection: View {
         emoji: "🎙️", title: "Audio, only while you dictate",
         detail: "Sent to the Gemini API only to transcribe it. Tok keeps no audio.")
       PrivacyStatementRow(
+        emoji: "📖", title: "Vocabulary for recognition",
+        detail: "Vocabulary terms are sent to Gemini to help recognize them.")
+      PrivacyStatementRow(
+        emoji: "💡", title: "Vocabulary suggestions, when requested",
+        detail:
+          "Sends recent history, vocabulary, corrections, and any context you provide to Gemini.")
+      PrivacyStatementRow(
+        emoji: "✨", title: "Optional dictation cleanup",
+        detail:
+          "When enabled, sends the transcript to Gemini. App-aware formatting also sends the app name and identifier."
+      )
+      PrivacyStatementRow(
         emoji: "🔑", title: "Your API key, in the request header",
         detail: "Stored in the macOS Keychain. Sent only to Google.",
         action: "Open Keychain Access", perform: openKeychainAccess)
@@ -32,12 +44,14 @@ struct PrivacyStatementsSection: View {
         action: "Show history file", perform: { reveal(historyURL) })
       PrivacyStatementRow(
         emoji: "📈", title: "Dictation stats",
-        detail: "Counts, timing, and per-day word counts in a local database. Never transcripts.",
+        detail:
+          "Counts, timing, app names, and per-day word usage in a local database. Never full transcripts.",
         action: "Show stats file",
         perform: { reveal(store.stats.fileURL ?? store.settings.supportDirectory) })
       PrivacyStatementRow(
         emoji: "📖", title: "Vocabulary and learned corrections",
-        detail: "Local files that never leave this Mac.",
+        detail:
+          "Stored as local files. Vocabulary is sent for recognition; corrections are also sent when you request suggestions.",
         action: "Show vocabulary file",
         perform: { reveal(store.settings.resolvedVocabularyURL) })
       PrivacyStatementRow(

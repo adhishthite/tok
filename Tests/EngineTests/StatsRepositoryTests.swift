@@ -66,9 +66,11 @@ final class StatsRepositoryTests: XCTestCase {
   }
 
   func testRangesFilterTurnsAndComparePreviousWindow() async throws {
-    let repository = StatsRepository(directory: directory)
-    let now = Date()
-    let calendar = Calendar.current
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    calendar.firstWeekday = 2
+    let repository = StatsRepository(directory: directory, calendar: calendar)
+    let now = calendar.date(from: DateComponents(year: 2026, month: 9, day: 10, hour: 15))!
     let previousStart = StatsRange.week.previousStart(now: now, calendar: calendar)!
     try await repository.record(record("one two three"), trackWords: true, date: now)
     try await repository.record(
@@ -117,4 +119,40 @@ final class StatsRepositoryTests: XCTestCase {
     }
     return names
   }
+  func testUnicodeTotalsDoNotDependOnWordTrackingOrWhitespaceCounts() async throws {
+    for tracking in [false, true] {
+      let repository = StatsRepository(
+        directory: directory.appendingPathComponent(String(tracking)))
+      let text = "我喜欢北京的天气"
+      try await repository.record(record(text), trackWords: tracking)
+      let report = try await repository.report(range: .all, typingWordsPerMinute: 40)
+      XCTAssertGreaterThan(report.words, 1)
+      XCTAssertEqual(report.words, WordTokenizer.count(in: text))
+      XCTAssertEqual(report.topWords.isEmpty, !tracking)
+      XCTAssertEqual(report.apps.first?.words, report.words)
+      XCTAssertEqual(report.wordsPerMinute!, Double(report.words) * 6, accuracy: 0.001)
+    }
+  }
+
+  func testComparisonExcludesTheRestOfThePreviousPeriod() async throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    calendar.firstWeekday = 2
+    let now = calendar.date(from: DateComponents(year: 2026, month: 9, day: 7, hour: 10))!
+    for range in [StatsRange.today, .week, .month, .year] {
+      let repository = StatsRepository(
+        directory: directory.appendingPathComponent(range.rawValue), calendar: calendar)
+      let previous = try XCTUnwrap(range.previousComparisonInterval(now: now, calendar: calendar))
+      try await repository.record(record("one two"), trackWords: false, date: now)
+      try await repository.record(
+        record("three four"), trackWords: false,
+        date: previous.end.addingTimeInterval(-1))
+      try await repository.record(record("five six seven"), trackWords: false, date: previous.end)
+      let report = try await repository.report(range: range, typingWordsPerMinute: 40, now: now)
+      XCTAssertEqual(report.words, 2)
+      XCTAssertEqual(report.previousWords, 2)
+      XCTAssertEqual(report.wordsChange, 0)
+    }
+  }
+
 }

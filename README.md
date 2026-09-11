@@ -28,6 +28,12 @@ identifier captured when dictation started, not window titles or contents.
 Cleanup can format numbers and lists while preserving the spoken meaning and
 languages. It adds a model round trip. Failed, timed-out, or unusable results fall
 back to the original transcript. See [POSTPROCESSING.md](POSTPROCESSING.md).
+
+Stats refreshes when opened, when Tok becomes active, after wake, and when the day changes.
+Choose Refresh (Command-R) to reload local stats on demand. Percentage changes compare
+the same elapsed duration in the previous period; no comparison is shown when that
+period is too short.
+
 Stats shows words dictated, speaking rate, time saved against your typing speed,
 streaks, activity by day and hour, words by application, and the most and least
 used words for today, this week, this month, this year, or all time. It reads a

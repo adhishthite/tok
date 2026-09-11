@@ -136,4 +136,34 @@ final class StatsCalculatorTests: XCTestCase {
     XCTAssertNil(StatsRange.all.interval(now: now, calendar: calendar))
     XCTAssertNil(StatsRange.all.previousStart(now: now, calendar: calendar))
   }
+  func testComparisonsUseEqualElapsedDurations() throws {
+    for range in [StatsRange.today, .week, .month, .year] {
+      let current = try XCTUnwrap(range.interval(now: now, calendar: calendar))
+      let previous = try XCTUnwrap(range.previousComparisonInterval(now: now, calendar: calendar))
+      XCTAssertEqual(previous.duration, now.timeIntervalSince(current.start), accuracy: 0.001)
+      XCTAssertEqual(previous.start, range.previousStart(now: now, calendar: calendar))
+      XCTAssertLessThanOrEqual(previous.end, current.start)
+      XCTAssertNil(range.previousComparisonInterval(now: current.start, calendar: calendar))
+    }
+    XCTAssertNil(StatsRange.all.previousComparisonInterval(now: now, calendar: calendar))
+    XCTAssertNil(
+      StatsRange.month.previousComparisonInterval(
+        now: date(2026, 3, 31), calendar: calendar))
+    let leap = date(2024, 2, 29)
+    let leapComparison = try XCTUnwrap(
+      StatsRange.year.previousComparisonInterval(
+        now: leap, calendar: calendar))
+    XCTAssertEqual(leapComparison.end, date(2023, 3, 1))
+  }
+
+  func testComparisonUsesElapsedTimeAcrossDaylightSaving() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "America/New_York")!
+    let now = calendar.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 12))!
+    let comparison = try XCTUnwrap(
+      StatsRange.today.previousComparisonInterval(now: now, calendar: calendar))
+    XCTAssertEqual(comparison.duration, 11 * 3600)
+    XCTAssertEqual(calendar.component(.hour, from: comparison.end), 11)
+  }
+
 }

@@ -19,6 +19,20 @@ final class StatsViewStore {
   private var trackWords = true
   @ObservationIgnored private var typingWordsPerMinute = 40
   @ObservationIgnored private var reloadTask: Task<Void, Never>?
+  @ObservationIgnored private var glanceTask: Task<Void, Never>?
+  @ObservationIgnored private let now: () -> Date
+  @ObservationIgnored private let calendar: Calendar
+
+  init(now: @escaping () -> Date = Date.init, calendar: Calendar = .autoupdatingCurrent) {
+    self.now = now
+    self.calendar = calendar
+  }
+
+  /// Refresh local data on demand, on activation, and when the calendar day changes.
+  func refresh() {
+    refreshGlance()
+    reload()
+  }
 
   var fileURL: URL? { repository?.url }
   var tracksWords: Bool { isEnabled && trackWords }
@@ -28,7 +42,9 @@ final class StatsViewStore {
     let changed =
       repository?.url != url || isEnabled != enabled || self.trackWords != trackWords
       || self.typingWordsPerMinute != typingWordsPerMinute
-    if repository?.url != url { repository = StatsRepository(directory: directory) }
+    if repository?.url != url {
+      repository = StatsRepository(directory: directory, calendar: calendar)
+    }
     isEnabled = enabled
     self.trackWords = trackWords
     self.typingWordsPerMinute = typingWordsPerMinute
@@ -57,10 +73,11 @@ final class StatsViewStore {
     loading = true
     let range = self.range
     let typingWordsPerMinute = self.typingWordsPerMinute
+    let now = self.now()
     reloadTask = Task { [weak self] in
       do {
         let report = try await repository.report(
-          range: range, typingWordsPerMinute: typingWordsPerMinute)
+          range: range, typingWordsPerMinute: typingWordsPerMinute, now: now)
         guard !Task.isCancelled, let self else { return }
         self.report = report
         self.error = nil
@@ -76,20 +93,26 @@ final class StatsViewStore {
 
   func refreshGlance() {
     guard let repository else { return }
-    let start = Calendar.current.startOfDay(for: Date())
-    Task { [weak self] in
-      guard let words = try? await repository.words(since: start) else { return }
+    glanceTask?.cancel()
+    let start = calendar.startOfDay(for: now())
+    glanceTask = Task { [weak self] in
+      guard let words = try? await repository.words(since: start), !Task.isCancelled else { return }
       self?.wordsToday = words
     }
   }
 
   func clear() async {
     guard let repository else { return }
+    reloadTask?.cancel()
+    glanceTask?.cancel()
     do {
       try await repository.clear()
       wordsToday = 0
       report = StatsReport.empty(range, typingWordsPerMinute: typingWordsPerMinute)
       reload()
-    } catch { self.error = error.localizedDescription }
+    } catch {
+      loading = false
+      self.error = error.localizedDescription
+    }
   }
 }

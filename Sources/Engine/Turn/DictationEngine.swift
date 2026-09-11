@@ -1397,7 +1397,7 @@ public final class DictationEngine {
       outcome: deliveryError == nil ? "success" : "delivery_failed",
       text: text,
       charCount: text.count,
-      wordCount: text.split { $0.isWhitespace }.count,
+      wordCount: WordTokenizer.count(in: text),
       transport: transport,
       model: isLiveRoute ? config.geminiLiveModel : config.geminiModel,
       isLiveRoute: isLiveRoute,
