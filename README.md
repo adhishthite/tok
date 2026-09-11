@@ -1,104 +1,114 @@
 # Tok
 
-Native macOS push-to-talk dictation with a Gemini backend.
+**Hold a key. Speak. Release to paste.**
 
-Requires macOS 14 or later. Development requires Xcode 26 and XcodeGen.
+Tok is a native macOS menu-bar app that turns speech into text with Gemini.
+It supports English, Hindi, Marathi, and other languages, with a configurable
+shortcut and vocabulary for names and technical terms.
 
-```sh
-make install
-make build
-make run
-make check
-```
+**macOS 14 or later · Apple silicon and Intel · Your own Gemini API key**
 
-The app includes a native menu-bar panel, AppKit dictation overlay, Settings,
-searchable History, a Stats dashboard, Vocabulary editing with suggestions, and
-Diagnostics.
-Setup guides permissions, API key storage, and shortcut testing. The connection
-test shows explicit checking, connected, and failure states. If Tok is missing
-from a permission list, setup can reveal the running app in Finder.
-Audio settings include a native microphone picker with System Default,
-automatic lid-based selection, and connected device names. Explicit device
-choices use stable IDs. Disconnected and imported selections are preserved.
-The microphone stays closed between dictations by default.
-Optional cleanup is in Settings > Transcription: enable “Polish dictations before
-pasting” for an extra Gemini 3.5 Flash-Lite pass. It is off by default. The separate
-“Adapt formatting to the app” option includes only the destination app name and
-identifier captured when dictation started, not window titles or contents.
-Cleanup can format numbers and lists while preserving the spoken meaning and
-languages. It adds a model round trip. Failed, timed-out, or unusable results fall
-back to the original transcript. See [POSTPROCESSING.md](POSTPROCESSING.md).
+[Download Tok](https://github.com/adhishthite/tok-releases/releases/latest/download/Tok.dmg)
+· [Release notes](https://github.com/adhishthite/tok-releases/releases/latest)
+· [Privacy](PRIVACY.md)
 
-Stats refreshes when opened, when Tok becomes active, after wake, and when the day changes.
-Choose Refresh (Command-R) to reload local stats on demand. Percentage changes compare
-the same elapsed duration in the previous period; no comparison is shown when that
-period is too short.
+## Get started
 
-Stats shows words dictated, speaking rate, time saved against your typing speed,
-streaks, activity by day and hour, words by application, and the most and least
-used words for today, this week, this month, this year, or all time. It reads a
-separate local database, `stats.db`, that holds per-dictation counts and timing
-plus per-day word counts and never transcripts, so totals survive history being
-off, pruned, or cleared. Stats tracking and word counting are separate toggles in
-Settings > Privacy, and Reset deletes the database contents.
-Diagnostics shows the latest timing breakdown and a searchable session log.
-Warnings and errors can be filtered, selected entries can be copied, and clearing
-the log leaves saved dictations intact. Transcript text is not logged by the
-live-stream or completed-turn paths.
-REST failures use safe messages that direct you to Tok Settings; raw response
-bodies and provider-supplied error text are not copied into error descriptions.
-Settings > Privacy states what leaves the Mac and what stays, with a button
-beside each statement to check it. Usage metrics are off by default, record
-only counts and categories, and this version sends nothing. See
-[PRIVACY.md](PRIVACY.md), which also carries the generated event schema.
-Builds use an available Apple Development identity, with ad-hoc signing as a
-local fallback. Hardened runtime is enabled.
-`make package` creates a local ZIP in `build/package/`; it is not a notarized release.
-`make distribute` creates a universal Developer ID-signed app, DMG, and ZIP.
-See [DISTRIBUTION.md](DISTRIBUTION.md) for notarization and update configuration.
-GitHub CI and manual draft-release workflows are described in
-[CI_RELEASE.md](CI_RELEASE.md). The source repository is private. CI can run after
-the first push; release automation needs a separate update-hosting design and
-signing setup before use.
+1. Open the DMG and drag Tok into Applications.
+2. Launch Tok and follow setup to grant Microphone, Accessibility, and Input Monitoring.
+3. Add your Gemini API key. Tok stores it in macOS Keychain.
+4. Choose and test a dictation shortcut.
+5. Place the cursor in a text field, hold the shortcut, speak, and release to paste.
 
-Contributors and coding agents should start with [AGENTS.md](AGENTS.md) and
-[CLAUDE.md](CLAUDE.md). The original handoff and kickoff are historical briefs.
+If you use **Fn**, set **System Settings → Keyboard → Press Globe key to → Do Nothing**.
+Choose your microphone in **Settings → Audio**. By default, Tok releases the
+microphone between dictations.
 
-`project.yml` owns the generated Xcode project. Build output stays in `build/`.
-`make icon` regenerates the committed app-icon sizes from the original vector
-drawing in `Scripts/generate_icon.swift`.
-Run `make format` before `make check`. Keep credentials in the ignored `.env`.
+## What you can do
 
-For development only, `make run` seeds settings from the local `.env` and stores
-its API key in Keychain.
-Development seeding preserves the current history path and retention choice.
-Change retention in History settings, where deleting older records requires
-confirmation.
+- **Dictate where you write.** Use push-to-talk, toggle recording, or hold-to-lock
+  for longer dictations. A small overlay shows recording and processing state.
+- **Find past dictations.** Search, copy, and manage transcripts in History.
+- **Add your vocabulary.** Save names, technical terms, and text replacements.
+  Import a UTF-8 text file, or request suggestions from saved dictations.
+- **Track your usage.** See word counts, speaking rate, estimated time saved,
+  streaks, activity by app and time of day, and frequently used words in Stats.
+- **Polish the result.** Enable **Settings → Transcription → Polish dictations
+  before pasting** for an optional extra cleanup pass. It is off by default and
+  adds processing time. If cleanup fails, Tok uses the original transcript.
+- **Inspect problems.** Diagnostics shows timing, warnings, and errors without
+  logging transcript text.
 
-“Add vocabulary from file” accepts UTF-8 text up to 1 MB and merges new lines
-without removing existing terms. When the vocabulary is open, additions are
-staged in that document without overwriting unsaved edits. Save to apply them.
-In Vocabulary, “Analyze history…” reviews up to 500 saved dictations from the
-last 30 days, existing vocabulary, and observed corrections through Gemini.
-Review the suggestions, choose the terms or replacements to add, then Save.
-Analysis is explicitly requested and does not run in the dictation path.
-Replacement processing is bounded to 1,000,000 UTF-16 output units, 10,000 matches,
-and 16,000,000 scanned UTF-16 units per dictation. If a limit is reached, Tok does
-not paste the expanded text and keeps the original in History when history is enabled.
-Use Tok's setup window to grant Microphone, Accessibility, and Input Monitoring.
-With Fn, set System Settings > Keyboard > Press Globe key to > Do Nothing.
+### Stats
 
-`make check` runs offline XCTest fixtures and lint. `make test-live` uses the
-local key for three synthetic Live turns and one REST transcription, with bounded
-waits. Its timing measures audio-end to settlement, not physical key-up to paste.
-See [VALIDATION.md](VALIDATION.md) for actual results and the real-dictation gate.
-`make profile-microphone` records a bounded Instruments startup profile.
-See [PERFORMANCE.md](PERFORMANCE.md) for the measured main-thread setup delay.
+Choose today, this week, this month, this year, or all time. Set your typing speed
+for the time-saved estimate. Percentage changes compare equal elapsed durations
+in the previous period; the comparison is omitted when that period is too short.
 
+Stats refreshes when opened, when Tok becomes active, after wake, and at a day
+change. Use **Refresh** or **Command-R** to reload local stats on demand.
+
+Stats and word-usage tracking are on by default. They use a separate local
+database, so clearing or disabling History does not clear Stats. Manage the two
+tracking switches or reset Stats in **Settings → Privacy**.
+
+## Privacy
+
+Audio is sent to Gemini for transcription. Tok keeps no audio recordings.
+Vocabulary terms are also sent to help recognition. Optional cleanup sends the
+transcript again; app-aware formatting adds the destination app name and identifier.
+Requested vocabulary suggestions send recent history, vocabulary, and corrections.
+
+History and Stats are stored locally. Stats retains counts, timing, app names,
+and optional per-day word frequencies, not full transcripts or word order.
+Usage metrics are off by default. You can hide dictated words in the overlay
+and menu for screen sharing.
+
+See [the privacy document](PRIVACY.md) for data flows, retention, and controls.
 Tok is independent software.
 
-Update the reference below with `make settings-reference`. `make check` verifies
-it against the compiled catalog without reading user configuration.
+## Development
+
+Requires **Xcode 26** and **XcodeGen**. Contributors and coding agents should read
+[AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md) first.
+
+```sh
+make install  # Check tools and generate the Xcode project
+make build    # Build the app
+make run      # Launch the development build
+make check    # Run tests, lint, and reference checks
+```
+
+`project.yml` is the source of truth for the generated Xcode project. Build output
+stays in `build/`. Run `make format` before `make check`.
+
+For local development, `make run` can seed settings from an ignored `.env` and
+store its API key in Keychain. It preserves the current history path and retention
+choice. Never commit credentials.
+
+| Task | Guide |
+| --- | --- |
+| Engine architecture and invariants | [CLAUDE.md](CLAUDE.md) |
+| Optional transcript cleanup | [POSTPROCESSING.md](POSTPROCESSING.md) |
+| Validation results and live checks | [VALIDATION.md](VALIDATION.md) |
+| Performance measurements | [PERFORMANCE.md](PERFORMANCE.md) |
+| Packaging, signing, and notarization | [DISTRIBUTION.md](DISTRIBUTION.md) |
+| CI and release workflows | [CI_RELEASE.md](CI_RELEASE.md) |
+| Update hosting | [UPDATE_HOSTING.md](UPDATE_HOSTING.md) |
+| Product acceptance and remaining checks | [ACCEPTANCE.md](ACCEPTANCE.md) |
+
+`make package` produces a local ZIP, not a notarized release. See the distribution
+guide before preparing release artifacts. Passing offline tests does not establish
+real-dictation accuracy, latency, or accessibility acceptance.
+
+## Configuration
+
+Most options are available in Settings. Expand the complete reference for defaults,
+allowed values, and environment keys. Regenerate it with `make settings-reference`;
+`make check` verifies it against the compiled catalog.
+
+<details>
+<summary>All settings and defaults</summary>
 
 <!-- BEGIN GENERATED SETTINGS -->
 
@@ -202,3 +212,5 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | Diagnostic detail | <code>LOG_LEVEL</code> | <code>normal</code> | <code>normal</code>, <code>verbose</code> | Normal records essential events. Verbose includes additional engineering detail. |
 
 <!-- END GENERATED SETTINGS -->
+
+</details>
