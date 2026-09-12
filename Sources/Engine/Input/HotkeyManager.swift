@@ -32,11 +32,25 @@ final class HotkeyManager {
     self.mode = mode
   }
 
-  func start() -> Bool {
-    let eventMask =
-      (1 << CGEventType.flagsChanged.rawValue) | (1 << CGEventType.keyDown.rawValue)
-      | (1 << CGEventType.keyUp.rawValue)
+  // Chord detection ("another key pressed while the shortcut is held") needs key-downs for
+  // a modifier binding too. Off until that feature lands; it only widens the mask.
+  var detectsChords = false
 
+  /// Only the events the binding can produce (audit F12). A modifier binding is reported
+  /// through flagsChanged, an F-key or custom key through keyDown and keyUp. A listen-only
+  /// tap is still woken for every event it subscribes to, so a wider mask taxes every
+  /// keystroke the user types.
+  var eventMask: CGEventMask {
+    func bit(_ type: CGEventType) -> CGEventMask { CGEventMask(1) << CGEventMask(type.rawValue) }
+    switch binding {
+    case .fKey, .custom:
+      return bit(.keyDown) | bit(.keyUp)
+    default:
+      return detectsChords ? bit(.flagsChanged) | bit(.keyDown) : bit(.flagsChanged)
+    }
+  }
+
+  func start() -> Bool {
     let selfPointer = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
 
     guard
@@ -44,7 +58,7 @@ final class HotkeyManager {
         tap: .cgSessionEventTap,
         place: .headInsertEventTap,
         options: .listenOnly,
-        eventsOfInterest: CGEventMask(eventMask),
+        eventsOfInterest: eventMask,
         callback: { (proxy, type, event, refcon) -> Unmanaged<CGEvent>? in
           guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
           let manager = Unmanaged<HotkeyManager>.fromOpaque(refcon).takeUnretainedValue()
@@ -194,9 +208,14 @@ final class HotkeyManager {
   func stop() {
     if let tap = eventTap {
       CGEvent.tapEnable(tap: tap, enable: false)
+      // A disabled tap still holds its Mach port and run loop source. Without this a
+      // settings change leaks one tap per engine restart (audit F33).
+      CFMachPortInvalidate(tap)
     }
     if let source = runLoopSource {
       CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
     }
+    eventTap = nil
+    runLoopSource = nil
   }
 }

@@ -38,6 +38,7 @@ public final class HUDController {
     case .failure(let message): hud.showError(message: message)
     case .success(let text): hud.showSuccess(text: text)
     case .liveText(let text): hud.updateLiveText(text)
+    case .processingStatus(let text): showProcessingStatus(text)
     case .audioLevel(let db): hud.updateAudioLevel(db: db)
     case .captureStarted(let pid, let followFocus):
       guard followFocus else { return }
@@ -50,8 +51,8 @@ public final class HUDController {
     }
   }
 
-  // Progress inside a long finish. The engine has no event for this yet; a later change
-  // routes one here.
+  // Progress inside a long finish. Changes only the processing header, so it is a no-op
+  // once the HUD has left the processing state.
   public func showProcessingStatus(_ text: String) {
     guard enabled else { return }
     hud.updateProcessingStatus(text)

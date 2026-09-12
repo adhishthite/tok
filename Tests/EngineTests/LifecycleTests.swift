@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import XCTest
 
@@ -27,5 +28,19 @@ final class LifecycleTests: XCTestCase {
     XCTAssertTrue(
       recorder.events.isEmpty,
       "Stopping must reject queued settlement before asynchronous cleanup runs")
+  }
+
+  // audit F12: the listen-only tap subscribes only to the events its binding can produce.
+  func testEventMaskFollowsBinding() {
+    func bit(_ type: CGEventType) -> CGEventMask { CGEventMask(1) << CGEventMask(type.rawValue) }
+    let modifier = HotkeyManager(binding: .fn, mode: "push_to_talk")
+    XCTAssertEqual(modifier.eventMask, bit(.flagsChanged), "a modifier binding needs flags only")
+    modifier.detectsChords = true
+    XCTAssertEqual(
+      modifier.eventMask, bit(.flagsChanged) | bit(.keyDown),
+      "chord detection adds key-downs and still leaves key-ups out")
+    let key = HotkeyManager(binding: .fKey(0x69), mode: "push_to_talk")
+    XCTAssertEqual(
+      key.eventMask, bit(.keyDown) | bit(.keyUp), "a key binding needs key-down and key-up only")
   }
 }

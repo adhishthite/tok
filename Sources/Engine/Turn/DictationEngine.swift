@@ -56,6 +56,15 @@ public final class DictationEngine {
   private var captureActive: Bool = false
   private var capturePending = false
   private var captureGeneration: UInt64 = 0
+  // captureGeneration snapshotted on main in handleKeyUp and read on sessionQueue when the
+  // turn's feedback is emitted, the same way turnFinishMode is. Reading captureGeneration
+  // itself from sessionQueue would break its main-thread-only rule (audit F33).
+  private var turnFeedbackGeneration: UInt64 = 0
+  // Main-thread-only: true once the missing-microphone-permission refusal has been logged,
+  // so holding the shortcut does not repeat the same error line (audit F16).
+  private var loggedMicrophoneDenied = false
+  // Main-thread-only: workspace sleep/wake observer tokens, removed in stop() (audit F33).
+  private var powerObservers: [NSObjectProtocol] = []
 
   // Main-thread-only hold-to-lock state. turnLocked: the hold outlasted HOLD_TO_LOCK, so
   // the physical release is a non-event and the NEXT key-down finishes the turn.
@@ -120,6 +129,15 @@ public final class DictationEngine {
   var turnSettled: Bool = false
   private var pendingFallbackTimer: DispatchWorkItem?
   private var pendingTurnDeadline: DispatchWorkItem?
+  // sessionQueue-only: the "still working" notice for a turn that outlives the first beat.
+  private var pendingProgressNotice: DispatchWorkItem?
+  // sessionQueue-only per-route terminal state for the current turn, reset when the turn id
+  // increments (audit F21). A failed REST hedge must not end a turn whose live commit is
+  // still in flight, so the arbiter needs to know which routes can still answer.
+  var wsCommitInFlight = false
+  var wsTerminal = false
+  var restTerminal = false
+  var lastRestError: Error?
   lazy var postProcessingStage = PostProcessingStage(queue: sessionQueue)
   var pendingRestRequest: CancellableRequest?
   var restAttemptStart: TimeInterval?
@@ -192,12 +210,20 @@ public final class DictationEngine {
       )
     }
     self.history = config.historyEnabled ? HistoryStore(config: config) : nil
+    // A failed history write is otherwise only a log line; Settings shows this (audit F29).
+    // onError arrives on the history queue, so the hop to main is this wiring's job.
+    history?.onError = { [weak self] message in
+      DispatchQueue.main.async { self?.delegate?.engineDidEmit(.historyError(message)) }
+    }
     if config.learnCorrections {
-      self.correctionWatcher = CorrectionWatcher(config: config, history: self.history)
-      if !config.historyEnabled {
+      if config.historyEnabled {
+        self.correctionWatcher = CorrectionWatcher(config: config, history: self.history)
+      } else {
+        // Without history there is nowhere to store a correction, so the watcher would
+        // read the destination window over Accessibility for nothing (audit F33).
         Log.warn(
           "LEARN",
-          "LEARN_CORRECTIONS is on but HISTORY=false - observed corrections will be printed but not stored for `make analyze`."
+          "LEARN_CORRECTIONS is on but HISTORY=false - corrections are not observed. Turn History on to collect them for `make analyze`."
         )
       }
     }
@@ -304,22 +330,26 @@ public final class DictationEngine {
     // Sleep/wake hygiene: release the mic before sleep (suspendEngine refuses mid-dictation),
     // and force a fresh WS connection on wake - the socket often survives sleep in a
     // half-dead state where sends succeed but no server responses ever arrive.
-    NSWorkspace.shared.notificationCenter.addObserver(
-      forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
-    ) { [weak self] _ in
-      self?.audioCapture.suspendEngine()
-      Log.info("POWER", "System sleeping - mic released.")
-    }
-    NSWorkspace.shared.notificationCenter.addObserver(
-      forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-    ) { [weak self] _ in
-      guard let self = self else { return }
-      Log.info("POWER", "System woke - refreshing Live WebSocket connection.")
-      if self.config.enableLiveWebSocket {
-        self.liveClient?.disconnect()
-        self.liveClient?.connect()
-      }
-    }
+    // The tokens are kept so stop() can remove them: a settings change restarts the engine,
+    // and an un-removed observer would fire once per past start (audit F33).
+    powerObservers.append(
+      NSWorkspace.shared.notificationCenter.addObserver(
+        forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
+      ) { [weak self] _ in
+        self?.audioCapture.suspendEngine()
+        Log.info("POWER", "System sleeping - mic released.")
+      })
+    powerObservers.append(
+      NSWorkspace.shared.notificationCenter.addObserver(
+        forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+      ) { [weak self] _ in
+        guard let self = self else { return }
+        Log.info("POWER", "System woke - refreshing Live WebSocket connection.")
+        if self.config.enableLiveWebSocket {
+          self.liveClient?.disconnect()
+          self.liveClient?.connect()
+        }
+      })
 
     guard hotkey.start() else {
       Log.error(
@@ -363,6 +393,8 @@ public final class DictationEngine {
     micIdleWorkItem?.cancel()
     pendingDuckItem?.cancel()
     correctionWatcher?.cancelPending()
+    for token in powerObservers { NSWorkspace.shared.notificationCenter.removeObserver(token) }
+    powerObservers.removeAll()
     hotkeyManager?.stop()
     audioCapture.stopEngine()
     AudioDucker.shared.restore()
@@ -373,6 +405,7 @@ public final class DictationEngine {
       self.postProcessingStage.cancel()
       self.pendingFallbackTimer?.cancel()
       self.pendingTurnDeadline?.cancel()
+      self.pendingProgressNotice?.cancel()
       self.liveClient?.shutdown()
       self.history?.close()
     }
@@ -420,9 +453,28 @@ public final class DictationEngine {
       if hot.soundFeedback {
         SoundManager.playErrorSound()
       }
-      feedback.showError(message: "Secure input active  -  dictation blocked")
+      feedback.showError(message: "Secure input active. Dictation blocked.")
       return
     }
+
+    // Microphone permission can be revoked while Tok runs. Refuse the turn at the shortcut
+    // and name the fix, instead of recording silence until the third no-speech turn names
+    // it (audit F16). The 3-turn heuristic still covers a wrong input device.
+    if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
+      if !loggedMicrophoneDenied {
+        loggedMicrophoneDenied = true
+        Log.error(
+          "MIC",
+          "Microphone access is not authorized. Enable Tok in System Settings > Privacy & Security > Microphone."
+        )
+      }
+      if hot.soundFeedback {
+        SoundManager.playErrorSound()
+      }
+      feedback.showError(message: "Microphone access is off. Enable Tok in System Settings.")
+      return
+    }
+    loggedMicrophoneDenied = false
 
     // Offline fast-fail: say so in 0ms instead of recording a clip whose WS and REST
     // routes will both time out ~10s later.
@@ -534,6 +586,9 @@ public final class DictationEngine {
     if turnLocked { return }
     captureActive = false
     turnFinishMode = finish
+    // Stamped on main with the other per-turn fields; sessionQueue compares against this
+    // instead of reading captureGeneration off its own thread (audit F33).
+    turnFeedbackGeneration = captureGeneration
     turnEventQueueMs = (handlerTime - keyUpTime) * 1000
     lockWorkItem?.cancel()
     lockWorkItem = nil
@@ -603,23 +658,24 @@ public final class DictationEngine {
 
   // Main thread. Scheduled at capture start in every shortcut mode: the live service
   // ends a session at ten minutes, so a turn must finish before the current session
-  // does, whatever LOCK_LIMIT says. REST-only configurations have no session to protect.
+  // does, whatever LOCK_LIMIT says. A REST-only configuration has no session, but its
+  // inline audio request caps out around 7.5 minutes, so the same bound applies there
+  // and a locked turn is never left uncapped (audit F33).
   private func armSessionLimit() {
     sessionLimitWorkItem?.cancel()
     sessionLimitWorkItem = nil
-    guard let liveClient else { return }
-    let remaining =
-      liveClient.sessionRemainingSeconds ?? GeminiLiveClient.sessionLimitSeconds
+    let remaining = liveClient?.sessionRemainingSeconds ?? GeminiLiveClient.sessionLimitSeconds
     let limit = max(5.0, remaining - Self.sessionLimitMargin)
     let item = DispatchWorkItem { [weak self] in
       guard let self = self, self.captureActive else { return }
       self.sessionLimitWorkItem = nil
       Log.warn(
         "LIMIT",
-        "Dictation reached the live session limit after \(String(format: "%.0f", limit))s - finishing it now."
+        "Dictation reached the maximum recording length after \(String(format: "%.0f", limit))s - finishing it now."
       )
       self.turnLocked = false
       self.handleKeyUp(finish: "session_limit")
+      self.announceLimitReached()
     }
     sessionLimitWorkItem = item
     DispatchQueue.main.asyncAfter(deadline: .now() + limit, execute: item)
@@ -640,9 +696,24 @@ public final class DictationEngine {
       )
       self.turnLocked = false
       self.handleKeyUp(finish: "lock_limit")
+      self.announceLimitReached()
     }
     lockLimitWorkItem = item
     DispatchQueue.main.asyncAfter(deadline: .now() + config.lockLimitSec, execute: item)
+  }
+
+  /// Main thread. A limit ended the turn without the user asking for it, so say so in the
+  /// HUD instead of only in the log (audit F06). handleKeyUp hops its own showProcessing to
+  /// main first, so this async lands after it and reads as a note on the processing state.
+  /// Nothing is said when handleKeyUp found no turn to finish.
+  private func announceLimitReached() {
+    processingLock.lock()
+    let busy = isProcessing
+    processingLock.unlock()
+    guard busy else { return }
+    DispatchQueue.main.async { [weak self] in
+      self?.feedback.showProcessingStatus("Time limit reached, finishing")
+    }
   }
 
   /// Runs entirely on sessionQueue: finalizes the capture, arbitrates the WS-vs-REST turn
@@ -770,14 +841,22 @@ public final class DictationEngine {
     let turnId = currentTurnId
     turnSettled = false
     restAttemptStart = nil
+    // New turn: no route has answered or failed yet (audit F21).
+    wsCommitInFlight = false
+    wsTerminal = false
+    restTerminal = false
+    lastRestError = nil
     let budget = TurnDeadline.budget(fallbackTimeout: config.restFallbackTimeout)
     let deadline = DispatchWorkItem { [weak self] in
-      self?.settle(
-        turnId: turnId, route: "deadline",
-        outcome: .failure(
-          NSError(
-            domain: NSURLErrorDomain, code: NSURLErrorTimedOut,
-            userInfo: [NSLocalizedDescriptionKey: "Dictation deadline exceeded; nothing pasted."])))
+      guard let self = self else { return }
+      // Both routes stalled. A REST error already recorded for this turn says more than
+      // "deadline exceeded" does, so it is the failure the user sees (audit F21).
+      let error =
+        self.lastRestError
+        ?? NSError(
+          domain: NSURLErrorDomain, code: NSURLErrorTimedOut,
+          userInfo: [NSLocalizedDescriptionKey: "Dictation deadline exceeded; nothing pasted."])
+      self.settle(turnId: turnId, route: "deadline", outcome: .failure(error))
     }
     pendingTurnDeadline = deadline
     sessionQueue.asyncAfter(
@@ -785,6 +864,19 @@ public final class DictationEngine {
         + TurnDeadline.remaining(
           budget: budget, elapsed: ProcessInfo.processInfo.systemUptime - keyUpTime),
       execute: deadline)
+
+    // Progress after the first beat: a single "Finishing" for the whole budget reads as a
+    // hang (audit F09). sessionQueue-only, like every other per-turn timer; settle() cancels it.
+    pendingProgressNotice?.cancel()
+    let progressNotice = DispatchWorkItem { [weak self] in
+      guard let self = self, self.currentTurnId == turnId, !self.turnSettled else { return }
+      self.pendingProgressNotice = nil
+      DispatchQueue.main.async { [weak self] in
+        self?.feedback.showProcessingStatus("Still working")
+      }
+    }
+    pendingProgressNotice = progressNotice
+    sessionQueue.asyncAfter(deadline: .now() + 1.5, execute: progressNotice)
 
     Log.info(
       "AUDIO",
@@ -807,10 +899,25 @@ public final class DictationEngine {
         Log.warn("WS", "\(reason); executing REST fallback (hedge - WS may still land first)...")
         self.executeRestFallback(
           turnId: turnId, pcmData: pcmData, duration: duration, keyUpTime: keyUpTime,
-          captureFinalizeMs: captureFinalizeMs, reason: reason)
+          captureFinalizeMs: captureFinalizeMs, reason: reason, backupRoute: true)
       }
       pendingFallbackTimer = fallbackTimer
       sessionQueue.asyncAfter(deadline: .now() + dynamicTimeout, execute: fallbackTimer)
+      wsCommitInFlight = true
+
+      // A hold of two seconds or more that produced no interim text means the live route
+      // is not transcribing: start REST now rather than paying the fallback timeout on top
+      // of a long clip (audit F22). Cancelling the timer keeps this from being doubled; the
+      // two routes still race, and settle() takes the first result.
+      if duration >= 2.0, !liveClient.hasReceivedTokens {
+        pendingFallbackTimer?.cancel()
+        pendingFallbackTimer = nil
+        let hedgeReason = "No live interim during hold (hedge)"
+        Log.warn("WS", "\(hedgeReason); executing REST fallback in parallel...")
+        executeRestFallback(
+          turnId: turnId, pcmData: pcmData, duration: duration, keyUpTime: keyUpTime,
+          captureFinalizeMs: captureFinalizeMs, reason: hedgeReason, backupRoute: true)
+      }
 
       liveClient.commitTurn { [weak self] result in
         guard let self = self else { return }
@@ -839,6 +946,17 @@ public final class DictationEngine {
 
           case .failure(let error):
             guard self.currentTurnId == turnId, !self.turnSettled else { return }
+            // The live route is done for this turn either way (audit F21).
+            self.wsTerminal = true
+            // REST already failed and was kept waiting for this result, so no route is
+            // left: the live error is the turn's error (audit F21).
+            if self.restTerminal {
+              // settle() abandons the live turn only for non-WS routes, so do it here:
+              // abandonTurn is idempotent and leaves no half-open turn on the client.
+              self.liveClient?.abandonTurn()
+              self.settle(turnId: turnId, route: "WS", outcome: .failure(error))
+              return
+            }
             // If the hedge timer already fired, a REST call for this turn is in flight
             // (pendingFallbackTimer was nilled when it ran) - don't launch a duplicate.
             guard self.pendingFallbackTimer != nil else {
@@ -869,7 +987,7 @@ public final class DictationEngine {
             Log.warn("WS", "\(reason). Falling back to REST...")
             self.executeRestFallback(
               turnId: turnId, pcmData: pcmData, duration: duration, keyUpTime: keyUpTime,
-              captureFinalizeMs: captureFinalizeMs, reason: reason)
+              captureFinalizeMs: captureFinalizeMs, reason: reason, backupRoute: true)
           }
         }
       }
@@ -919,11 +1037,20 @@ public final class DictationEngine {
   ///
   /// isRetry marks the one allowed re-send after an empty transcript (model nondeterminism,
   /// not silence - the silent-clip gate already filtered room tone before any call was made).
+  ///
+  /// backupRoute is true when REST stands in for a live route that stalled or failed, and
+  /// false for a configuration that always uses REST - only the former is worth saying in
+  /// the HUD (audit F09).
   private func executeRestFallback(
     turnId: UInt64, pcmData: Data, duration: Double, keyUpTime: CFAbsoluteTime,
-    captureFinalizeMs: Double, reason: String, isRetry: Bool = false
+    captureFinalizeMs: Double, reason: String, isRetry: Bool = false, backupRoute: Bool = false
   ) {
     guard currentTurnId == turnId, !turnSettled else { return }
+    if backupRoute, !isRetry {
+      DispatchQueue.main.async { [weak self] in
+        self?.feedback.showProcessingStatus("Using backup route")
+      }
+    }
     if restAttemptStart == nil { restAttemptStart = ProcessInfo.processInfo.systemUptime }
     let restStartTime = restAttemptStart!
     pendingRestRequest = GeminiRestClient.transcribe(
@@ -931,7 +1058,8 @@ public final class DictationEngine {
       apiKey: config.geminiApiKey,
       model: config.geminiModel,
       languageCodes: config.languageCodes,
-      customVocabulary: config.recognitionVocabulary
+      customVocabulary: config.recognitionVocabulary,
+      smartTranscription: config.smartTranscription
     ) { [weak self] result in
       guard let self = self else { return }
       self.sessionQueue.async {
@@ -948,7 +1076,8 @@ public final class DictationEngine {
             )
             self.executeRestFallback(
               turnId: turnId, pcmData: pcmData, duration: duration, keyUpTime: keyUpTime,
-              captureFinalizeMs: captureFinalizeMs, reason: reason, isRetry: true)
+              captureFinalizeMs: captureFinalizeMs, reason: reason, isRetry: true,
+              backupRoute: backupRoute)
             return
           }
           let roundtripMs = (ProcessInfo.processInfo.systemUptime - restStartTime) * 1000.0
@@ -969,11 +1098,35 @@ public final class DictationEngine {
             ))
 
         case .failure(let error):
-          self.settle(turnId: turnId, route: "REST", outcome: .failure(error))
+          self.handleRestFailure(turnId: turnId, error: error)
         }
       }
     }
   }
+
+  /// sessionQueue-only. Applies a REST failure to the turn arbiter. A hedge that fails while
+  /// the live commit is still in flight must leave the turn alive: the live result, or the
+  /// turn deadline, settles it instead of throwing away a viable dictation (audit F21).
+  func handleRestFailure(turnId: UInt64, error: Error) {
+    guard currentTurnId == turnId, !turnSettled else { return }
+    restTerminal = true
+    lastRestError = error
+    guard Self.shouldSettleOnRestFailure(wsViable: wsRouteViable) else {
+      Log.warn("REST", "REST failed; waiting for the live result: \(error.localizedDescription)")
+      return
+    }
+    settle(turnId: turnId, route: "REST", outcome: .failure(error))
+  }
+
+  /// sessionQueue-only. True while the live route can still answer the current turn: the
+  /// commit was issued and has not failed.
+  var wsRouteViable: Bool {
+    config.enableLiveWebSocket && liveClient != nil && wsCommitInFlight && !wsTerminal
+  }
+
+  /// The whole of the F21 decision, kept pure so the regression test does not need a
+  /// network turn: a REST failure ends the turn only when no live result can arrive.
+  static func shouldSettleOnRestFailure(wsViable: Bool) -> Bool { !wsViable }
 
   /// sessionQueue-only. Tracks consecutive no-speech turns; three in a row with the mic
   /// permission missing is a revoked-permission signature, not a quiet room.
@@ -986,7 +1139,7 @@ public final class DictationEngine {
         "Microphone access is unavailable. Enable Tok in System Settings > Privacy & Security > Microphone."
       )
       DispatchQueue.main.async { [weak self] in
-        self?.feedback.showError(message: "Microphone access lost  -  check System Settings")
+        self?.feedback.showError(message: "Microphone access lost. Check System Settings.")
       }
     } else {
       Log.warn(
@@ -1004,13 +1157,13 @@ public final class DictationEngine {
       switch ns.code {
       case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost,
         NSURLErrorDataNotAllowed:
-        return "No internet connection  -  nothing pasted"
+        return "No internet connection. Nothing pasted."
       case NSURLErrorTimedOut:
-        return "Network timeout  -  nothing pasted"
+        return "Network timeout. Nothing pasted."
       case NSURLErrorCannotFindHost, NSURLErrorCannotConnectToHost, NSURLErrorDNSLookupFailed:
-        return "Can't reach Gemini  -  nothing pasted"
+        return "Can't reach Gemini. Nothing pasted."
       case NSURLErrorSecureConnectionFailed:
-        return "Secure connection failed  -  nothing pasted"
+        return "Secure connection failed. Nothing pasted."
       default:
         return nil
       }
@@ -1039,6 +1192,8 @@ public final class DictationEngine {
     if route != "WS" { liveClient?.abandonTurn() }
     pendingFallbackTimer?.cancel()
     pendingFallbackTimer = nil
+    pendingProgressNotice?.cancel()
+    pendingProgressNotice = nil
 
     switch outcome {
     case .success(
@@ -1110,7 +1265,7 @@ public final class DictationEngine {
       let hudMessage =
         (error as NSError).domain == "Tok.Microphone"
         ? "Microphone interrupted. Try again."
-        : Self.friendlyFailureMessage(error) ?? "Transcription failed  -  nothing pasted"
+        : Self.friendlyFailureMessage(error) ?? "Transcription failed. Nothing pasted."
       DispatchQueue.main.async { [weak self] in
         self?.feedback.showError(message: hudMessage)
       }
@@ -1175,6 +1330,9 @@ public final class DictationEngine {
     inputTokens: Int? = nil,
     outputTokens: Int? = nil,
     clipboardPrepared: Bool = false,
+    // False when the prepared snapshot never arrived inside awaitPreparedClipboard's wait.
+    // The paste still happens; only the clipboard restore is given up (audit F27).
+    clipboardSnapshotReady: Bool = true,
     postProcessing: PostProcessingMetrics = .off
   ) {
     guard !isStopping else { return }
@@ -1188,7 +1346,7 @@ public final class DictationEngine {
       }
     }
     if canPrepareClipboard {
-      TextInjector.awaitPreparedClipboard { [weak self] _ in
+      TextInjector.awaitPreparedClipboard { [weak self] ready in
         guard let self = self else { return }
         self.sessionQueue.async {
           self.handleTranscribedText(
@@ -1197,7 +1355,8 @@ public final class DictationEngine {
             audioDuration: audioDuration, totalStartTime: totalStartTime,
             captureFinalizeMs: captureFinalizeMs, fallbackReason: fallbackReason,
             isLiveRoute: isLiveRoute, inputTokens: inputTokens, outputTokens: outputTokens,
-            clipboardPrepared: true, postProcessing: postProcessing)
+            clipboardPrepared: true, clipboardSnapshotReady: ready,
+            postProcessing: postProcessing)
         }
       }
       return
@@ -1321,8 +1480,17 @@ public final class DictationEngine {
         )
         copyOnlyReason = "focus changed"
       } else {
+        // No snapshot means the previous clipboard cannot be put back, but refusing the
+        // paste would lose the dictation instead - the worse trade (audit F27). The
+        // dictation simply stays on the clipboard afterwards.
+        let restorePrevious = config.restoreClipboard && clipboardSnapshotReady
+        if config.restoreClipboard, !clipboardSnapshotReady {
+          Log.warn(
+            "INJECT",
+            "Clipboard snapshot unavailable; pasted without restoring the previous clipboard")
+        }
         let result = TextInjector.inject(
-          text: text, restorePreviousClipboard: config.restoreClipboard,
+          text: text, restorePreviousClipboard: restorePrevious,
           completionSound: hot.soundFeedback, appendSpace: config.trailingSpace,
           shouldDispatch: {
             guard !self.isStopping, !SecureInputMonitor.isActive, AXIsProcessTrusted() else {
@@ -1366,7 +1534,7 @@ public final class DictationEngine {
 
     let totalElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStartTime) * 1000.0
 
-    let feedbackGeneration = captureGeneration
+    let feedbackGeneration = turnFeedbackGeneration
     DispatchQueue.main.async { [weak self] in
       guard let self = self, self.captureGeneration == feedbackGeneration else { return }
       if let message = deliveryError {
@@ -1375,9 +1543,10 @@ public final class DictationEngine {
         let message: String
         switch reason {
         case "secure input":
-          message = "Secure input active  -  copied, press ⌘V after leaving the password field"
-        case "accessibility revoked": message = "Accessibility revoked  -  copied, press ⌘V"
-        default: message = "Focus changed  -  copied, press ⌘V"
+          message = "Copied. Press ⌘V outside the password field."
+        case "accessibility revoked":
+          message = "Copied. Accessibility access is off. Press ⌘V to paste."
+        default: message = "Copied. Focus changed. Press ⌘V to paste."
         }
         self.feedback.showError(message: message)
       } else {

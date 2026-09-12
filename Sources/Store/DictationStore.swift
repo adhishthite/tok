@@ -301,6 +301,9 @@ final class DictationStore: DictationEngineDelegate {
         appendDiagnostic(lastLatencyLine)
         reportRuntime()
       }
+    case .processingStatus(let text):
+      // Progress inside the same processing state, so the status stays put.
+      message = text
     case .diagnostic(let line): appendDiagnostic(line)
     case .historyError(let reason): historyError = reason
     case .audioLevel, .captureStarted: break

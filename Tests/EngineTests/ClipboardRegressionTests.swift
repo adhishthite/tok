@@ -131,5 +131,22 @@ final class ClipboardRegressionTests: XCTestCase {
       changingPrep.take()?.contents == "new copy",
       "concurrent copy uses new contents rather than partial snapshot")
 
+    // audit F27: the restore waits longer for bigger payloads, and never past 3 s.
+    check(
+      TextInjector.restoreDelay(forPayloadLength: 0) == 1.0, "an empty payload keeps the 1 s base")
+    check(
+      TextInjector.restoreDelay(forPayloadLength: 10_000) > 1.0,
+      "a large payload waits longer than the base")
+    check(
+      TextInjector.restoreDelay(forPayloadLength: 2_000) == 3.0,
+      "the restore delay reaches the 3 s cap at 2,000 characters")
+    check(
+      TextInjector.restoreDelay(forPayloadLength: 100_000_000) == 3.0,
+      "the restore delay is capped at 3 s")
+    check(
+      TextInjector.restoreDelay(forPayloadLength: 500)
+        < TextInjector.restoreDelay(forPayloadLength: 5000),
+      "the restore delay grows with the payload")
+
   }
 }

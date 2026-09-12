@@ -10,6 +10,7 @@ final class EngineFeedback {
   }
   func showLocked() { delegate?.engineDidEmit(.locked) }
   func showProcessing() { delegate?.engineDidEmit(.processing) }
+  func showProcessingStatus(_ text: String) { delegate?.engineDidEmit(.processingStatus(text)) }
   func showBusy() { delegate?.engineDidEmit(.busy) }
   func hide() { delegate?.engineDidEmit(.hidden) }
   func micReleased() { delegate?.engineDidEmit(.microphoneReleased) }
