@@ -11,13 +11,16 @@ public struct SettingDefinition: Identifiable, Sendable {
   public let unit: SettingUnit?
   public let enabledWhen: SettingCondition?
   public let defaultValue: String
+  /// False for keys the app applies to a running engine, HUD, or store without rebuilding
+  /// the engine, tap, and live session (audit F30). Default true: rebuild.
+  public let restartsEngine: Bool
   let apply: @Sendable (inout EngineConfiguration, String) -> Void
   public var id: String { key }
 
   init(
     key: String, title: String, help: String, group: SettingGroup, section: String,
     kind: SettingKind, prompt: String? = nil, unit: SettingUnit? = nil,
-    enabledWhen: SettingCondition? = nil, defaultValue: String,
+    enabledWhen: SettingCondition? = nil, defaultValue: String, restartsEngine: Bool = true,
     apply: @escaping @Sendable (inout EngineConfiguration, String) -> Void
   ) {
     self.key = key
@@ -30,6 +33,7 @@ public struct SettingDefinition: Identifiable, Sendable {
     self.unit = unit
     self.enabledWhen = enabledWhen
     self.defaultValue = defaultValue
+    self.restartsEngine = restartsEngine
     self.apply = apply
   }
 }

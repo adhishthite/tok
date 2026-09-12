@@ -23,6 +23,33 @@ enum RESTResponse {
     return json
   }
 
+  /// The answer stopped before the model finished, so the transcript on hand is a fragment.
+  static func truncatedError() -> NSError {
+    NSError(
+      domain: "GeminiAPI", code: -20,
+      userInfo: [NSLocalizedDescriptionKey: "Transcription was cut short. Nothing pasted."])
+  }
+
+  /// The service refused the audio or the answer. The service's reason enum stays in the
+  /// log; the HUD line stays short.
+  static func blockedError() -> NSError {
+    NSError(
+      domain: "GeminiAPI", code: -21,
+      userInfo: [
+        NSLocalizedDescriptionKey: "Transcription blocked by the service. Nothing pasted."
+      ])
+  }
+
+  /// The recording is longer than one inline request can carry (see
+  /// GeminiRestClient.maxInlineAudioBytes).
+  static func recordingTooLongError() -> NSError {
+    NSError(
+      domain: "GeminiAPI", code: -22,
+      userInfo: [
+        NSLocalizedDescriptionKey: "Recording too long for the backup route. Nothing pasted."
+      ])
+  }
+
   static func error(code: Int) -> NSError {
     let message: String
     switch code {

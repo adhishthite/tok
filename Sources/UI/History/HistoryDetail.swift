@@ -12,11 +12,14 @@ struct HistoryDetail: View {
         if !entry.error.isEmpty { Text(entry.error).foregroundStyle(.secondary) }
         Divider()
         LabeledContent("Application", value: entry.app.isEmpty ? "Unknown" : entry.app)
-        LabeledContent("Delivery", value: entry.delivery.isEmpty ? entry.outcome : entry.delivery)
+        // The database codes are not reader-facing wording (audit F08).
         LabeledContent(
-          "Estimated cost", value: entry.cost.map { String(format: "$%.5f", $0) } ?? "Not reported")
+          "Delivery",
+          value: entry.delivery.isEmpty
+            ? DeliveryLabel.outcome(entry.outcome) : DeliveryLabel.delivery(entry.delivery))
         LabeledContent(
-          "Status", value: entry.outcome.replacingOccurrences(of: "_", with: " ").capitalized)
+          costLabel, value: entry.cost.map { String(format: "$%.5f", $0) } ?? "Not reported")
+        LabeledContent("Status", value: DeliveryLabel.outcome(entry.outcome))
         if let metrics = entry.postProcessing {
           LabeledContent("Cleanup", value: metrics.displayStatus)
           if metrics.status != "off" {
@@ -31,13 +34,15 @@ struct HistoryDetail: View {
             LabeledContent("Route", value: entry.route)
             LabeledContent("Model", value: entry.model)
             LabeledContent("Event queue", value: milliseconds(entry.eventQueueMs))
+            LabeledContent("Capture start", value: milliseconds(entry.captureStartMs))
             LabeledContent("Capture", value: milliseconds(entry.captureMs))
+            LabeledContent("First interim", value: milliseconds(entry.firstInterimMs))
             LabeledContent("First token", value: milliseconds(entry.firstTokenMs))
             LabeledContent("Transcription", value: milliseconds(entry.apiMs))
             LabeledContent(
               "Transcription cost",
               value: entry.transcriptionCost.map {
-                String(format: "$%.6f", $0)
+                String(format: "$%.5f", $0)
               } ?? "Not reported")
             LabeledContent("Injection", value: milliseconds(entry.injectionMs))
             LabeledContent("Total", value: milliseconds(entry.totalMs))
@@ -51,6 +56,10 @@ struct HistoryDetail: View {
         }
       }.padding(20)
     }.frame(minWidth: 260, idealWidth: 320, maxWidth: 400)
+  }
+  /// Says whether the cost came from reported token counts or from audio length.
+  private var costLabel: String {
+    entry.metered ? "Cost (metered)" : "Estimated cost (from audio length)"
   }
   private func milliseconds(_ value: Double?) -> String {
     value.map { String(format: "%.0f ms", $0) } ?? "Not measured"

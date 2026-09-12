@@ -11,6 +11,10 @@ public final class HUDController {
   public func update(configuration: EngineConfiguration) {
     enabled = configuration.showHUD
     hud.privacyMode = configuration.privacyMode
+    // Listening copy names the key the user must press in toggle mode, so both fields
+    // ride every settings change.
+    hud.hotkeyMode = configuration.hotkeyMode
+    hud.shortcutLabel = configuration.shortcutLabel
     hud.revealStyle = configuration.hudRevealStyle
     hud.particlesEnabled = configuration.hudParticles
     if !enabled { hud.hide() }
@@ -33,7 +37,9 @@ public final class HUDController {
       hud.hide()
     case .failure(let message): hud.showError(message: message)
     case .success(let text): hud.showSuccess(text: text)
+    case .cancelled: hud.showCancelled()
     case .liveText(let text): hud.updateLiveText(text)
+    case .processingStatus(let text): showProcessingStatus(text)
     case .audioLevel(let db): hud.updateAudioLevel(db: db)
     case .captureStarted(let pid, let followFocus):
       guard followFocus else { return }
@@ -44,6 +50,13 @@ public final class HUDController {
       }
     default: break
     }
+  }
+
+  // Progress inside a long finish. Changes only the processing header, so it is a no-op
+  // once the HUD has left the processing state.
+  public func showProcessingStatus(_ text: String) {
+    guard enabled else { return }
+    hud.updateProcessingStatus(text)
   }
 
   public func preview() {

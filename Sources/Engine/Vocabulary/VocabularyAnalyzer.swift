@@ -191,7 +191,9 @@ public enum VocabularyAnalyzer {
     Set(text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
   }
 
-  private static func buildPrompt(
+  // Internal, not private: VocabularySuggestionTests asserts the built prompt
+  // carries no timestamp pattern (audit F32).
+  static func buildPrompt(
     rows: [Row], pairs: [(older: Row, newer: Row)], observed: [ObservedCorrection],
     config: EngineConfiguration
   ) -> String {
@@ -199,11 +201,13 @@ public enum VocabularyAnalyzer {
     existing.append(contentsOf: config.replacementRules.map { "\($0.wrong) => \($0.right)" })
     let existingBlock = existing.isEmpty ? "(none)" : existing.joined(separator: "\n")
 
-    let df = DateFormatter()
-    df.dateFormat = "MM-dd HH:mm"
+    // Audit F32: timestamps add no value to term suggestions (re-dictation pairs
+    // are already found locally by findRetryPairs, above) and were sent to Gemini
+    // without disclosure. Only the app name goes out, and PRIVACY.md and the
+    // VocabularyView confirmation both now say so.
     let transcriptBlock = rows.map { row in
       let app = row.app.isEmpty ? "?" : row.app
-      return "[\(df.string(from: Date(timeIntervalSince1970: row.ts))) | \(app)] \(row.text)"
+      return "[\(app)] \(row.text)"
     }.joined(separator: "\n")
 
     // Cap the pair block: pairs duplicate transcript text, and 20 is already far more
@@ -212,7 +216,7 @@ public enum VocabularyAnalyzer {
       pairs.isEmpty
       ? "(none)"
       : pairs.prefix(20).map { p in
-        "A [\(df.string(from: Date(timeIntervalSince1970: p.older.ts)))]: \(p.older.text)\nB [\(df.string(from: Date(timeIntervalSince1970: p.newer.ts)))]: \(p.newer.text)"
+        "A: \(p.older.text)\nB: \(p.newer.text)"
       }.joined(separator: "\n---\n")
 
     let contextBlock =
@@ -225,13 +229,12 @@ public enum VocabularyAnalyzer {
       ? "(none)"
       : observed.map { c in
         let app = c.app.isEmpty ? "?" : c.app
-        return
-          "\"\(c.wrong)\" -> \"\(c.right)\" (\(app), \(df.string(from: Date(timeIntervalSince1970: c.ts))))"
+        return "\"\(c.wrong)\" -> \"\(c.right)\" (\(app))"
       }.joined(separator: "\n")
 
     return """
       You are analyzing a user's voice-dictation history to improve their speech-to-text setup.
-      Below are their recent transcriptions (newest first, each prefixed with local time and the app dictated into), their EXISTING custom vocabulary, and detected re-dictation pairs.
+      Below are their recent transcriptions (newest first, each prefixed with the app dictated into), their EXISTING custom vocabulary, and detected re-dictation pairs.
       \(contextBlock)
       Find two things:
       1. "vocabulary": domain terms the user says repeatedly that a recognizer is likely to mangle - product names, people/company names, acronyms, technical jargon, non-English words. These become recognition-boost hints. Judge by repetition across MANY transcripts, only suggest terms actually present in the transcripts, and never repeat a term already in the existing vocabulary.
@@ -246,7 +249,7 @@ public enum VocabularyAnalyzer {
 
       Hard rules:
       - At most 15 vocabulary terms and 10 replacements; fewer is better than padded.
-      - Each reason is at most 12 words and cites the evidence (e.g. "appears 9 times", "re-dictation pair at 14:02", "vocabulary term 'Claude Code' garbled").
+      - Each reason is at most 12 words and cites the evidence (e.g. "appears 9 times", "re-dictation pair", "vocabulary term 'Claude Code' garbled").
       - If there is nothing worth suggesting, return empty arrays.
 
       Respond with strict JSON only, exactly this shape:
@@ -255,7 +258,7 @@ public enum VocabularyAnalyzer {
       EXISTING VOCABULARY:
       \(existingBlock)
 
-      RE-DICTATION PAIRS (older A, then newer B, seconds apart):
+      RE-DICTATION PAIRS (older A, then newer B):
       \(pairBlock)
 
       OBSERVED TYPED CORRECTIONS (the user edited the pasted text; ground truth):

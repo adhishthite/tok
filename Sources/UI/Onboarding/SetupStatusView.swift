@@ -90,6 +90,12 @@ struct SetupStatusView: View {
         .font(.callout).foregroundStyle(.secondary)
         Spacer()
         Button("Done") { onDone?() }.buttonStyle(.borderedProminent).disabled(store.needsSetup)
+          .keyboardShortcut(.defaultAction)
+        // Escape leaves setup the same way Done does, and only once setup is complete.
+        // A zero-size button keeps the shortcut without a second visible control.
+        Button("Close setup") { if !store.needsSetup { onDone?() } }
+          .keyboardShortcut(.cancelAction)
+          .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
       }.padding(20)
     }.frame(minWidth: 540, idealWidth: 580, minHeight: 620, idealHeight: 700)
       .task {

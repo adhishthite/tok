@@ -10,11 +10,13 @@ final class EngineFeedback {
   }
   func showLocked() { delegate?.engineDidEmit(.locked) }
   func showProcessing() { delegate?.engineDidEmit(.processing) }
+  func showProcessingStatus(_ text: String) { delegate?.engineDidEmit(.processingStatus(text)) }
   func showBusy() { delegate?.engineDidEmit(.busy) }
   func hide() { delegate?.engineDidEmit(.hidden) }
   func micReleased() { delegate?.engineDidEmit(.microphoneReleased) }
   func showError(message: String) { delegate?.engineDidEmit(.failure(message)) }
   func showSuccess(text: String) { delegate?.engineDidEmit(.success(text)) }
+  func showCancelled() { delegate?.engineDidEmit(.cancelled) }
   func updateLiveText(_ text: String) { delegate?.engineDidEmit(.liveText(text)) }
   func updateAudioLevel(db: Double) { delegate?.engineDidEmit(.audioLevel(db)) }
   func captureStarted(pid: Int32?, followFocus: Bool) {

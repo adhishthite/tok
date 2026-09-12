@@ -26,6 +26,8 @@ struct HistoryRetentionSection: View {
         Text("1 year").tag(365)
       }.disabled(store.settings.isOverridden("HISTORY_RETENTION_DAYS"))
       if let error = store.retentionError { Text(error).font(.caption).foregroundStyle(.secondary) }
+      // A lost history write used to be a log line nobody saw (audit F29).
+      if let error = store.historyError { Text(error).font(.caption).foregroundStyle(.red) }
     } header: {
       Text("Retention")
     } footer: {

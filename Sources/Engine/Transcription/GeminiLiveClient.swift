@@ -79,6 +79,12 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   var interimTranscript: String = ""
   private var firstTokenLatencyMs: Double = 0
   var turnCommitTime: CFAbsoluteTime = 0
+  // When the turn's audio window opened, which is also when the manual activityStart goes
+  // out. firstTokenLatencyMs is measured from COMMIT and stays 0 whenever text arrived
+  // during the hold, so it cannot answer how fast the service started transcribing.
+  private var turnStartTime: CFAbsoluteTime = 0
+  private var firstInterimLatencyMs: Double = 0
+  private var completedFirstInterimMs: Double?
   private var lastTokenReceivedTime: CFAbsoluteTime = 0
   private var lastPostCommitTokenTime: CFAbsoluteTime? = nil
   // Set when a FINAL transcription arrives post-commit; cleared if a later interim shows
@@ -92,6 +98,10 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   private var turnBaselinePromptTokens: Int = 0
   private var turnBaselineResponseTokens: Int = 0
   private var completedUsage: (inputTokens: Int, outputTokens: Int)?
+  // Set once a reported count comes back smaller than the previous one. A cumulative
+  // counter never shrinks, so from that point the reported value IS the turn's usage and
+  // the baseline diff would under-report it.
+  private var usageCountsArePerTurn = false
 
   /// API-reported usage for the current/most recent turn, or nil if the server reported
   /// nothing new this turn (caller falls back to a duration-based estimate).
@@ -102,11 +112,39 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     return usageSnapshot()
   }
 
+  /// Milliseconds from turn start to the first transcript text of any kind, or nil when the
+  /// service sent none. Read after the turn completes, the same way as lastTurnUsage.
+  var lastTurnFirstInterimMs: Double? {
+    lock.lock()
+    defer { lock.unlock() }
+    if hasFiredTurnCompletion { return completedFirstInterimMs }
+    return firstInterimLatencyMs > 0 ? firstInterimLatencyMs : nil
+  }
+
   private func usageSnapshot() -> (inputTokens: Int, outputTokens: Int)? {
+    if usageCountsArePerTurn {
+      guard lastSeenPromptTokens > 0 || lastSeenResponseTokens > 0 else { return nil }
+      return (max(0, lastSeenPromptTokens), max(0, lastSeenResponseTokens))
+    }
     let dp = lastSeenPromptTokens - turnBaselinePromptTokens
     let dr = lastSeenResponseTokens - turnBaselineResponseTokens
     guard dp > 0 || dr > 0 else { return nil }
     return (max(0, dp), max(0, dr))
+  }
+
+  /// Records the latest reported counts. Caller holds `lock`.
+  private func applyUsageLocked(promptTokens: Int?, responseTokens: Int?) {
+    if let prompt = promptTokens {
+      if prompt < lastSeenPromptTokens { usageCountsArePerTurn = true }
+      lastSeenPromptTokens = prompt
+    }
+    if let response = responseTokens {
+      if response < lastSeenResponseTokens { usageCountsArePerTurn = true }
+      lastSeenResponseTokens = response
+    }
+    // Usage can trail the turn it belongs to. While the completed turn is still the latest
+    // one, refresh its record so a late message is not thrown away.
+    if hasFiredTurnCompletion, let refreshed = usageSnapshot() { completedUsage = refreshed }
   }
   // Which settlement rule ended the last turn - the mechanism WS_ENDPOINT_ALIGNED changes,
   // recorded per turn in history. Under `lock`; read via lastSettlePath after completion
@@ -125,6 +163,8 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   var turnCompletion:
     ((Result<(text: String, firstTokenMs: Double, totalMs: Double), Error>) -> Void)?
   var onLiveTextUpdate: ((String) -> Void)?
+  /// Called once when consecutive key rejections stop the reconnect loop.
+  var onAuthRejected: (() -> Void)?
   private let smartTranscription: Bool
   let languageCodes: [String]
   private let customVocabulary: [String]
@@ -160,6 +200,16 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   private var settleMaxWorkItem: DispatchWorkItem?  // fixed hard ceiling check
   private var reconnectWorkItem: DispatchWorkItem?
   private var reconnectAttempts: Int = 0
+  // An idle socket can be dropped by an intermediary without a close frame, and only a wake
+  // or the eight-minute rotation used to notice. A ping every minute proves the path while
+  // the app is idle, so a dead socket becomes a reconnect before the next key press needs it.
+  private static let keepaliveIntervalSeconds = 60.0
+  var keepaliveWorkItem: DispatchWorkItem?
+  // A rejected key fails every attempt the same way, so retrying it forever only burns
+  // battery. Count consecutive rejections and stop; an explicit connect() starts over.
+  private static let maxAuthRejections = 3
+  private var authRejectionCount = 0
+  private var lastCloseIndicatedRejection = false
 
   init(
     apiKey: String,
@@ -217,7 +267,13 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     reconnectWorkItem = nil
     sessionRotationWorkItem?.cancel()
     sessionRotationWorkItem = nil
+    keepaliveWorkItem?.cancel()
+    keepaliveWorkItem = nil
     sessionEstablishedAt = 0
+    lastCloseIndicatedRejection = false
+    // Only a caller-initiated connect clears the rejection streak. Clearing it on the
+    // reconnect path too would make the three-strike stop unreachable.
+    if expectedConnection == nil { authRejectionCount = 0 }
     reconnectEnabled = true
     connectionID &+= 1
     let epoch = connectionID
@@ -367,9 +423,54 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       hasFiredTurnCompletion = true
       isCommitting = false
     }
+    keepaliveWorkItem?.cancel()
+    keepaliveWorkItem = nil
+    // An invalid key fails the upgrade with 400/401/403, or the server closes the socket and
+    // names the key. A successful upgrade (101) proves the key and clears the streak; a
+    // transport failure with no response leaves the streak alone.
+    let status = (webSocketTask?.response as? HTTPURLResponse)?.statusCode
+    if Self.isAuthRejection(status: status) || lastCloseIndicatedRejection {
+      authRejectionCount += 1
+    } else if status != nil {
+      authRejectionCount = 0
+    }
+    let stopReconnecting = authRejectionCount >= Self.maxAuthRejections
+    if stopReconnecting { reconnectEnabled = false }
     lock.unlock()
     completion?(.failure(error))
+    if stopReconnecting {
+      Log.error("WS", "API key rejected; not reconnecting.")
+      onAuthRejected?()
+      return
+    }
     scheduleReconnect(epoch: epoch)
+  }
+
+  private static func isAuthRejection(status: Int?) -> Bool {
+    guard let status else { return false }
+    return status == 400 || status == 401 || status == 403
+  }
+
+  /// The server can also refuse the key after the upgrade succeeds, with a close frame.
+  /// Record what it indicated; connectionFailed decides what to do about it. The reason text
+  /// is never logged.
+  func urlSession(
+    _ session: URLSession, webSocketTask: URLSessionWebSocketTask,
+    didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?
+  ) {
+    let text = reason.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+    // Close code 1008 alone is not a key verdict: services use it for quota and rate limits
+    // too. Only a reason that names the key or authentication counts.
+    let rejected = Self.mentionsKeyRejection(text)
+    lock.lock()
+    if webSocketTask === self.webSocketTask { lastCloseIndicatedRejection = rejected }
+    lock.unlock()
+  }
+
+  private static func mentionsKeyRejection(_ reason: String) -> Bool {
+    let lowered = reason.lowercased()
+    return lowered.contains("api key") || lowered.contains("api_key")
+      || lowered.contains("unauthenticated")
   }
 
   private func listenForMessages(task: URLSessionWebSocketTask, epoch: UInt64) {
@@ -418,6 +519,8 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     var quietRescheduleElapsedSinceCommit: Double? = nil
     var quietRescheduleIsFinal = false
     var messageTurn: UInt64 = 0
+    var usageTrace:
+      (keys: String, prompt: Int?, response: Int?, afterTurnComplete: Bool, perTurn: Bool)? = nil
 
     lock.lock()
 
@@ -433,10 +536,22 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       serverErrorMessage = (errorObj["message"] as? String) ?? "Unknown server error"
     }
 
-    // 0b. Usage metadata can accompany any server message; keep the latest cumulative counts.
+    // 0b. Usage metadata can accompany any server message; keep the latest counts.
     if let usage = json["usageMetadata"] as? [String: Any] {
-      if let p = usage["promptTokenCount"] as? Int { lastSeenPromptTokens = p }
-      if let r = usage["responseTokenCount"] as? Int { lastSeenResponseTokens = r }
+      let prompt = usage["promptTokenCount"] as? Int
+      // Live and REST have used different names for the output count. Read both so a
+      // rename does not silently zero the metered total.
+      let response =
+        (usage["responseTokenCount"] as? Int) ?? (usage["candidatesTokenCount"] as? Int)
+      applyUsageLocked(promptTokens: prompt, responseTokens: response)
+      // Field names and counts only, never transcript text. This line answers whether usage
+      // arrives before or after turnComplete, which decides whether the settle-time read
+      // can see it at all.
+      usageTrace = (
+        keys: usage.keys.sorted().joined(separator: ","), prompt: prompt, response: response,
+        afterTurnComplete: serverCompletionReceived || hasFiredTurnCompletion,
+        perTurn: usageCountsArePerTurn
+      )
     }
 
     // 1. Handshake confirmation
@@ -447,6 +562,10 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       didCompleteSetup = true
       self.sessionEstablishedAt = ProcessInfo.processInfo.systemUptime
       scheduleSessionRotationLocked(epoch: epoch)
+      scheduleKeepaliveLocked(epoch: epoch)
+      // The handshake completed, so this key works.
+      self.authRejectionCount = 0
+      self.lastCloseIndicatedRejection = false
       // Fresh session: server-side cumulative token counters restart from zero.
       self.lastSeenPromptTokens = 0
       self.lastSeenResponseTokens = 0
@@ -530,6 +649,11 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
         if currentTurnText.isEmpty && firstTokenLatencyMs == 0 && turnCommitTime > 0 {
           firstTokenLatencyMs = (now - turnCommitTime) * 1000.0
         }
+        // Separate measurement: how long the service took to produce anything at all,
+        // counted from the turn's activityStart rather than from the key release.
+        if firstInterimLatencyMs == 0 && turnStartTime > 0 {
+          firstInterimLatencyMs = (now - turnStartTime) * 1000.0
+        }
         currentTurnText = newText
         let textCopy = currentTurnText
         let elapsedMs = turnCommitTime > 0 ? (now - turnCommitTime) * 1000.0 : 0
@@ -558,6 +682,13 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     lock.unlock()
 
     // Logging & callbacks all run off the lock, in the same relative order as before.
+    if let trace = usageTrace {
+      Log.debug(
+        "WS",
+        "usageMetadata keys=[\(trace.keys)] prompt=\(trace.prompt.map(String.init) ?? "none") "
+          + "response=\(trace.response.map(String.init) ?? "none") "
+          + "afterTurnComplete=\(trace.afterTurnComplete) perTurnCounts=\(trace.perTurn)")
+    }
     if let msg = serverErrorMessage {
       _ = msg
       connectionFailed(
@@ -646,12 +777,61 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     } else if committedTranscript.hasSuffix(text) {
       // Duplicate re-send of the segment just committed - nothing new.
     } else {
+      // A corrected final can restate the tail of what is already committed while matching
+      // neither a prefix nor a suffix, and appending it whole repeats those words. Drop the
+      // overlap and append only what is actually new.
+      let overlap = Self.transcriptOverlapLength(committed: committedTranscript, incoming: text)
+      let addition = String(text.dropFirst(overlap))
+      guard !addition.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        interimTranscript = ""
+        return
+      }
       let needsSpace =
         !(committedTranscript.hasSuffix(" ") || committedTranscript.hasSuffix("\n")
-        || text.hasPrefix(" "))
-      committedTranscript += (needsSpace ? " " : "") + text
+        || addition.hasPrefix(" "))
+      committedTranscript += (needsSpace ? " " : "") + addition
     }
     interimTranscript = ""
+  }
+
+  /// Length, in characters, of the longest tail of `committed` that is also the head of
+  /// `incoming`. Only whole-word overlaps count: trimming mid-word would splice two
+  /// different words together, which is worse than leaving a repeat. The scan is capped so
+  /// a long transcript cannot turn every final into quadratic work.
+  static func transcriptOverlapLength(
+    committed: String, incoming: String, limit: Int = 200
+  ) -> Int {
+    let tail = Array(committed.suffix(limit))
+    let head = Array(incoming.prefix(limit))
+    // Position 0 of the tail only starts a word when the tail is the whole committed text.
+    let tailStartsAtWordBoundary = tail.count == committed.count
+    var length = min(tail.count, head.count)
+    while length > 0 {
+      let start = tail.count - length
+      if Array(tail.suffix(length)) == Array(head.prefix(length)),
+        isWordStart(tail, index: start, includingZero: tailStartsAtWordBoundary),
+        isWordEnd(head, index: length)
+      {
+        return length
+      }
+      length -= 1
+    }
+    return 0
+  }
+
+  /// True when `index` begins a word: a position right after whitespace, or the start of the
+  /// scanned tail when that tail is the whole committed text.
+  private static func isWordStart(
+    _ characters: [Character], index: Int, includingZero: Bool
+  ) -> Bool {
+    index == 0 ? includingZero : characters[index - 1].isWhitespace
+  }
+
+  /// True when `index` ends a word: the end of the incoming head, a position followed by
+  /// whitespace, or a position right after whitespace (the overlap ended with a space).
+  private static func isWordEnd(_ characters: [Character], index: Int) -> Bool {
+    if index == characters.count { return true }
+    return characters[index].isWhitespace || characters[index - 1].isWhitespace
   }
 
   // Re-validates the settle rules against current authoritative state and, if any rule
@@ -715,6 +895,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     }
 
     completedUsage = usageSnapshot()
+    completedFirstInterimMs = firstInterimLatencyMs > 0 ? firstInterimLatencyMs : nil
     hasFiredTurnCompletion = true
     isCommitting = false
     turnOpen = false
@@ -731,6 +912,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     interimTranscript = ""
     let firstToken = firstTokenLatencyMs
     firstTokenLatencyMs = 0
+    firstInterimLatencyMs = 0
     let cb = turnCompletion
     turnCompletion = nil
     lock.unlock()
@@ -777,6 +959,9 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     self.committedTranscript = ""
     self.interimTranscript = ""
     self.firstTokenLatencyMs = 0
+    self.firstInterimLatencyMs = 0
+    self.completedFirstInterimMs = nil
+    self.turnStartTime = ProcessInfo.processInfo.systemUptime
     self.hasFiredTurnCompletion = false
     self.turnCommitTime = 0
     self.lastTokenReceivedTime = 0
@@ -784,6 +969,12 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     self.lastPostCommitFinalTime = nil
     self.turnCompletion = nil
     self.completedUsage = nil
+    if usageCountsArePerTurn {
+      // Per-turn counts do not carry over. Clearing them means a turn the server reports
+      // no usage for records none instead of repeating the previous turn's numbers.
+      self.lastSeenPromptTokens = 0
+      self.lastSeenResponseTokens = 0
+    }
     self.turnBaselinePromptTokens = self.lastSeenPromptTokens
     self.turnBaselineResponseTokens = self.lastSeenResponseTokens
     lock.unlock()
@@ -1088,6 +1279,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     }
     turnOpen = false
     completedUsage = usageSnapshot()
+    completedFirstInterimMs = firstInterimLatencyMs > 0 ? firstInterimLatencyMs : nil
     hasFiredTurnCompletion = true
     isCommitting = false
     settlePathValue = "server_turn_complete"
@@ -1102,6 +1294,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     interimTranscript = ""
     let first = firstTokenLatencyMs
     firstTokenLatencyMs = 0
+    firstInterimLatencyMs = 0
     let callback = turnCompletion
     turnCompletion = nil
     let rotate = rotateWhenIdle
@@ -1135,6 +1328,35 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     }
     sessionRotationWorkItem = item
     settleQueue.asyncAfter(deadline: .now() + Self.sessionRotationSeconds, execute: item)
+  }
+
+  /// Arms the next idle keepalive ping. Caller holds `lock`.
+  private func scheduleKeepaliveLocked(epoch: UInt64) {
+    keepaliveWorkItem?.cancel()
+    let item = DispatchWorkItem { [weak self] in self?.sendKeepalivePing(epoch: epoch) }
+    keepaliveWorkItem = item
+    settleQueue.asyncAfter(deadline: .now() + Self.keepaliveIntervalSeconds, execute: item)
+  }
+
+  private func sendKeepalivePing(epoch: UInt64) {
+    lock.lock()
+    keepaliveWorkItem = nil
+    guard epoch == connectionID, reconnectEnabled, readyState, let task = webSocketTask else {
+      lock.unlock()
+      return
+    }
+    // A turn in progress is its own proof of life, and an extra frame on that path buys
+    // nothing. The timer is re-armed either way.
+    let idle = !turnOpen && !isCommitting
+    scheduleKeepaliveLocked(epoch: epoch)
+    lock.unlock()
+    guard idle else { return }
+    task.sendPing { [weak self] error in
+      guard let self, let error else { return }
+      // A failed ping means the socket is gone. Take the same path a receive error takes.
+      Log.warn("WS", "Keepalive ping failed; treating the live connection as lost.")
+      self.connectionFailed(epoch: epoch, error: error)
+    }
   }
 
   private func scheduleReconnect(epoch: UInt64, onlyWhenIdle: Bool = false) {
@@ -1181,6 +1403,8 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     sessionEstablishedAt = 0
     reconnectWorkItem?.cancel()
     reconnectWorkItem = nil
+    keepaliveWorkItem?.cancel()
+    keepaliveWorkItem = nil
     settleWorkItem?.cancel()
     settleWorkItem = nil
     settleMaxWorkItem?.cancel()

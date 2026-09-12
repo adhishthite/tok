@@ -9,10 +9,28 @@ import Network
 import SQLite3
 
 struct GeminiRestClient {
+  /// The documented ceiling for an inline generateContent request body is 20 MB. Audio is
+  /// 16 kHz mono PCM (32 KB per second) wrapped in base64, which adds a third, so the cap
+  /// lands near seven and a half minutes of speech. Fail before the encode and the upload
+  /// instead of after a 400 that costs the whole round trip.
+  static let maxInlineAudioBytes = 20 * 1024 * 1024
+
+  /// Seconds of 16 kHz 16-bit mono audio that fit under maxInlineAudioBytes once the WAV
+  /// header and base64 expansion are counted: about 491 s. The engine caps every turn here.
+  static let maxInlineAudioSeconds: Double =
+    Double(maxInlineAudioBytes * 3 / 4 - 44) / 32_000.0
+
+  /// Bytes the base64 audio part will occupy for a PCM buffer of this size. 44 is the WAV
+  /// header WAVEncoder prepends; base64 emits 4 characters per 3 input bytes, padded.
+  static func inlineAudioBytes(pcmByteCount: Int) -> Int {
+    let wavBytes = pcmByteCount + 44
+    return ((wavBytes + 2) / 3) * 4
+  }
+
   @discardableResult
   static func transcribe(
     pcmData: Data, apiKey: String, model: String, languageCodes: [String] = [],
-    customVocabulary: [String] = [], isRetry: Bool = false,
+    customVocabulary: [String] = [], smartTranscription: Bool = false, isRetry: Bool = false,
     completion:
       @escaping (
         Result<(text: String, latencyMs: Double, inputTokens: Int?, outputTokens: Int?), Error>
@@ -21,7 +39,8 @@ struct GeminiRestClient {
     let request = CancellableRequest()
     perform(
       pcmData: pcmData, apiKey: apiKey, model: model, languageCodes: languageCodes,
-      customVocabulary: customVocabulary, isRetry: isRetry, scope: request, completion: completion)
+      customVocabulary: customVocabulary, smartTranscription: smartTranscription, isRetry: isRetry,
+      scope: request, completion: completion)
     return request
   }
 
@@ -31,6 +50,7 @@ struct GeminiRestClient {
     model: String,
     languageCodes: [String] = [],
     customVocabulary: [String] = [],
+    smartTranscription: Bool = false,
     isRetry: Bool = false,
     scope: CancellableRequest,
     completion:
@@ -46,6 +66,17 @@ struct GeminiRestClient {
           NSError(
             domain: "Tok", code: -1,
             userInfo: [NSLocalizedDescriptionKey: "Add a Gemini API key in Tok Settings."])))
+      return
+    }
+
+    // Size the request before building it: a turn past the inline limit can only fail, and
+    // encoding megabytes first would delay that failure by seconds.
+    guard inlineAudioBytes(pcmByteCount: pcmData.count) <= maxInlineAudioBytes else {
+      Log.warn(
+        "REST",
+        "Recording is \(pcmData.count / 1024) KB of PCM, past the inline request limit - not sending."
+      )
+      completion(.failure(RESTResponse.recordingTooLongError()))
       return
     }
 
@@ -81,10 +112,17 @@ struct GeminiRestClient {
       body = "{\"contents\":[{\"parts\":[" + audioPart + "]}]}"
     } else {
       // General Multimodal LLM (Prompt & System Instruction guided)
+      // The live route polishes only when SMART transcription is on. Asking the fallback to
+      // polish regardless made the same speech come back differently depending on which
+      // route won the race, so the prompt now follows the same setting.
       var promptText =
-        "Transcribe this audio precisely. Fix punctuation, capitalization, and grammar. Remove filler words (um, uh, you know). Preserve technical terms, acronyms, code snippets, numbers, and formatting. Output ONLY the polished transcription without commentary, explanations, or quotes."
+        smartTranscription
+        ? "Transcribe this audio precisely. Fix punctuation, capitalization, and grammar. Remove filler words (um, uh, you know). Preserve technical terms, acronyms, code snippets, numbers, and formatting. Output ONLY the polished transcription without commentary, explanations, or quotes."
+        : "Transcribe this audio verbatim. Keep every spoken word, including fillers. Add only standard punctuation and capitalization. Output ONLY the transcription."
       var systemText =
-        "You are a professional voice dictation engine. Transcribe and polish the spoken audio into clean text. Output ONLY the final text."
+        smartTranscription
+        ? "You are a professional voice dictation engine. Transcribe and polish the spoken audio into clean text. Output ONLY the final text."
+        : "You are a verbatim voice transcription engine. Write exactly what was said. Output ONLY the final text."
 
       if !languageCodes.isEmpty {
         let langList = languageCodes.joined(separator: ", ")
@@ -153,8 +191,8 @@ struct GeminiRestClient {
           scope.schedule(after: max(0, delay)) {
             Self.perform(
               pcmData: pcmData, apiKey: apiKey, model: model, languageCodes: languageCodes,
-              customVocabulary: customVocabulary, isRetry: true, scope: scope,
-              completion: completion)
+              customVocabulary: customVocabulary, smartTranscription: smartTranscription,
+              isRetry: true, scope: scope, completion: completion)
           }
           return
         }
@@ -187,44 +225,45 @@ struct GeminiRestClient {
         outputTokens = usage["candidatesTokenCount"] as? Int
       }
 
-      if let candidates = json["candidates"] as? [[String: Any]],
-        let firstCandidate = candidates.first
-      {
-        if let content = firstCandidate["content"] as? [String: Any],
-          let parts = content["parts"] as? [[String: Any]],
-          let firstPart = parts.first,
-          let text = firstPart["text"] as? String
-        {
-          // The REST path prompts a general-purpose model to transcribe; its documented
-          // failure mode is answering instead of transcribing. Gate before this text
-          // ever reaches insertion (Feature: RestValidationGate).
-          let cleanedText = RestValidationGate.clean(text)
-          if let reason = RestValidationGate.rejectionReason(cleanedText) {
-            Log.warn(
-              "GATE", "REST result rejected (\(reason)); \(cleanedText.count) characters withheld.")
-            completion(
-              .failure(
-                NSError(
-                  domain: "Tok", code: -7,
-                  userInfo: [
-                    NSLocalizedDescriptionKey: "REST result rejected by validation gate: \(reason)"
-                  ])))
-          } else {
-            completion(
-              .success(
-                (
-                  text: cleanedText, latencyMs: elapsedMs, inputTokens: inputTokens,
-                  outputTokens: outputTokens
-                )))
-          }
+      // One shared reader for both REST routes: it joins every non-thought part and reports
+      // the finish reason, so a truncated or blocked answer can no longer pass as a whole one.
+      switch GenerateContentDecoder.decode(json) {
+      case .text(let text):
+        // The REST path prompts a general-purpose model to transcribe; its documented
+        // failure mode is answering instead of transcribing. Gate before this text
+        // ever reaches insertion (Feature: RestValidationGate).
+        let cleanedText = RestValidationGate.clean(text)
+        if let reason = RestValidationGate.rejectionReason(cleanedText) {
+          Log.warn(
+            "GATE", "REST result rejected (\(reason)); \(cleanedText.count) characters withheld.")
+          completion(
+            .failure(
+              NSError(
+                domain: "Tok", code: -7,
+                userInfo: [
+                  NSLocalizedDescriptionKey: "REST result rejected by validation gate: \(reason)"
+                ])))
         } else {
-          // Speech model returned empty transcription (e.g. silent or non-speech audio)
           completion(
             .success(
-              (text: "", latencyMs: elapsedMs, inputTokens: inputTokens, outputTokens: outputTokens)
-            ))
+              (
+                text: cleanedText, latencyMs: elapsedMs, inputTokens: inputTokens,
+                outputTokens: outputTokens
+              )))
         }
-      } else {
+      case .empty:
+        // Speech model returned empty transcription (e.g. silent or non-speech audio)
+        completion(
+          .success(
+            (text: "", latencyMs: elapsedMs, inputTokens: inputTokens, outputTokens: outputTokens)
+          ))
+      case .truncated:
+        Log.warn("REST", "Gemini stopped before the transcription finished; discarding it.")
+        completion(.failure(RESTResponse.truncatedError()))
+      case .blocked(let reason):
+        Log.warn("REST", "Gemini blocked this transcription (\(reason)); nothing pasted.")
+        completion(.failure(RESTResponse.blockedError()))
+      case .malformed:
         completion(
           .failure(
             NSError(

@@ -73,6 +73,20 @@ struct HistoryView: View {
           HistoryDetail(entry: entry)
         }
       }
+      // Audit F31: the row cap used to be silent. Surface it and let the user
+      // raise it instead of wondering why old dictations vanished from the table.
+      if history.totalCount > history.entries.count {
+        HStack {
+          Text("Showing \(history.entries.count) of \(history.totalCount)")
+            .font(.callout).foregroundStyle(.secondary)
+          Spacer()
+          if history.canShowMore {
+            Button("Show more") { history.showMore() }
+          } else {
+            Text("Export CSV to read the rest.").font(.caption).foregroundStyle(.tertiary)
+          }
+        }.padding(8)
+      }
       if let error = history.error { Text(error).font(.callout).foregroundStyle(.red).padding(8) }
     }
     .searchable(text: $history.search, prompt: "Search dictations")

@@ -70,5 +70,28 @@ final class TurnRegressionTests: XCTestCase {
     DictationEngine(config: rejectedConfig).fixtureRejectedTurn(silent: false)
     DictationEngine(config: rejectedConfig).fixtureRejectedTurn(silent: true)
 
+    // audit F21: the REST-failure decision, and the turn arbiter that applies it.
+    check(
+      DictationEngine.shouldSettleOnRestFailure(wsViable: false),
+      "REST failure ends the turn when the live route cannot answer")
+    check(
+      !DictationEngine.shouldSettleOnRestFailure(wsViable: true),
+      "REST failure defers to a live route that can still answer")
+    var hedgeConfig = appFixtureConfig
+    hedgeConfig.historyEnabled = false
+    hedgeConfig.micIdleTimeoutSec = 0
+    hedgeConfig.enableLiveWebSocket = true
+    hedgeConfig.geminiApiKey = "fixture-key"
+    DictationEngine(config: hedgeConfig).fixtureRestHedgeFailure(expectSettle: false)
+    var restOnlyConfig = hedgeConfig
+    restOnlyConfig.enableLiveWebSocket = false
+    DictationEngine(config: restOnlyConfig).fixtureRestHedgeFailure(expectSettle: true)
+
+    // audit F11: a cancelled turn is settled without a paste, and the next turn is clean.
+    let cancelRecorder = EngineEventRecorder()
+    let cancelEngine = DictationEngine(config: hedgeConfig)
+    cancelEngine.delegate = cancelRecorder
+    cancelEngine.fixtureCancelledTurn(recorder: cancelRecorder)
+
   }
 }

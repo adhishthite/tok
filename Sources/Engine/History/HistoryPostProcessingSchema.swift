@@ -7,6 +7,9 @@ enum HistoryPostProcessingSchema {
     ("post_process_output_tokens", "INTEGER"), ("post_process_thinking_tokens", "INTEGER"),
     ("post_process_cost_usd", "REAL"), ("post_process_error", "TEXT"),
     ("post_process_app_context", "INTEGER"), ("transcription_cost_usd", "REAL"),
+    // The read path selects these too, so a legacy database must gain them here as well
+    // as in HistoryStore's write-side migration (audit F13).
+    ("capture_start_ms", "REAL"), ("first_interim_ms", "REAL"),
   ]
 
   static func migrate(_ db: OpaquePointer) throws {

@@ -5,6 +5,9 @@ import SQLite3
 public final class HistoryRepository: @unchecked Sendable {
   private let path: String
   private let queue = DispatchQueue(label: "com.adhishthite.tok.history-query", qos: .userInitiated)
+  /// Upper bound on rows one query returns. Beyond it the export path is the way to read
+  /// everything; the History window says so instead of offering a Show more that stalls.
+  public static let maxRows = 10_000
   public init(path: String) {
     self.path =
       NSString(string: path.isEmpty ? "~/Library/Application Support/Tok/history.db" : path)
@@ -29,7 +32,8 @@ public final class HistoryRepository: @unchecked Sendable {
                 COALESCE(delivery_outcome,''),COALESCE(finish_mode,''),COALESCE(error,''),
                 post_process_status,post_process_model,post_process_ms,post_process_input_tokens,
                 post_process_output_tokens,post_process_thinking_tokens,post_process_cost_usd,
-                post_process_error,post_process_app_context,COALESCE(transcription_cost_usd,cost_usd)
+                post_process_error,post_process_app_context,COALESCE(transcription_cost_usd,cost_usd),
+                capture_start_ms,first_interim_ms
               FROM transcriptions WHERE ts_epoch >= ? AND
                 (COALESCE(text,'') LIKE ? ESCAPE char(92) OR COALESCE(app_name,'') LIKE ? ESCAPE char(92))
               ORDER BY ts_epoch DESC,id DESC LIMIT ?
@@ -44,7 +48,7 @@ public final class HistoryRepository: @unchecked Sendable {
               ).replacingOccurrences(of: "_", with: "\\_") + "%"
             Self.bind(statement, 2, term)
             Self.bind(statement, 3, term)
-            sqlite3_bind_int(statement, 4, Int32(limit <= 0 ? -1 : min(limit, 10000)))
+            sqlite3_bind_int(statement, 4, Int32(limit <= 0 ? -1 : min(limit, Self.maxRows)))
             var rows: [HistoryEntry] = []
             var status = sqlite3_step(statement)
             while status == SQLITE_ROW {
@@ -78,13 +82,51 @@ public final class HistoryRepository: @unchecked Sendable {
                       errorCode: sqlite3_column_type(statement, 30) == SQLITE_NULL
                         ? nil : Self.text(statement, 30),
                       appContextUsed: sqlite3_column_int(statement, 31) == 1),
-                  transcriptionCost: Self.number(statement, 32)))
+                  transcriptionCost: Self.number(statement, 32),
+                  captureStartMs: Self.number(statement, 33),
+                  firstInterimMs: Self.number(statement, 34)))
               status = sqlite3_step(statement)
             }
             guard status == SQLITE_DONE else { throw HistoryRepositoryError.queryFailed }
             return rows
           }
           continuation.resume(returning: rows)
+        } catch { continuation.resume(throwing: error) }
+      }
+    }
+  }
+  /// Total rows matching the same filter as `entries`, ignoring `limit` (audit F31).
+  /// HistoryViewStore uses this to show "Showing N of M" instead of silently
+  /// capping the table at the default row limit.
+  public func count(search: String = "", since: Date? = nil) async throws -> Int {
+    try await withCheckedThrowingContinuation { continuation in
+      queue.async {
+        do {
+          guard FileManager.default.fileExists(atPath: self.path) else {
+            continuation.resume(returning: 0)
+            return
+          }
+          let count = try self.withDatabase { db -> Int in
+            let sql = """
+              SELECT COUNT(*) FROM transcriptions WHERE ts_epoch >= ? AND
+                (COALESCE(text,'') LIKE ? ESCAPE char(92) OR COALESCE(app_name,'') LIKE ? ESCAPE char(92))
+              """
+            let statement = try Self.prepare(db, sql)
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_double(statement, 1, since?.timeIntervalSince1970 ?? 0)
+            let term =
+              "%"
+              + search.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(
+                of: "%", with: "\\%"
+              ).replacingOccurrences(of: "_", with: "\\_") + "%"
+            Self.bind(statement, 2, term)
+            Self.bind(statement, 3, term)
+            guard sqlite3_step(statement) == SQLITE_ROW else {
+              throw HistoryRepositoryError.queryFailed
+            }
+            return Int(sqlite3_column_int64(statement, 0))
+          }
+          continuation.resume(returning: count)
         } catch { continuation.resume(throwing: error) }
       }
     }

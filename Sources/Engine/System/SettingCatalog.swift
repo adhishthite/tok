@@ -25,7 +25,8 @@ public enum SettingCatalog {
       key: "HOLD_TO_LOCK", title: "Hold to lock",
       help: "Seconds before a held shortcut locks recording. Zero disables it.", group: .general,
       section: "Shortcut",
-      kind: .decimal(0...60), unit: .seconds, defaultValue: "15.0"
+      kind: .decimal(0...60), unit: .seconds,
+      enabledWhen: .equals("HOTKEY_MODE", "push_to_talk"), defaultValue: "15.0"
     ) { config, value in
       if let s = Double(value) { config.holdToLockSec = min(60.0, max(0.0, s)) }
     },
@@ -35,7 +36,8 @@ public enum SettingCatalog {
         "Maximum seconds for hands-free recording. Zero removes the limit. Every dictation still ends before the 10 minute live session limit.",
       group: .general,
       section: "Shortcut",
-      kind: .decimal(0...600), unit: .seconds, enabledWhen: .isPositive("HOLD_TO_LOCK"),
+      kind: .decimal(0...600), unit: .seconds,
+      enabledWhen: .isPositive("HOLD_TO_LOCK").and(.equals("HOTKEY_MODE", "push_to_talk")),
       defaultValue: "120.0"
     ) { config, value in
       if let s = Double(value) { config.lockLimitSec = min(600.0, max(0.0, s)) }
@@ -44,7 +46,7 @@ public enum SettingCatalog {
       key: "SOUND_FEEDBACK", title: "Play dictation sounds",
       help: "Quiet cues when recording starts, finishes, locks, or fails.", group: .general,
       section: "Sounds",
-      kind: .toggle, defaultValue: "false"
+      kind: .toggle, defaultValue: "false", restartsEngine: false
     ) { config, value in
       config.soundFeedback = (value.lowercased() == "true" || value == "1")
     },
@@ -52,7 +54,8 @@ public enum SettingCatalog {
       key: "RELEASE_SOUND", title: "Play a release cue",
       help: "An additional short cue when you release the shortcut.", group: .general,
       section: "Sounds",
-      kind: .toggle, enabledWhen: .isOn("SOUND_FEEDBACK"), defaultValue: "false"
+      kind: .toggle, enabledWhen: .isOn("SOUND_FEEDBACK"), defaultValue: "false",
+      restartsEngine: false
     ) { config, value in
       config.releaseSound = (value.lowercased() == "true" || value == "1")
     },
@@ -75,7 +78,7 @@ public enum SettingCatalog {
       key: "TYPING_WPM", title: "Typing speed",
       help: "Your typing speed. Stats uses it to estimate the time dictation saves.",
       group: .general, section: "Dictation stats", kind: .integer(10...200),
-      unit: .wordsPerMinute, defaultValue: "40"
+      unit: .wordsPerMinute, defaultValue: "40", restartsEngine: false
     ) { config, value in
       if let wpm = Int(value) { config.typingWordsPerMinute = min(200, max(10, wpm)) }
     },
@@ -158,7 +161,8 @@ public enum SettingCatalog {
     SettingDefinition(
       key: "SHOW_HUD", title: "Show dictation overlay",
       help: "A small overlay follows your dictation without taking keyboard focus.",
-      group: .appearance, section: "Overlay", kind: .toggle, defaultValue: "true"
+      group: .appearance, section: "Overlay", kind: .toggle, defaultValue: "true",
+      restartsEngine: false
     ) { config, value in
       config.showHUD = (value.lowercased() == "true" || value == "1")
     },
@@ -166,7 +170,7 @@ public enum SettingCatalog {
       key: "HUD_FOLLOW_FOCUS", title: "Follow the focused display",
       help: "Show the overlay on the display where you are writing.", group: .appearance,
       section: "Overlay",
-      kind: .toggle, enabledWhen: .isOn("SHOW_HUD"), defaultValue: "true"
+      kind: .toggle, enabledWhen: .isOn("SHOW_HUD"), defaultValue: "true", restartsEngine: false
     ) { config, value in
       config.hudFollowFocus = (value.lowercased() == "true" || value == "1")
     },
@@ -175,7 +179,7 @@ public enum SettingCatalog {
       help: "Preview the entrance and exit before choosing.", group: .appearance,
       section: "Overlay",
       kind: .choice(["drift", "slide", "bloom", "unfurl", "morph"]), enabledWhen: .isOn("SHOW_HUD"),
-      defaultValue: "drift"
+      defaultValue: "drift", restartsEngine: false
     ) { config, value in
       if ["slide", "bloom", "drift", "unfurl", "morph"].contains(value.lowercased()) {
         config.hudRevealStyle = value.lowercased()
@@ -185,14 +189,15 @@ public enum SettingCatalog {
       key: "HUD_PARTICLES", title: "Ambient particles",
       help: "Optional particles while listening. Disabled with Reduce Motion.", group: .appearance,
       section: "Overlay",
-      kind: .toggle, enabledWhen: .isOn("SHOW_HUD"), defaultValue: "false"
+      kind: .toggle, enabledWhen: .isOn("SHOW_HUD"), defaultValue: "false", restartsEngine: false
     ) { config, value in
       config.hudParticles = (value.lowercased() == "true" || value == "1")
     },
     SettingDefinition(
       key: "PRIVACY_MODE", title: "Hide dictated words on screen",
       help: "Hide live words in the overlay and menu. Local history is controlled separately.",
-      group: .privacy, section: "On screen", kind: .toggle, defaultValue: "false"
+      group: .privacy, section: "On screen", kind: .toggle, defaultValue: "false",
+      restartsEngine: false
     ) { config, value in
       config.privacyMode = (value.lowercased() == "true" || value == "1")
     },
@@ -249,7 +254,7 @@ public enum SettingCatalog {
       key: "HISTORY_RETENTION_DAYS", title: "History retention",
       help: "Days to retain history. Zero keeps it indefinitely.", group: .privacy,
       section: "Local history",
-      kind: .integer(0...3650), unit: .days, defaultValue: "0"
+      kind: .integer(0...3650), unit: .days, defaultValue: "0", restartsEngine: false
     ) { config, value in
       if let days = Int(value) { config.historyRetentionDays = min(3650, max(0, days)) }
     },
@@ -257,7 +262,8 @@ public enum SettingCatalog {
       key: "STATS", title: "Track dictation stats",
       help:
         "Count words, dictations, speaking time, and time saved in a local stats database. No transcripts are stored there.",
-      group: .privacy, section: "Dictation stats", kind: .toggle, defaultValue: "true"
+      group: .privacy, section: "Dictation stats", kind: .toggle, defaultValue: "true",
+      restartsEngine: false
     ) { config, value in
       config.statsEnabled = (value.lowercased() == "true" || value == "1")
     },
@@ -266,7 +272,7 @@ public enum SettingCatalog {
       help:
         "Count how often each word is dictated for the most and least used lists. Stored as per-day counts, never as sentences.",
       group: .privacy, section: "Dictation stats", kind: .toggle, enabledWhen: .isOn("STATS"),
-      defaultValue: "true"
+      defaultValue: "true", restartsEngine: false
     ) { config, value in
       config.statsWordsEnabled = (value.lowercased() == "true" || value == "1")
     },
@@ -274,7 +280,8 @@ public enum SettingCatalog {
       key: "SHARE_USAGE_METRICS", title: "Share anonymous usage metrics",
       help:
         "Off by default. Records counts, categories, and timing buckets only. Never transcripts, audio, vocabulary, or your API key. See PRIVACY.md.",
-      group: .privacy, section: "Usage metrics", kind: .toggle, defaultValue: "false"
+      group: .privacy, section: "Usage metrics", kind: .toggle, defaultValue: "false",
+      restartsEngine: false
     ) { config, value in
       config.shareUsageMetrics = (value.lowercased() == "true" || value == "1")
     },
@@ -412,7 +419,8 @@ public enum SettingCatalog {
       key: "LIVE_INPUT_PRICE_PER_1M", title: "Live input price",
       help: "US dollars per million tokens, used for cost estimates.", group: .advanced,
       section: "Pricing",
-      kind: .decimal(0...1000), unit: .usdPerMillionTokens, defaultValue: "3.50"
+      kind: .decimal(0...1000), unit: .usdPerMillionTokens, defaultValue: "3.50",
+      restartsEngine: false
     ) { config, value in
       if let p = Double(value), p >= 0 { config.liveInputPricePer1M = p }
     },
@@ -420,23 +428,26 @@ public enum SettingCatalog {
       key: "LIVE_OUTPUT_PRICE_PER_1M", title: "Live output price",
       help: "US dollars per million tokens, used for cost estimates.", group: .advanced,
       section: "Pricing",
-      kind: .decimal(0...1000), unit: .usdPerMillionTokens, defaultValue: "21.00"
+      kind: .decimal(0...1000), unit: .usdPerMillionTokens, defaultValue: "21.00",
+      restartsEngine: false
     ) { config, value in
       if let p = Double(value), p >= 0 { config.liveOutputPricePer1M = p }
     },
     SettingDefinition(
-      key: "REST_INPUT_PRICE_PER_1M", title: "Rest input price",
+      key: "REST_INPUT_PRICE_PER_1M", title: "REST input price",
       help: "US dollars per million tokens, used for cost estimates.", group: .advanced,
       section: "Pricing",
-      kind: .decimal(0...1000), unit: .usdPerMillionTokens, defaultValue: "0.30"
+      kind: .decimal(0...1000), unit: .usdPerMillionTokens, defaultValue: "0.30",
+      restartsEngine: false
     ) { config, value in
       if let p = Double(value), p >= 0 { config.restInputPricePer1M = p }
     },
     SettingDefinition(
-      key: "REST_OUTPUT_PRICE_PER_1M", title: "Rest output price",
+      key: "REST_OUTPUT_PRICE_PER_1M", title: "REST output price",
       help: "US dollars per million tokens, used for cost estimates.", group: .advanced,
       section: "Pricing",
-      kind: .decimal(0...1000), unit: .usdPerMillionTokens, defaultValue: "2.50"
+      kind: .decimal(0...1000), unit: .usdPerMillionTokens, defaultValue: "2.50",
+      restartsEngine: false
     ) { config, value in
       if let p = Double(value), p >= 0 { config.restOutputPricePer1M = p }
     },
@@ -474,7 +485,7 @@ public enum SettingCatalog {
       key: "LOG_LEVEL", title: "Diagnostic detail",
       help: "Normal records essential events. Verbose includes additional engineering detail.",
       group: .advanced, section: "Diagnostics", kind: .choice(["normal", "verbose"]),
-      defaultValue: "normal"
+      defaultValue: "normal", restartsEngine: false
     ) { config, value in
       config.logLevel = value.lowercased()
     },

@@ -91,6 +91,62 @@ final class MicrophoneLifecycleTests: XCTestCase {
     XCTAssertFalse(lifecycle.healthy)
   }
 
+  // Audit F15. Buffer health used to reach the recovery controller through the main queue,
+  // so a stalled main thread aged every buffer past the 0.75 s freshness window and killed
+  // a live hold. Health now lands on the lifecycle queue, which main cannot block.
+  func testStalledMainThreadCannotFakeADeadMicrophone() async {
+    let rebuilt = expectation(description: "Hardware rebuilt after audio really stopped")
+    rebuilt.assertForOverFulfill = false
+    var rebuilds = 0  // Lifecycle queue only.
+    var running = false  // Lifecycle queue only.
+    var interruptions = 0  // Main only.
+    let lifecycle = MicrophoneLifecycle(
+      rebuild: {
+        rebuilds += 1
+        running = true
+        if rebuilds > 1 { rebuilt.fulfill() }
+        return true
+      }, stop: { running = false }, running: { running },
+      interrupted: { _ in interruptions += 1 })
+    // Wired exactly as AudioCaptureEngine wires its health delivery.
+    let delivery = QueueDelivery<(UInt64, TimeInterval)>(queue: lifecycle.queue) { value in
+      lifecycle.receivedBufferOnQueue(generation: value.0, at: value.1)
+    }
+    lifecycle.start()
+    var generation: UInt64 = 0
+    lifecycle.queue.sync { generation = lifecycle.generation }
+
+    // A second of healthy buffers, submitted off main like the audio tap does.
+    let tap = DispatchQueue(label: "tok.tests.tap")
+    for step in 0..<25 {
+      tap.asyncAfter(deadline: .now() + Double(step) * 0.04) {
+        delivery.submit((generation, ProcessInfo.processInfo.systemUptime))
+      }
+    }
+    // Main is unavailable for the whole hold.
+    Thread.sleep(forTimeInterval: 1.1)
+    try? await Task.sleep(nanoseconds: 150_000_000)
+    XCTAssertEqual(interruptions, 0, "a blocked main thread must not interrupt live capture")
+    var rebuildsAfterStall = 0
+    lifecycle.queue.sync { rebuildsAfterStall = rebuilds }
+    XCTAssertEqual(rebuildsAfterStall, 1, "live audio must not trigger a rebuild")
+    XCTAssertTrue(lifecycle.healthy)
+
+    // Audio really stops: recovery must still fire.
+    await fulfillment(of: [rebuilt], timeout: 4)
+    XCTAssertGreaterThan(interruptions, 0)
+    lifecycle.suspend()
+  }
+
+  // The delivery target is the regression: main must never sit between the audio tap and
+  // the recovery controller.
+  func testCaptureEngineDeliversHealthToTheLifecycleQueue() {
+    let audio = AudioCaptureEngine()
+    XCTAssertTrue(audio.setup(startImmediately: false))
+    XCTAssertTrue(audio.healthDelivery.queue === audio.lifecycle.queue)
+    XCTAssertFalse(audio.healthDelivery.queue === DispatchQueue.main)
+  }
+
   func testCancellationRejectsSuccessAlreadyQueuedForMain() async {
     let callback = expectation(description: "Queued success invalidated")
     let queued = DispatchSemaphore(value: 0)

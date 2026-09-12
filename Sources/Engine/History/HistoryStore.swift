@@ -13,7 +13,16 @@ final class HistoryStore {
 
   let queue = DispatchQueue(label: "com.adhishthite.tok.history", qos: .utility)
   var db: OpaquePointer?
+  // Latched only by open and schema failures, and only after a second attempt. A single bad
+  // insert must never silence history for the rest of the session.
   var failed = false
+  private var openFailures = 0
+  private var reportedError = false
+  /// Called on `queue` with a short human message when a row is finally lost, and with nil
+  /// after the next successful write. Set it before the first record().
+  var onError: ((String?) -> Void)?
+  private static let busyMessage =
+    "History could not be saved. The database is busy or unavailable."
   private let dbPath: String
   private let sessionId = UUID().uuidString
   private static let isoFormatter = ISO8601DateFormatter()
@@ -48,9 +57,7 @@ final class HistoryStore {
       try FileManager.default.createDirectory(
         atPath: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     } catch {
-      failed = true
-      Log.warn(
-        "HISTORY", "Failed to create history directory \(dir): \(error.localizedDescription)")
+      markOpenFailure("Failed to create history directory \(dir): \(error.localizedDescription)")
       return
     }
 
@@ -60,8 +67,7 @@ final class HistoryStore {
     guard openResult == SQLITE_OK, let opened = handle else {
       let msg =
         handle.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown sqlite3_open_v2 error"
-      failed = true
-      Log.warn("HISTORY", "Failed to open history DB at \(dbPath): \(msg)")
+      markOpenFailure("Failed to open history DB at \(dbPath): \(msg)")
       if let handle = handle { sqlite3_close(handle) }
       return
     }
@@ -70,9 +76,8 @@ final class HistoryStore {
     if sqlite3_exec(opened, "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=2000;", nil, nil, nil)
       != SQLITE_OK
     {
-      failed = true
-      Log.warn(
-        "HISTORY", "Failed to set history DB pragmas: \(String(cString: sqlite3_errmsg(opened)))")
+      markOpenFailure(
+        "Failed to set history DB pragmas: \(String(cString: sqlite3_errmsg(opened)))")
       sqlite3_close(opened)
       return
     }
@@ -120,7 +125,9 @@ final class HistoryStore {
         finish_mode TEXT,
         event_queue_ms REAL,
         ready_ms REAL,
-        delivery_outcome TEXT
+        delivery_outcome TEXT,
+        capture_start_ms REAL,
+        first_interim_ms REAL
       );
       CREATE INDEX IF NOT EXISTS idx_transcriptions_ts ON transcriptions(ts_epoch);
       CREATE INDEX IF NOT EXISTS idx_transcriptions_session ON transcriptions(session_id);
@@ -138,9 +145,8 @@ final class HistoryStore {
       CREATE INDEX IF NOT EXISTS idx_corrections_ts ON corrections(ts_epoch);
       """
     if sqlite3_exec(opened, schema, nil, nil, nil) != SQLITE_OK {
-      failed = true
-      Log.warn(
-        "HISTORY", "Failed to create history schema: \(String(cString: sqlite3_errmsg(opened)))")
+      markOpenFailure(
+        "Failed to create history schema: \(String(cString: sqlite3_errmsg(opened)))")
       sqlite3_close(opened)
       return
     }
@@ -165,17 +171,56 @@ final class HistoryStore {
       "ALTER TABLE transcriptions ADD COLUMN event_queue_ms REAL",
       "ALTER TABLE transcriptions ADD COLUMN ready_ms REAL",
       "ALTER TABLE transcriptions ADD COLUMN delivery_outcome TEXT",
+      "ALTER TABLE transcriptions ADD COLUMN capture_start_ms REAL",
+      "ALTER TABLE transcriptions ADD COLUMN first_interim_ms REAL",
     ] {
       sqlite3_exec(opened, migration, nil, nil, nil)
     }
 
     do { try HistoryPostProcessingSchema.migrate(opened) } catch {
-      failed = true
-      Log.warn("HISTORY", "Could not prepare cleanup metrics in history.")
+      markOpenFailure("Could not prepare cleanup metrics in history.")
       sqlite3_close(opened)
       return
     }
     db = opened
+  }
+
+  // Open and schema failures still latch, but the next record() gets one more attempt: a
+  // directory or file that was unavailable at launch is often available a moment later.
+  private func markOpenFailure(_ message: String) {
+    openFailures += 1
+    failed = openFailures > 1
+    Log.warn("HISTORY", message)
+  }
+
+  // SQLITE_BUSY and SQLITE_LOCKED mean another connection holds the write lock, which is
+  // transient: retry the row on this queue before giving up on it alone. Runs after the
+  // connection's own 2 s busy timeout has already expired, so the backoff is short.
+  private func withInsertRetry(_ attempt: () -> Int32) -> Bool {
+    let backoffMicroseconds: [UInt32] = [50_000, 200_000]
+    for index in 0...backoffMicroseconds.count {
+      let code = attempt()
+      if code == SQLITE_DONE { return true }
+      guard code == SQLITE_BUSY || code == SQLITE_LOCKED, index < backoffMicroseconds.count else {
+        return false
+      }
+      usleep(backoffMicroseconds[index])
+    }
+    return false
+  }
+
+  // Only transitions are reported, so a healthy session stays silent and a broken one
+  // reports once.
+  private func report(success: Bool) {
+    if success {
+      guard reportedError else { return }
+      reportedError = false
+      onError?(nil)
+    } else {
+      guard !reportedError else { return }
+      reportedError = true
+      onError?(Self.busyMessage)
+    }
   }
 
   private func bindText(_ stmt: OpaquePointer?, _ idx: Int32, _ value: String?) {
@@ -214,91 +259,103 @@ final class HistoryStore {
     queue.async { [weak self] in
       guard let self = self else { return }
       self.openIfNeeded()
-      guard !self.failed, let db = self.db else { return }
-
-      let sql = """
-        INSERT INTO transcriptions (
-          ts_utc, ts_epoch, session_id, outcome, text, char_count, word_count,
-          transport, model, is_live_route, fallback_reason, audio_seconds,
-          first_token_ms, roundtrip_ms, capture_finalize_ms, inject_ms, total_ms,
-          injected, input_tokens, output_tokens, tokens_metered, cost_usd,
-          language_codes, smart_mode, vad_mode, error, app_bundle_id, app_name,
-          peak_db, speech_frames, settle_path, endpoint_aligned, chunk_ms, silence_flush_ms,
-          build_id, input_device, input_transport, finish_mode, event_queue_ms, ready_ms, delivery_outcome,
-          post_process_status, post_process_model, post_process_ms, post_process_input_tokens,
-          post_process_output_tokens, post_process_thinking_tokens, post_process_cost_usd,
-          post_process_error, post_process_app_context, transcription_cost_usd
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
-
-      var stmt: OpaquePointer?
-      guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-        self.failed = true
-        Log.warn(
-          "HISTORY", "Failed to prepare history insert: \(String(cString: sqlite3_errmsg(db)))")
-        sqlite3_finalize(stmt)
+      guard let db = self.db else {
+        self.report(success: false)
         return
       }
-
-      let now = Date()
-      self.bindText(stmt, 1, HistoryStore.isoFormatter.string(from: now))
-      self.bindDouble(stmt, 2, now.timeIntervalSince1970)
-      self.bindText(stmt, 3, self.sessionId)
-      self.bindText(stmt, 4, r.outcome)
-      self.bindText(stmt, 5, r.text)
-      self.bindInt(stmt, 6, r.charCount)
-      self.bindInt(stmt, 7, r.wordCount)
-      self.bindText(stmt, 8, r.transport)
-      self.bindText(stmt, 9, r.model)
-      self.bindBool(stmt, 10, r.isLiveRoute)
-      self.bindText(stmt, 11, r.fallbackReason)
-      self.bindDouble(stmt, 12, r.audioSeconds)
-      self.bindDouble(stmt, 13, r.firstTokenMs)
-      self.bindDouble(stmt, 14, r.roundtripMs)
-      self.bindDouble(stmt, 15, r.captureFinalizeMs)
-      self.bindDouble(stmt, 16, r.injectMs)
-      self.bindDouble(stmt, 17, r.totalMs)
-      self.bindBool(stmt, 18, r.injected)
-      self.bindInt(stmt, 19, r.inputTokens)
-      self.bindInt(stmt, 20, r.outputTokens)
-      self.bindBool(stmt, 21, r.tokensMetered)
-      self.bindDouble(stmt, 22, r.costUSD)
-      self.bindText(stmt, 23, r.languageCodes)
-      self.bindBool(stmt, 24, r.smartMode)
-      self.bindText(stmt, 25, r.vadMode)
-      self.bindText(stmt, 26, r.error)
-      self.bindText(stmt, 27, r.appBundleId)
-      self.bindText(stmt, 28, r.appName)
-      self.bindDouble(stmt, 29, r.peakDb)
-      self.bindInt(stmt, 30, r.speechFrames)
-      self.bindText(stmt, 31, r.settlePath)
-      self.bindBool(stmt, 32, self.endpointAligned)
-      self.bindInt(stmt, 33, self.chunkMs)
-      self.bindInt(stmt, 34, self.silenceFlushMs)
-      self.bindText(stmt, 35, self.buildId)
-      self.bindText(stmt, 36, r.inputDevice)
-      self.bindText(stmt, 37, r.inputTransport)
-      self.bindText(stmt, 38, r.finishMode)
-      self.bindDouble(stmt, 39, r.eventQueueMs)
-      self.bindDouble(stmt, 40, r.readyMs)
-      self.bindText(stmt, 41, r.deliveryOutcome)
-      self.bindText(stmt, 42, r.postProcessing?.status)
-      self.bindText(stmt, 43, r.postProcessing?.model)
-      self.bindDouble(stmt, 44, r.postProcessing?.latencyMs)
-      self.bindInt(stmt, 45, r.postProcessing?.inputTokens)
-      self.bindInt(stmt, 46, r.postProcessing?.outputTokens)
-      self.bindInt(stmt, 47, r.postProcessing?.thinkingTokens)
-      self.bindDouble(stmt, 48, r.postProcessing?.costUSD)
-      self.bindText(stmt, 49, r.postProcessing?.errorCode)
-      self.bindBool(stmt, 50, r.postProcessing?.appContextUsed)
-      self.bindDouble(stmt, 51, r.transcriptionCostUSD)
-
-      if sqlite3_step(stmt) != SQLITE_DONE {
-        self.failed = true
-        Log.warn("HISTORY", "Failed to insert history row: \(String(cString: sqlite3_errmsg(db)))")
-      }
-      sqlite3_finalize(stmt)
+      self.report(success: self.withInsertRetry { self.insertTranscription(db, r) })
     }
+  }
+
+  // Returns the sqlite result code of the step (or of a failed prepare) so the caller can
+  // decide whether the failure is worth retrying.
+  private func insertTranscription(_ db: OpaquePointer, _ r: TurnRecord) -> Int32 {
+    let sql = """
+      INSERT INTO transcriptions (
+        ts_utc, ts_epoch, session_id, outcome, text, char_count, word_count,
+        transport, model, is_live_route, fallback_reason, audio_seconds,
+        first_token_ms, roundtrip_ms, capture_finalize_ms, inject_ms, total_ms,
+        injected, input_tokens, output_tokens, tokens_metered, cost_usd,
+        language_codes, smart_mode, vad_mode, error, app_bundle_id, app_name,
+        peak_db, speech_frames, settle_path, endpoint_aligned, chunk_ms, silence_flush_ms,
+        build_id, input_device, input_transport, finish_mode, event_queue_ms, ready_ms, delivery_outcome,
+        post_process_status, post_process_model, post_process_ms, post_process_input_tokens,
+        post_process_output_tokens, post_process_thinking_tokens, post_process_cost_usd,
+        post_process_error, post_process_app_context, transcription_cost_usd,
+        capture_start_ms, first_interim_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      """
+
+    var stmt: OpaquePointer?
+    let prepared = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
+    guard prepared == SQLITE_OK else {
+      Log.warn(
+        "HISTORY", "Failed to prepare history insert: \(String(cString: sqlite3_errmsg(db)))")
+      sqlite3_finalize(stmt)
+      return prepared
+    }
+
+    let now = Date()
+    self.bindText(stmt, 1, HistoryStore.isoFormatter.string(from: now))
+    self.bindDouble(stmt, 2, now.timeIntervalSince1970)
+    self.bindText(stmt, 3, self.sessionId)
+    self.bindText(stmt, 4, r.outcome)
+    self.bindText(stmt, 5, r.text)
+    self.bindInt(stmt, 6, r.charCount)
+    self.bindInt(stmt, 7, r.wordCount)
+    self.bindText(stmt, 8, r.transport)
+    self.bindText(stmt, 9, r.model)
+    self.bindBool(stmt, 10, r.isLiveRoute)
+    self.bindText(stmt, 11, r.fallbackReason)
+    self.bindDouble(stmt, 12, r.audioSeconds)
+    self.bindDouble(stmt, 13, r.firstTokenMs)
+    self.bindDouble(stmt, 14, r.roundtripMs)
+    self.bindDouble(stmt, 15, r.captureFinalizeMs)
+    self.bindDouble(stmt, 16, r.injectMs)
+    self.bindDouble(stmt, 17, r.totalMs)
+    self.bindBool(stmt, 18, r.injected)
+    self.bindInt(stmt, 19, r.inputTokens)
+    self.bindInt(stmt, 20, r.outputTokens)
+    self.bindBool(stmt, 21, r.tokensMetered)
+    self.bindDouble(stmt, 22, r.costUSD)
+    self.bindText(stmt, 23, r.languageCodes)
+    self.bindBool(stmt, 24, r.smartMode)
+    self.bindText(stmt, 25, r.vadMode)
+    self.bindText(stmt, 26, r.error)
+    self.bindText(stmt, 27, r.appBundleId)
+    self.bindText(stmt, 28, r.appName)
+    self.bindDouble(stmt, 29, r.peakDb)
+    self.bindInt(stmt, 30, r.speechFrames)
+    self.bindText(stmt, 31, r.settlePath)
+    self.bindBool(stmt, 32, self.endpointAligned)
+    self.bindInt(stmt, 33, self.chunkMs)
+    self.bindInt(stmt, 34, self.silenceFlushMs)
+    self.bindText(stmt, 35, self.buildId)
+    self.bindText(stmt, 36, r.inputDevice)
+    self.bindText(stmt, 37, r.inputTransport)
+    self.bindText(stmt, 38, r.finishMode)
+    self.bindDouble(stmt, 39, r.eventQueueMs)
+    self.bindDouble(stmt, 40, r.readyMs)
+    self.bindText(stmt, 41, r.deliveryOutcome)
+    self.bindText(stmt, 42, r.postProcessing?.status)
+    self.bindText(stmt, 43, r.postProcessing?.model)
+    self.bindDouble(stmt, 44, r.postProcessing?.latencyMs)
+    self.bindInt(stmt, 45, r.postProcessing?.inputTokens)
+    self.bindInt(stmt, 46, r.postProcessing?.outputTokens)
+    self.bindInt(stmt, 47, r.postProcessing?.thinkingTokens)
+    self.bindDouble(stmt, 48, r.postProcessing?.costUSD)
+    self.bindText(stmt, 49, r.postProcessing?.errorCode)
+    self.bindBool(stmt, 50, r.postProcessing?.appContextUsed)
+    self.bindDouble(stmt, 51, r.transcriptionCostUSD)
+    self.bindDouble(stmt, 52, r.captureStartMs)
+    self.bindDouble(stmt, 53, r.firstInterimMs)
+
+    let stepped = sqlite3_step(stmt)
+    if stepped != SQLITE_DONE {
+      Log.warn("HISTORY", "Failed to insert history row: \(String(cString: sqlite3_errmsg(db)))")
+    }
+    sqlite3_finalize(stmt)
+    return stepped
   }
 
   // Typed-correction observation from CorrectionWatcher: only the changed word pair is
@@ -307,34 +364,46 @@ final class HistoryStore {
     queue.async { [weak self] in
       guard let self = self else { return }
       self.openIfNeeded()
-      guard !self.failed, let db = self.db else { return }
-
-      let sql = """
-        INSERT INTO corrections (ts_utc, ts_epoch, session_id, wrong_text, right_text, app_name, source, build_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """
-      var stmt: OpaquePointer?
-      guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-        Log.warn(
-          "HISTORY", "Failed to prepare correction insert: \(String(cString: sqlite3_errmsg(db)))")
-        sqlite3_finalize(stmt)
-        return
+      guard let db = self.db else { return }
+      // Corrections share the row-level retry but never raise onError: they are a learning
+      // signal, not the user's transcript.
+      _ = self.withInsertRetry {
+        self.insertCorrection(db, wrong: wrong, right: right, appName: appName)
       }
-      let now = Date()
-      self.bindText(stmt, 1, HistoryStore.isoFormatter.string(from: now))
-      self.bindDouble(stmt, 2, now.timeIntervalSince1970)
-      self.bindText(stmt, 3, self.sessionId)
-      self.bindText(stmt, 4, wrong)
-      self.bindText(stmt, 5, right)
-      self.bindText(stmt, 6, appName.isEmpty ? nil : appName)
-      self.bindText(stmt, 7, "ax_readback")
-      self.bindText(stmt, 8, self.buildId)
-      if sqlite3_step(stmt) != SQLITE_DONE {
-        Log.warn(
-          "HISTORY", "Failed to insert correction row: \(String(cString: sqlite3_errmsg(db)))")
-      }
-      sqlite3_finalize(stmt)
     }
+  }
+
+  private func insertCorrection(
+    _ db: OpaquePointer, wrong: String, right: String, appName: String
+  ) -> Int32 {
+    let sql = """
+      INSERT INTO corrections (ts_utc, ts_epoch, session_id, wrong_text, right_text, app_name, source, build_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      """
+    var stmt: OpaquePointer?
+    let prepared = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
+    guard prepared == SQLITE_OK else {
+      Log.warn(
+        "HISTORY", "Failed to prepare correction insert: \(String(cString: sqlite3_errmsg(db)))")
+      sqlite3_finalize(stmt)
+      return prepared
+    }
+    let now = Date()
+    bindText(stmt, 1, HistoryStore.isoFormatter.string(from: now))
+    bindDouble(stmt, 2, now.timeIntervalSince1970)
+    bindText(stmt, 3, sessionId)
+    bindText(stmt, 4, wrong)
+    bindText(stmt, 5, right)
+    bindText(stmt, 6, appName.isEmpty ? nil : appName)
+    bindText(stmt, 7, "ax_readback")
+    bindText(stmt, 8, buildId)
+    let stepped = sqlite3_step(stmt)
+    if stepped != SQLITE_DONE {
+      Log.warn(
+        "HISTORY", "Failed to insert correction row: \(String(cString: sqlite3_errmsg(db)))")
+    }
+    sqlite3_finalize(stmt)
+    return stepped
   }
 
   func close() {

@@ -20,12 +20,7 @@ struct LatencySnapshot {
     transcription = Self.valid(record.roundtripMs)
     injection = Self.valid(record.injectMs)
     route = record.isLiveRoute.map { $0 ? "Live" : "REST" } ?? "Unknown route"
-    switch record.deliveryOutcome {
-    case "dispatched": delivery = "Paste dispatched"
-    case "copied": delivery = "Copied to clipboard"
-    case "failed": delivery = "Delivery failed"
-    default: delivery = "Delivery not confirmed"
-    }
+    delivery = DeliveryLabel.delivery(record.deliveryOutcome ?? "")
   }
 
   private static func valid(_ value: Double?) -> Double? {

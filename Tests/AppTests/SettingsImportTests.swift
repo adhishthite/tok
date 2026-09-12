@@ -18,7 +18,7 @@ final class SettingsImportTests: XCTestCase {
     try "HISTORY_RETENTION_DAYS=7\nHOTKEY=RIGHT_OPTION\n".write(
       to: source, atomically: true, encoding: .utf8)
     var notifiedRetention: Int?
-    settings.didChange = { notifiedRetention = settings.configuration.historyRetentionDays }
+    settings.didChange = { _ in notifiedRetention = settings.configuration.historyRetentionDays }
     try settings.importConfiguration(from: source)
     XCTAssertEqual(settings.string("HISTORY_RETENTION_DAYS"), "30")
     XCTAssertEqual(notifiedRetention, 30)

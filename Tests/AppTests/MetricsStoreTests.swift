@@ -83,6 +83,33 @@ final class MetricsStoreTests: XCTestCase {
     XCTAssertEqual(store.queuedCount, MetricsStore.queueLimit)
   }
 
+  /// Audit F37: record() appends without a full read; only a queue that has
+  /// actually grown past the limit triggers one read-trim-rewrite. Each event
+  /// below carries a distinct "build" value so the retained tail is verifiable,
+  /// not just its count.
+  func testQueueLimitPlusFiveKeepsCountAndRetainsTheNewestTail() {
+    let store = MetricsStore(defaults: defaults, supportDirectory: directory)
+    store.configure(enabled: true)
+    let total = MetricsStore.queueLimit + 5
+    for index in 0..<total {
+      let envelope = MetricEnvelope(
+        installID: store.installID, appVersion: "1.0", build: "\(index)", osVersion: "14.0",
+        arch: "arm64")
+      store.record(
+        .setup(
+          envelope: envelope, microphone: true, accessibility: true, inputMonitoring: true,
+          apiKey: true))
+    }
+    XCTAssertEqual(store.queuedCount, MetricsStore.queueLimit)
+    let payloads = store.queuedPayloads
+    XCTAssertEqual(payloads.count, MetricsStore.queueLimit)
+    // The oldest 5 events (build 0...4) were trimmed; the newest survived.
+    for droppedBuild in 0..<5 {
+      XCTAssertFalse(payloads.contains { $0.contains(#""build":"\#(droppedBuild)""#) })
+    }
+    XCTAssertTrue(payloads.contains { $0.contains(#""build":"\#(total - 1)""#) })
+  }
+
   func testStoreOffersMetricsAndDaysSinceInstall() {
     let start = Date(timeIntervalSince1970: 1_757_500_000)
     let store = MetricsStore(defaults: defaults, supportDirectory: directory) {

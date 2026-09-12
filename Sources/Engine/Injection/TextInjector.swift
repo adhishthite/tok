@@ -112,7 +112,9 @@ struct TextInjector {
       restorationLock.lock()
       pendingRestoration = (ourChangeCount, previous.contents)
       restorationLock.unlock()
-      DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+      DispatchQueue.global().asyncAfter(
+        deadline: .now() + restoreDelay(forPayloadLength: payload.count)
+      ) {
         mutationLock.lock()
         if NSPasteboard.general.changeCount == ourChangeCount {
           restoreClipboard(previous.contents)
@@ -126,6 +128,14 @@ struct TextInjector {
     mutationLock.unlock()
     if completionSound { SoundManager.playCommitSound() }
     return result(.dispatched)
+  }
+
+  /// How long the pasted text stays on the clipboard before the previous contents go back.
+  /// A slow destination reads a big payload more slowly, and restoring before it has read
+  /// the text pastes the old clipboard instead (audit F27), so the wait grows with the
+  /// payload: 1 s plus 1 ms per character, capped at 3 s (reached at 2,000 characters).
+  static func restoreDelay(forPayloadLength length: Int) -> Double {
+    min(3.0, 1.0 + Double(max(0, length)) * 0.001)
   }
 
   /// Puts text on the clipboard WITHOUT synthesizing ⌘V or restoring the previous clipboard -

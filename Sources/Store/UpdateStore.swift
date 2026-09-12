@@ -9,6 +9,23 @@ final class UpdateStore {
   private(set) var canCheck = false
   @ObservationIgnored private var controller: SPUStandardUpdaterController?
   @ObservationIgnored private var observation: NSKeyValueObservation?
+  @ObservationIgnored private let delegate = UpdateDelegate()
+  /// Answered by DictationStore. Sparkle must not check or relaunch during a turn
+  /// (audit F35); the delegate hooks consult this before any update UI.
+  @ObservationIgnored var isDictationActive: () -> Bool = { false } {
+    didSet { delegate.isDictationActive = isDictationActive }
+  }
+  /// Called by DictationStore when a turn ends, so a postponed relaunch can proceed.
+  func dictationEnded() { delegate.dictationEnded() }
+
+  /// Mirrors the updater's automaticallyChecksForUpdates for the Settings toggle.
+  /// Sparkle persists this preference itself (SUEnableAutomaticChecksKey in
+  /// UserDefaults); there is no SettingCatalog entry for it by design.
+  /// Stored, not computed: @Observable only tracks stored state, so a pure computed
+  /// mirror would leave the Settings toggle without a change to redraw on.
+  var automaticChecks = false {
+    didSet { controller?.updater.automaticallyChecksForUpdates = automaticChecks }
+  }
 
   func start() {
     guard controller == nil,
@@ -25,8 +42,9 @@ final class UpdateStore {
         allowed || (url.scheme == "http" && ["127.0.0.1", "localhost"].contains(url.host ?? ""))
     #endif
     guard allowed else { return }
+    delegate.isDictationActive = isDictationActive
     let controller = SPUStandardUpdaterController(
-      startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
+      startingUpdater: false, updaterDelegate: delegate, userDriverDelegate: nil)
     self.controller = controller
     observation = controller.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) {
       [weak self] _, change in
@@ -35,6 +53,7 @@ final class UpdateStore {
     }
     configured = true
     controller.startUpdater()
+    automaticChecks = controller.updater.automaticallyChecksForUpdates
   }
 
   func check() { controller?.checkForUpdates(nil) }

@@ -4,6 +4,7 @@ import SwiftUI
 struct DiagnosticLogView: View {
   let entries: [DiagnosticEntry]
   let clear: () -> Void
+  var saveReport: () -> Void = {}
   @State private var search = ""
   @State private var issuesOnly = false
   @State private var selection: Set<UUID> = []
@@ -58,6 +59,10 @@ struct DiagnosticLogView: View {
           Text("All events").tag(false)
           Text("Warnings and errors").tag(true)
         }.pickerStyle(.menu)
+      }
+      ToolbarItem {
+        Button("Save diagnostics report…", systemImage: "square.and.arrow.down") { saveReport() }
+          .help("Saves timing, warnings, and non-secret settings to a file. Never your API key.")
       }
       ToolbarItem {
         Button("Clear log", systemImage: "trash") {

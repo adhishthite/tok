@@ -26,8 +26,14 @@ final class AudioCaptureEngine {
   var turnInterrupted = false
   private var interruptionNotified = false
   private var queuedBuffers = 0
-  private lazy var healthDelivery = MainQueueDelivery<(UInt64, TimeInterval)> { [weak self] value in
-    self?.lifecycle.receivedBuffer(generation: value.0, at: value.1)
+  // Buffer health goes straight to the lifecycle's own queue. It used to hop through main,
+  // so a main-thread stall of about a second aged every buffer past the recovery
+  // controller's 0.75 s freshness window: a live hold was interrupted with "Microphone
+  // stopped delivering audio" and the hardware was rebuilt while audio was still flowing.
+  // Internal, not private, so a test can assert the delivery target stays off main.
+  lazy var healthDelivery = QueueDelivery<(UInt64, TimeInterval)>(queue: lifecycle.queue) {
+    [weak self] value in
+    self?.lifecycle.receivedBufferOnQueue(generation: value.0, at: value.1)
   }
   private lazy var overloadDelivery = MainQueueDelivery<UInt64> { [weak self] epoch in
     guard let self else { return }
@@ -73,6 +79,9 @@ final class AudioCaptureEngine {
   // threshold at stopRecording time (the threshold is a stopRecording argument).
   private static let speechFrameSamples = 320  // 20ms of 16kHz mono
   private static let minTrailSec: Double = 0.06
+  // Post-roll poll step. 10ms, not 25ms: the old step quantized the exit of an
+  // already-banked turn to about 75ms against a 60ms floor (measured minimum 77ms).
+  private static let postRollPollSec: Double = 0.010
   var turnMaxAbsSample: Int32 = 0
   private var frameSumSquares: Double = 0
   private var frameSampleCount: Int = 0
@@ -398,7 +407,7 @@ final class AudioCaptureEngine {
 
   private func processIncomingBufferOnQueue(
     _ inputBuffer: AVAudioPCMBuffer, generation: UInt64, capturedAt: TimeInterval,
-    healthDelivery: MainQueueDelivery<(UInt64, TimeInterval)>
+    healthDelivery: QueueDelivery<(UInt64, TimeInterval)>
   ) {
     guard let converter = audioConverter, inputBuffer.format == converter.inputFormat,
       inputBuffer.format.sampleRate.isFinite, inputBuffer.format.sampleRate > 0
@@ -631,6 +640,33 @@ final class AudioCaptureEngine {
     }
   }
 
+  /// How long the post-roll wait should sleep before it looks at the microphone again.
+  /// Zero means every condition is already met and the wait may end now.
+  ///
+  /// The grace window can still be pushed out by new speech, so while it is open the wait
+  /// polls. The minTrailSec floor cannot move, so once grace is satisfied the wait sleeps
+  /// straight to the floor instead of stepping toward it in poll-sized hops. That is what
+  /// removes the quantization: a turn that banked its quiet before key-up used to leave at
+  /// three 25ms polls (about 75ms) against a 60ms floor, and now leaves at the floor.
+  /// The semantics of graceSec, minTrailSec and maxTrailSec are unchanged; only the instant
+  /// the loop notices they are met moves. minTrailSec still exists so that even a fully
+  /// banked window keeps a sliver of post-release capture: a soft final fricative can sit
+  /// under the threshold and a hardware buffer's worth of it may still be in flight at
+  /// key-up.
+  static func postRollWakeDelay(
+    now: TimeInterval, entryTime: TimeInterval, quietStart: TimeInterval?, graceSec: Double,
+    minTrailSec: Double, maxTrailSec: Double, pollSec: Double = AudioCaptureEngine.postRollPollSec
+  ) -> TimeInterval {
+    let capRemaining = entryTime + maxTrailSec - now
+    if capRemaining <= 0 { return 0 }
+    // Speaking: only the hard cap can end the wait, so poll for the next quiet frame.
+    guard let quietStart = quietStart else { return min(pollSec, capRemaining) }
+    if quietStart + graceSec - now > 0 { return min(pollSec, capRemaining) }
+    let floorRemaining = entryTime + minTrailSec - now
+    if floorRemaining <= 0 { return 0 }
+    return min(floorRemaining, capRemaining)
+  }
+
   func stopRecording(gracePeriodMs: Int, maxTrailMs: Int, silenceThresholdDb: Double) -> (
     pcmData: Data, duration: Double, chunkCount: Int, capturedBytes: Int, peakDb: Double?,
     speechFrames: Int, interrupted: Bool
@@ -682,17 +718,12 @@ final class AudioCaptureEngine {
           quietStart = now
         }
 
-        // minTrailSec: even a fully banked window keeps a sliver of post-release
-        // capture - a soft final fricative can sit under the threshold and a hardware
-        // buffer's worth of it may still be in flight at key-up.
-        let elapsedSinceEntry = now - stopRequestTime
-        if let qs = quietStart, (now - qs) >= graceSec, elapsedSinceEntry >= Self.minTrailSec {
-          break
-        }
-        if elapsedSinceEntry >= maxTrailSec {
-          break
-        }
-        usleep(25_000)
+        let delay = Self.postRollWakeDelay(
+          now: now, entryTime: stopRequestTime, quietStart: quietStart, graceSec: graceSec,
+          minTrailSec: Self.minTrailSec, maxTrailSec: maxTrailSec)
+        if delay <= 0 { break }
+        // Round up so a sub-microsecond remainder cannot spin the loop.
+        usleep(useconds_t(max(1.0, (delay * 1_000_000).rounded(.up))))
       }
 
       let totalWaitMs = (ProcessInfo.processInfo.systemUptime - stopRequestTime) * 1000.0
