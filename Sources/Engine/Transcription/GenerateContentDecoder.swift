@@ -44,10 +44,12 @@ enum GenerateContentDecoder {
       .joined()
     let finishReason = (candidate["finishReason"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     switch finishReason {
-    // A streamed candidate can arrive before the service states a reason. Text with a
-    // candidate behind it is usable; the caller still sees `empty` when there is none.
-    case nil, "STOP":
+    case "STOP":
       return text.isEmpty ? .empty : .text(text)
+    case nil:
+      // Both callers use non-streaming requests, where every finished candidate states a
+      // reason. No reason means the envelope is incomplete, so its text must not be pasted.
+      return text.isEmpty ? .malformed : .truncated
     case "MAX_TOKENS":
       return .truncated
     case let reason? where blockingReasons.contains(reason):

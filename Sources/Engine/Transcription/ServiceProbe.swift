@@ -8,6 +8,16 @@ public enum ServiceProbe {
   static let probeURLString = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1"
   static let timeoutSeconds = 10.0
 
+  /// models.get for one configured model: the cheapest call that fails for a mistyped,
+  /// retired, or inaccessible model. The key check alone would pass such a model and the
+  /// first real dictation would then fail to open its live session.
+  static func modelURL(for model: String) -> URL? {
+    let name = model.hasPrefix("models/") ? String(model.dropFirst("models/".count)) : model
+    guard !name.isEmpty, name.allSatisfy({ $0.isLetter || $0.isNumber || "-._".contains($0) })
+    else { return nil }
+    return URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(name)")
+  }
+
   public static func validate(configuration: EngineConfiguration) async throws {
     guard !configuration.geminiApiKey.isEmpty else {
       throw NSError(
@@ -17,13 +27,30 @@ public enum ServiceProbe {
     guard let url = URL(string: probeURLString) else {
       throw failure(code: 2, message: "Could not reach Gemini. Try again.")
     }
+    // Key first, so a bad key is reported as a bad key and not as a missing model.
+    let keyStatus = try await status(of: url, apiKey: configuration.geminiApiKey)
+    if let problem = message(forStatus: keyStatus) {
+      throw failure(code: keyStatus, message: problem)
+    }
+    // Then each model the engine will actually call, in the order a dictation uses them.
+    for model in [configuration.geminiLiveModel, configuration.geminiModel] where !model.isEmpty {
+      guard let modelURL = modelURL(for: model) else {
+        throw failure(code: 5, message: "The model name \"\(model)\" is not valid.")
+      }
+      let modelStatus = try await status(of: modelURL, apiKey: configuration.geminiApiKey)
+      if let problem = message(forModel: model, status: modelStatus) {
+        throw failure(code: modelStatus, message: problem)
+      }
+    }
+  }
+
+  private static func status(of url: URL, apiKey: String) async throws -> Int {
     var request = URLRequest(url: url)
     request.httpMethod = "GET"
-    request.setValue(configuration.geminiApiKey, forHTTPHeaderField: "x-goog-api-key")
+    request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
     request.timeoutInterval = timeoutSeconds
     // A cached 200 from an earlier key would validate a key that was never sent.
     request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-
     let response: URLResponse
     do {
       (_, response) = try await URLSession.shared.data(for: request)
@@ -35,8 +62,16 @@ public enum ServiceProbe {
     guard let http = response as? HTTPURLResponse else {
       throw failure(code: 4, message: "Gemini is unavailable right now.")
     }
-    if let problem = message(forStatus: http.statusCode) {
-      throw failure(code: http.statusCode, message: problem)
+    return http.statusCode
+  }
+
+  /// nil means the model exists for this key. 403 and 404 name the model, because the key
+  /// itself already passed.
+  static func message(forModel model: String, status: Int) -> String? {
+    switch status {
+    case 200...299: return nil
+    case 403, 404: return "The model \"\(model)\" is not available for this key."
+    default: return message(forStatus: status)
     }
   }
 

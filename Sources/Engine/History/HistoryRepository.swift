@@ -5,6 +5,9 @@ import SQLite3
 public final class HistoryRepository: @unchecked Sendable {
   private let path: String
   private let queue = DispatchQueue(label: "com.adhishthite.tok.history-query", qos: .userInitiated)
+  /// Upper bound on rows one query returns. Beyond it the export path is the way to read
+  /// everything; the History window says so instead of offering a Show more that stalls.
+  public static let maxRows = 10_000
   public init(path: String) {
     self.path =
       NSString(string: path.isEmpty ? "~/Library/Application Support/Tok/history.db" : path)
@@ -45,7 +48,7 @@ public final class HistoryRepository: @unchecked Sendable {
               ).replacingOccurrences(of: "_", with: "\\_") + "%"
             Self.bind(statement, 2, term)
             Self.bind(statement, 3, term)
-            sqlite3_bind_int(statement, 4, Int32(limit <= 0 ? -1 : min(limit, 10000)))
+            sqlite3_bind_int(statement, 4, Int32(limit <= 0 ? -1 : min(limit, Self.maxRows)))
             var rows: [HistoryEntry] = []
             var status = sqlite3_step(statement)
             while status == SQLITE_ROW {

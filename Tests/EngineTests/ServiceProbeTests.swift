@@ -45,4 +45,23 @@ final class ServiceProbeTests: XCTestCase {
       "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1")
     XCTAssertEqual(ServiceProbe.timeoutSeconds, 10)
   }
+
+  func testConfiguredModelsAreProbedByName() {
+    XCTAssertEqual(
+      ServiceProbe.modelURL(for: "gemini-3.5-transcribe-live")?.absoluteString,
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-transcribe-live")
+    XCTAssertEqual(
+      ServiceProbe.modelURL(for: "models/gemini-3.5-flash-lite")?.path,
+      "/v1beta/models/gemini-3.5-flash-lite")
+    // Anything that could change the path or add a query is refused, not sent.
+    XCTAssertNil(ServiceProbe.modelURL(for: "gemini/../models"))
+    XCTAssertNil(ServiceProbe.modelURL(for: ""))
+    XCTAssertEqual(
+      ServiceProbe.message(forModel: "nope", status: 404),
+      "The model \"nope\" is not available for this key.")
+    XCTAssertNil(ServiceProbe.message(forModel: "ok", status: 200))
+    // A rate limit on the model call is still a service problem, not a model problem.
+    XCTAssertEqual(
+      ServiceProbe.message(forModel: "ok", status: 429), "Rate limited. Try again in a minute.")
+  }
 }

@@ -80,7 +80,11 @@ struct HistoryView: View {
           Text("Showing \(history.entries.count) of \(history.totalCount)")
             .font(.callout).foregroundStyle(.secondary)
           Spacer()
-          Button("Show more") { history.showMore() }
+          if history.canShowMore {
+            Button("Show more") { history.showMore() }
+          } else {
+            Text("Export CSV to read the rest.").font(.caption).foregroundStyle(.tertiary)
+          }
         }.padding(8)
       }
       if let error = history.error { Text(error).font(.callout).foregroundStyle(.red).padding(8) }

@@ -28,6 +28,9 @@ final class HistoryViewStore {
     repository = HistoryRepository(path: path)
     if visible { reload() }
   }
+  /// True while another page can still be loaded. Past the repository's row cap the
+  /// table cannot grow, so the button gives way to a pointer at CSV export.
+  var canShowMore: Bool { totalCount > entries.count && limit < HistoryRepository.maxRows }
   /// Raises the visible row cap by one page and reloads. Simple "show more"
   /// instead of cursor pagination, per the audit remedy.
   func showMore() {

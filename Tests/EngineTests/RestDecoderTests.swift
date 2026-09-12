@@ -13,9 +13,10 @@ final class RestDecoderTests: XCTestCase {
   func testFinishReasonsMapToDistinctOutcomes() {
     XCTAssertEqual(
       decode(["candidates": [["finishReason": "STOP", "content": content]]]), .text("hello"))
-    // A candidate with text but no stated reason is usable; that is how streamed
-    // envelopes arrive.
-    XCTAssertEqual(decode(["candidates": [["content": content]]]), .text("hello"))
+    // Non-streaming calls always state a reason, so a missing one marks an incomplete
+    // envelope: text is treated as truncated, and no text at all as malformed.
+    XCTAssertEqual(decode(["candidates": [["content": content]]]), .truncated)
+    XCTAssertEqual(decode(["candidates": [["content": ["parts": []]]]]), .malformed)
     XCTAssertEqual(
       decode(["candidates": [["finishReason": "MAX_TOKENS", "content": content]]]), .truncated)
     for reason in ["SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"] {
