@@ -70,3 +70,43 @@ extension DictationEngine {
     check(done.wait(timeout: .now() + 2) == .success, "turn arbiter fixture completes")
   }
 }
+extension DictationEngine {
+  /// audit F11: cancelling retires the turn, so the live result that arrives afterwards is
+  /// stale and never pastes, exactly one "cancelled" row is written, and the next turn
+  /// settles normally. A fresh engine's turn #0 is already live, so no capture is needed,
+  /// and the cancel makes turn #1 the current one.
+  func fixtureCancelledTurn(recorder: EngineEventRecorder) {
+    let done = DispatchSemaphore(value: 0)
+    processingLock.lock()
+    isProcessing = true
+    processingLock.unlock()
+    sessionQueue.async {
+      self.wsCommitInFlight = true
+      self.turnSettled = false
+      self.cancelTurn()
+      check(self.turnSettled, "cancel closes the turn so no route can still paste it")
+      self.processingLock.lock()
+      let busy = self.isProcessing
+      self.processingLock.unlock()
+      check(!busy, "cancel clears the busy flag")
+      check(self.pendingRestRequest == nil, "cancel drops the REST request")
+      // The live result loses a race it was cancelled out of: turn #0 is retired.
+      self.settle(turnId: 0, route: "WS", outcome: .empty(audioDuration: 1.0))
+      // A turn started after the cancel still settles.
+      self.turnSettled = false
+      self.settle(turnId: 1, route: "WS", outcome: .empty(audioDuration: 1.0))
+      check(self.turnSettled, "a turn started after a cancel settles normally")
+      // A second cancel with no turn in flight writes nothing.
+      self.cancelTurn()
+      done.signal()
+    }
+    check(done.wait(timeout: .now() + 2) == .success, "cancel fixture completes")
+    let outcomes = recorder.events.compactMap { event -> String? in
+      if case .turnSettled(let record) = event { return record.outcome }
+      return nil
+    }
+    check(
+      outcomes == ["cancelled", "empty"],
+      "cancel records one cancelled row and never a stale one: \(outcomes)")
+  }
+}

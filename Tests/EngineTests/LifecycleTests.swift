@@ -34,11 +34,12 @@ final class LifecycleTests: XCTestCase {
   func testEventMaskFollowsBinding() {
     func bit(_ type: CGEventType) -> CGEventMask { CGEventMask(1) << CGEventMask(type.rawValue) }
     let modifier = HotkeyManager(binding: .fn, mode: "push_to_talk")
-    XCTAssertEqual(modifier.eventMask, bit(.flagsChanged), "a modifier binding needs flags only")
-    modifier.detectsChords = true
     XCTAssertEqual(
       modifier.eventMask, bit(.flagsChanged) | bit(.keyDown),
-      "chord detection adds key-downs and still leaves key-ups out")
+      "chord and Escape detection add key-downs and still leave key-ups out")
+    modifier.detectsChords = false
+    XCTAssertEqual(
+      modifier.eventMask, bit(.flagsChanged), "without chord detection a modifier needs flags only")
     let key = HotkeyManager(binding: .fKey(0x69), mode: "push_to_talk")
     XCTAssertEqual(
       key.eventMask, bit(.keyDown) | bit(.keyUp), "a key binding needs key-down and key-up only")

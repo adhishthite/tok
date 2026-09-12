@@ -125,7 +125,9 @@ final class HistoryStore {
         finish_mode TEXT,
         event_queue_ms REAL,
         ready_ms REAL,
-        delivery_outcome TEXT
+        delivery_outcome TEXT,
+        capture_start_ms REAL,
+        first_interim_ms REAL
       );
       CREATE INDEX IF NOT EXISTS idx_transcriptions_ts ON transcriptions(ts_epoch);
       CREATE INDEX IF NOT EXISTS idx_transcriptions_session ON transcriptions(session_id);
@@ -169,6 +171,8 @@ final class HistoryStore {
       "ALTER TABLE transcriptions ADD COLUMN event_queue_ms REAL",
       "ALTER TABLE transcriptions ADD COLUMN ready_ms REAL",
       "ALTER TABLE transcriptions ADD COLUMN delivery_outcome TEXT",
+      "ALTER TABLE transcriptions ADD COLUMN capture_start_ms REAL",
+      "ALTER TABLE transcriptions ADD COLUMN first_interim_ms REAL",
     ] {
       sqlite3_exec(opened, migration, nil, nil, nil)
     }
@@ -277,8 +281,9 @@ final class HistoryStore {
         build_id, input_device, input_transport, finish_mode, event_queue_ms, ready_ms, delivery_outcome,
         post_process_status, post_process_model, post_process_ms, post_process_input_tokens,
         post_process_output_tokens, post_process_thinking_tokens, post_process_cost_usd,
-        post_process_error, post_process_app_context, transcription_cost_usd
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        post_process_error, post_process_app_context, transcription_cost_usd,
+        capture_start_ms, first_interim_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       """
 
     var stmt: OpaquePointer?
@@ -342,6 +347,8 @@ final class HistoryStore {
     self.bindText(stmt, 49, r.postProcessing?.errorCode)
     self.bindBool(stmt, 50, r.postProcessing?.appContextUsed)
     self.bindDouble(stmt, 51, r.transcriptionCostUSD)
+    self.bindDouble(stmt, 52, r.captureStartMs)
+    self.bindDouble(stmt, 53, r.firstInterimMs)
 
     let stepped = sqlite3_step(stmt)
     if stepped != SQLITE_DONE {

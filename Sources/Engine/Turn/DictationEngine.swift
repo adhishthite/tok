@@ -75,6 +75,11 @@ public final class DictationEngine {
   private var lockWorkItem: DispatchWorkItem?
   private var lockLimitWorkItem: DispatchWorkItem?
   private var sessionLimitWorkItem: DispatchWorkItem?
+  // Main-thread-only: the deferred "Getting ready" pill (audit F10) and the instant of the
+  // last key-up that really finished a turn, which separates a double-tap bounce from a
+  // deliberate cancel press (audit F11).
+  private var startingNoticeWorkItem: DispatchWorkItem?
+  private var lastKeyUpTime: TimeInterval = 0
   // How the current turn's hold ended (finish_mode in history): written on main in
   // handleKeyUp before the pipeline is dispatched, read on sessionQueue like the
   // turnFrontmost* fields.
@@ -117,6 +122,15 @@ public final class DictationEngine {
   private var turnPeakDb: Double?
   private var turnSpeechFrames: Int?
   private var turnSettlePath: String?
+  // First-word evidence (audit F13). turnKeyDownTime and turnCaptureStartMs are written on
+  // main (key-down, then beginCapture) and read on sessionQueue like turnFinishMode;
+  // turnFirstInterimMs is sessionQueue-only, read from the live client at settle.
+  private var turnKeyDownTime: TimeInterval = 0
+  private var turnCaptureStartMs: Double?
+  private var turnFirstInterimMs: Double?
+  // sessionQueue-only: the clip length of the turn now in flight, so a cancel can stamp
+  // the audio it already paid for on the history row (audit F11).
+  private var turnAudioSeconds: Double?
 
   // Serial queue that owns all turn lifecycle state below. Both the WS commit completion and
   // the REST fallback timer used to race directly against a captured `var didFallback` bool
@@ -327,6 +341,16 @@ public final class DictationEngine {
       self?.handleKeyUp(eventTime: hotkey?.lastEventUptime)
     }
 
+    // The tap's run loop source is added on the main run loop, so these arrive on main
+    // like onKeyDown and onKeyUp do.
+    hotkey.onChord = { [weak self] in
+      self?.handleChord()
+    }
+
+    hotkey.onCancelKey = { [weak self] in
+      self?.handleCancel(source: "escape")
+    }
+
     // Sleep/wake hygiene: release the mic before sleep (suspendEngine refuses mid-dictation),
     // and force a fresh WS connection on wake - the socket often survives sleep in a
     // half-dead state where sends succeed but no server responses ever arrive.
@@ -376,8 +400,12 @@ public final class DictationEngine {
   }
 
   private func recordTurn(_ record: TurnRecord) {
-    history?.record(record)
-    delegate?.engineDidEmit(.turnSettled(record))
+    // Every row gets the turn's first-word evidence, whatever path built it.
+    var stamped = record
+    if stamped.captureStartMs == nil { stamped.captureStartMs = turnCaptureStartMs }
+    if stamped.firstInterimMs == nil { stamped.firstInterimMs = turnFirstInterimMs }
+    history?.record(stamped)
+    delegate?.engineDidEmit(.turnSettled(stamped))
   }
 
   public func stop() {
@@ -392,6 +420,8 @@ public final class DictationEngine {
     lockLimitWorkItem?.cancel()
     micIdleWorkItem?.cancel()
     pendingDuckItem?.cancel()
+    startingNoticeWorkItem?.cancel()
+    startingNoticeWorkItem = nil
     correctionWatcher?.cancelPending()
     for token in powerObservers { NSWorkspace.shared.notificationCenter.removeObserver(token) }
     powerObservers.removeAll()
@@ -433,12 +463,19 @@ public final class DictationEngine {
 
     processingLock.lock()
     // Protect re-entrancy / double-tap race
-    guard !isProcessing else {
-      processingLock.unlock()
-      feedback.showBusy()
+    let busy = isProcessing
+    processingLock.unlock()
+    if busy {
+      // A press inside the bounce window is the tail of the gesture that just ended: the
+      // post-roll drain is still running and the turn deserves to finish. A later press is
+      // the user asking to stop a turn that is waiting on the network (audit F11).
+      if ProcessInfo.processInfo.systemUptime - lastKeyUpTime < Self.cancelPressGraceSec {
+        feedback.showBusy()
+      } else {
+        handleCancel(source: "press")
+      }
       return
     }
-    processingLock.unlock()
     guard acceptsNewCaptures, !capturePending, !captureActive else { return }
 
     // Refuse to start a turn while secure input is held (password field, Terminal's Secure
@@ -494,6 +531,8 @@ public final class DictationEngine {
     turnFrontmostBundleId = front?.bundleIdentifier
     turnInputDevice = audioCapture.currentInput?.name
     turnInputTransport = audioCapture.currentInput?.transport
+    turnKeyDownTime = ProcessInfo.processInfo.systemUptime
+    turnCaptureStartMs = nil
 
     micIdleWorkItem?.cancel()
     micIdleWorkItem = nil
@@ -501,12 +540,15 @@ public final class DictationEngine {
     capturePending = true
     captureGeneration &+= 1
     let generation = captureGeneration
-    if !audioCapture.isEngineRunning { feedback.showStarting() }
+    if !audioCapture.isEngineRunning { scheduleStartingNotice(generation: generation) }
     audioCapture.ensureReady { [weak self] ready in
       guard let self = self, self.capturePending, self.captureGeneration == generation else {
         return
       }
       self.capturePending = false
+      // Readiness answered: beginCapture's listening pill, or the error below, is the
+      // right thing to show now.
+      self.cancelStartingNotice()
       guard ready else {
         self.hotkeyManager?.resetToggle()
         self.feedback.showError(message: "Microphone unavailable. Try again.")
@@ -516,6 +558,215 @@ public final class DictationEngine {
       }
       self.beginCapture(generation: generation)
     }
+  }
+
+  /// How long a lone hold must last before the "Getting ready" pill appears. A chord's
+  /// second key lands within about 120 ms of the modifier, so waiting this long means
+  /// Fn plus Delete never flashes an overlay (audit F10). A microphone that becomes ready
+  /// sooner replaces the pill with the listening one anyway.
+  static let startingNoticeDelay: TimeInterval = 0.12
+
+  /// How long after a key-up a shortcut press is still read as an eager re-press rather
+  /// than a cancel (audit F11). One second covers the bounce of the gesture itself and the
+  /// median turn (about 550 ms measured), so a fast next phrase never discards the one
+  /// that is about to paste; a press later than this targets a turn stuck on the network.
+  static let cancelPressGraceSec: TimeInterval = 1.0
+
+  /// Main thread. Defers the readiness pill so a chord can cancel it before it is seen.
+  private func scheduleStartingNotice(generation: UInt64) {
+    cancelStartingNotice()
+    let item = DispatchWorkItem { [weak self] in
+      guard let self = self, self.captureGeneration == generation,
+        self.capturePending || self.captureActive
+      else { return }
+      self.startingNoticeWorkItem = nil
+      self.feedback.showStarting()
+    }
+    startingNoticeWorkItem = item
+    DispatchQueue.main.asyncAfter(deadline: .now() + Self.startingNoticeDelay, execute: item)
+  }
+
+  /// Main thread.
+  private func cancelStartingNotice() {
+    startingNoticeWorkItem?.cancel()
+    startingNoticeWorkItem = nil
+  }
+
+  /// Main thread. Another key was pressed while the shortcut was held, so this was a system
+  /// chord (Fn plus Delete, Fn plus arrow), not a dictation. Abandon it silently: no sound,
+  /// no error pill and no history row - nothing happened that the user asked for (F10).
+  private func handleChord() {
+    guard !isStopping else { return }
+    cancelStartingNotice()
+    hotkeyManager?.resetToggle()
+    if capturePending {
+      // Same retreat as the capturePending branch of handleKeyUp: the readiness callback
+      // is disowned by the generation bump and nothing was ever recorded.
+      capturePending = false
+      captureGeneration &+= 1
+      audioCapture.cancelPendingReadiness()
+      feedback.hide()
+      scheduleMicIdleRelease()
+      return
+    }
+    // A locked turn is not being held, so no key can chord against it.
+    guard captureActive, !turnLocked else { return }
+    Log.debug("HOTKEY", "Another key was pressed during the hold - capture abandoned.")
+    discardCapture(record: false, announce: false)
+  }
+
+  /// Main thread. The user asked to stop this turn: Escape at any stage, or a second
+  /// shortcut press once the turn is network-bound. Nothing is pasted. Audio already sent
+  /// to the API cannot be retracted, so a cancel late in the turn still costs its tokens.
+  private func handleCancel(source: String) {
+    guard !isStopping else { return }
+    if capturePending {
+      cancelStartingNotice()
+      hotkeyManager?.resetToggle()
+      capturePending = false
+      captureGeneration &+= 1
+      audioCapture.cancelPendingReadiness()
+      // No capture ever started, so there is no turn to write a row for.
+      feedback.showCancelled()
+      scheduleMicIdleRelease()
+      Log.info("TURN", "Dictation cancelled before the microphone was ready (\(source)).")
+      return
+    }
+    if captureActive {
+      // Escape cancels a locked turn too: the user is not holding anything to release.
+      cancelStartingNotice()
+      hotkeyManager?.resetToggle()
+      Log.info("TURN", "Dictation cancelled during capture (\(source)).")
+      discardCapture(record: true, announce: true)
+      return
+    }
+    processingLock.lock()
+    let busy = isProcessing
+    processingLock.unlock()
+    guard busy else { return }
+    // The pill answers on main immediately; the arbiter work belongs to sessionQueue, which
+    // is serial: a cancel queued behind a post-roll drain or an abandoned capture runs after
+    // it, and the busy re-check inside cancelTurn is what stops it acting on a turn that
+    // ended in the meantime.
+    feedback.showCancelled()
+    Log.info("TURN", "Dictation cancelled while finishing (\(source)).")
+    sessionQueue.async { [weak self] in self?.cancelTurn() }
+  }
+
+  /// Main thread. Ends the capture in flight without transcribing it. The audio is drained
+  /// and discarded and the live turn is abandoned uncommitted, the pattern the micro-click
+  /// guard already uses. isProcessing is set here, before the drain is dispatched, for the
+  /// same reason handleKeyUp sets it: stopRecording must not overlap the next key-down.
+  /// The sessionQueue block below is the only exit and clears it.
+  private func discardCapture(record: Bool, announce: Bool) {
+    captureActive = false
+    // The gesture ended here, so a press right behind it is a bounce, not a cancel.
+    lastKeyUpTime = ProcessInfo.processInfo.systemUptime
+    turnLocked = false
+    turnFinishMode = "cancel"
+    lockWorkItem?.cancel()
+    lockWorkItem = nil
+    lockLimitWorkItem?.cancel()
+    lockLimitWorkItem = nil
+    sessionLimitWorkItem?.cancel()
+    sessionLimitWorkItem = nil
+    pendingDuckItem?.cancel()
+    pendingDuckItem = nil
+    if config.duckAudio { AudioDucker.shared.restore() }
+    // A chord retreats without a word; a cancel says so.
+    if announce { feedback.showCancelled() } else { feedback.hide() }
+
+    processingLock.lock()
+    isProcessing = true
+    processingLock.unlock()
+
+    sessionQueue.async { [weak self] in
+      guard let self = self else { return }
+      // Zero grace and zero trail: there is nothing in this clip worth waiting for. The
+      // buffers still have to be drained, or the next turn would inherit them.
+      let (_, duration, _, _, _, _, _) = self.audioCapture.stopRecording(
+        gracePeriodMs: 0, maxTrailMs: 0, silenceThresholdDb: self.config.trailSilenceDb)
+      self.liveClient?.abandonTurn()
+      if !self.config.keepMicrophoneWarm {
+        DispatchQueue.main.async { [weak self] in self?.audioCapture.suspendEngine() }
+      }
+      if record { self.recordCancelledTurn(audioSeconds: duration) }
+      self.processingLock.lock()
+      self.isProcessing = false
+      self.processingLock.unlock()
+      DispatchQueue.main.async { [weak self] in self?.scheduleMicIdleRelease() }
+    }
+  }
+
+  /// sessionQueue-only. Retires the turn in flight. Incrementing currentTurnId is what makes
+  /// every route stale: the live commit completion, the REST completion, the fallback timer,
+  /// the deadline and the cleanup stage all re-check it, so none of them reaches settle().
+  /// settle() therefore stays the sole paste-or-error path; a cancel produces neither, which
+  /// is why it does not go through it. Audio already uploaded cannot be recalled.
+  func cancelTurn() {
+    guard !isStopping else { return }
+    processingLock.lock()
+    let busy = isProcessing
+    processingLock.unlock()
+    // The turn settled between the key press and this block: it already pasted, and a
+    // second "cancelled" row would claim otherwise.
+    guard busy else { return }
+    currentTurnId &+= 1
+    turnSettled = true
+    pendingRestRequest?.cancel()
+    pendingRestRequest = nil
+    postProcessingStage.cancel()
+    pendingFallbackTimer?.cancel()
+    pendingFallbackTimer = nil
+    pendingTurnDeadline?.cancel()
+    pendingTurnDeadline = nil
+    pendingProgressNotice?.cancel()
+    pendingProgressNotice = nil
+    wsCommitInFlight = false
+    wsTerminal = true
+    restTerminal = true
+    liveClient?.abandonTurn()
+    recordCancelledTurn(audioSeconds: turnAudioSeconds)
+    processingLock.lock()
+    isProcessing = false
+    processingLock.unlock()
+    DispatchQueue.main.async { [weak self] in self?.scheduleMicIdleRelease() }
+  }
+
+  /// The history row for a cancelled turn: no text and no delivery, so the stats query
+  /// (which counts outcome='success') and the menu's last-delivery label ignore it.
+  private func recordCancelledTurn(audioSeconds: Double?) {
+    recordTurn(
+      TurnRecord(
+        outcome: "cancelled",
+        text: nil,
+        charCount: 0,
+        wordCount: 0,
+        transport: nil,
+        model: nil,
+        isLiveRoute: nil,
+        fallbackReason: nil,
+        audioSeconds: audioSeconds,
+        firstTokenMs: nil,
+        roundtripMs: nil,
+        captureFinalizeMs: nil,
+        injectMs: nil,
+        totalMs: nil,
+        injected: nil,
+        inputTokens: nil,
+        outputTokens: nil,
+        tokensMetered: nil,
+        costUSD: nil,
+        languageCodes: config.languageCodes.joined(separator: ","),
+        smartMode: config.smartTranscription,
+        vadMode: config.vadMode,
+        error: nil,
+        appBundleId: turnFrontmostBundleId,
+        appName: turnFrontmostName,
+        inputDevice: turnInputDevice,
+        inputTransport: turnInputTransport,
+        finishMode: "cancel"
+      ))
   }
 
   private func beginCapture(generation: UInt64) {
@@ -542,6 +793,7 @@ public final class DictationEngine {
     captureActive = true
     turnInputDevice = audioCapture.currentInput?.name
     turnInputTransport = audioCapture.currentInput?.transport
+    turnCaptureStartMs = (ProcessInfo.processInfo.systemUptime - turnKeyDownTime) * 1000
     if hot.soundFeedback { SoundManager.playStartSound() }
     feedback.showListening(lockAfter: holdToLockInterval)
     feedback.captureStarted(pid: turnFrontmostPID, followFocus: hot.hudFollowFocus)
@@ -573,6 +825,7 @@ public final class DictationEngine {
     if capturePending {
       capturePending = false
       captureGeneration &+= 1
+      cancelStartingNotice()
       audioCapture.cancelPendingReadiness()
       feedback.hide()
       scheduleMicIdleRelease()
@@ -605,6 +858,9 @@ public final class DictationEngine {
         AudioDucker.shared.isDucked ? Float(1.0 / max(0.15, config.duckFraction)) : 1.0
       SoundManager.playReleaseSound(volumeScale: scale)
     }
+
+    // A press this soon after the release is a bounce, not a cancel (audit F11).
+    lastKeyUpTime = handlerTime
 
     // The turn is busy from this instant, not from when the pipeline finishes draining:
     // stopRecording blocks sessionQueue for up to POST_ROLL_MAX_MS, and a re-press inside
@@ -744,6 +1000,8 @@ public final class DictationEngine {
     turnPeakDb = peakDb
     turnSpeechFrames = speechFrames
     turnSettlePath = nil
+    turnFirstInterimMs = nil
+    turnAudioSeconds = duration
     turnCaptureFinalizeMs = (ProcessInfo.processInfo.systemUptime - pipelineStartTime) * 1000
     if interrupted {
       currentTurnId &+= 1
@@ -928,6 +1186,7 @@ public final class DictationEngine {
             let roundtripMs = (ProcessInfo.processInfo.systemUptime - commitStartTime) * 1000.0
             let usage = self.liveClient?.lastTurnUsage
             self.turnSettlePath = self.liveClient?.lastSettlePath
+            self.turnFirstInterimMs = self.liveClient?.lastTurnFirstInterimMs
             self.settle(
               turnId: turnId, route: "WS",
               outcome: .success(
@@ -976,6 +1235,7 @@ public final class DictationEngine {
                 "No speech recognized (\(speechFrames) speech frames in clip); settling empty - REST fallback suppressed."
               )
               self.turnSettlePath = self.liveClient?.lastSettlePath
+              self.turnFirstInterimMs = self.liveClient?.lastTurnFirstInterimMs
               self.settle(turnId: turnId, route: "WS", outcome: .empty(audioDuration: duration))
               return
             }
@@ -1336,6 +1596,10 @@ public final class DictationEngine {
     postProcessing: PostProcessingMetrics = .off
   ) {
     guard !isStopping else { return }
+    // The clipboard wait below leaves sessionQueue for up to 150 ms. A cancel that lands in
+    // that window retires the turn id, and the re-entry must see it: otherwise the cancel
+    // row is written and the text is pasted anyway (audit F11).
+    let turnId = currentTurnId
     var canPrepareClipboard = false
     if config.restoreClipboard, !clipboardPrepared, !SecureInputMonitor.isActive,
       AXIsProcessTrusted()
@@ -1349,6 +1613,10 @@ public final class DictationEngine {
       TextInjector.awaitPreparedClipboard { [weak self] ready in
         guard let self = self else { return }
         self.sessionQueue.async {
+          guard self.currentTurnId == turnId, !self.isStopping else {
+            Log.debug("SESSION", "Turn #\(turnId) retired during the clipboard wait; not pasting.")
+            return
+          }
           self.handleTranscribedText(
             rawText, transport: transport,
             firstTokenMs: firstTokenMs, roundtripMs: roundtripMs,

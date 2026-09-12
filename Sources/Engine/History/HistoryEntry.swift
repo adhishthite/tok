@@ -26,5 +26,7 @@ public struct HistoryEntry: Identifiable, Sendable {
   public let error: String
   public var postProcessing: PostProcessingMetrics? = nil
   public var transcriptionCost: Double? = nil
+  public var captureStartMs: Double? = nil
+  public var firstInterimMs: Double? = nil
   public var preview: String { String(text.prefix(200)).replacingOccurrences(of: "\n", with: " ") }
 }

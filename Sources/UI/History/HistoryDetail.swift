@@ -34,7 +34,9 @@ struct HistoryDetail: View {
             LabeledContent("Route", value: entry.route)
             LabeledContent("Model", value: entry.model)
             LabeledContent("Event queue", value: milliseconds(entry.eventQueueMs))
+            LabeledContent("Capture start", value: milliseconds(entry.captureStartMs))
             LabeledContent("Capture", value: milliseconds(entry.captureMs))
+            LabeledContent("First interim", value: milliseconds(entry.firstInterimMs))
             LabeledContent("First token", value: milliseconds(entry.firstTokenMs))
             LabeledContent("Transcription", value: milliseconds(entry.apiMs))
             LabeledContent(

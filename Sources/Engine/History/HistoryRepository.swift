@@ -29,7 +29,8 @@ public final class HistoryRepository: @unchecked Sendable {
                 COALESCE(delivery_outcome,''),COALESCE(finish_mode,''),COALESCE(error,''),
                 post_process_status,post_process_model,post_process_ms,post_process_input_tokens,
                 post_process_output_tokens,post_process_thinking_tokens,post_process_cost_usd,
-                post_process_error,post_process_app_context,COALESCE(transcription_cost_usd,cost_usd)
+                post_process_error,post_process_app_context,COALESCE(transcription_cost_usd,cost_usd),
+                capture_start_ms,first_interim_ms
               FROM transcriptions WHERE ts_epoch >= ? AND
                 (COALESCE(text,'') LIKE ? ESCAPE char(92) OR COALESCE(app_name,'') LIKE ? ESCAPE char(92))
               ORDER BY ts_epoch DESC,id DESC LIMIT ?
@@ -78,7 +79,9 @@ public final class HistoryRepository: @unchecked Sendable {
                       errorCode: sqlite3_column_type(statement, 30) == SQLITE_NULL
                         ? nil : Self.text(statement, 30),
                       appContextUsed: sqlite3_column_int(statement, 31) == 1),
-                  transcriptionCost: Self.number(statement, 32)))
+                  transcriptionCost: Self.number(statement, 32),
+                  captureStartMs: Self.number(statement, 33),
+                  firstInterimMs: Self.number(statement, 34)))
               status = sqlite3_step(statement)
             }
             guard status == SQLITE_DONE else { throw HistoryRepositoryError.queryFailed }

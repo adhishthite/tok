@@ -1020,6 +1020,28 @@ final class FloatingHUD: NSObject {
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.85, execute: workItem)
   }
 
+  // The user stopped the turn. Same shape as the error pill, but in the accent colour and
+  // with the processing glow: nothing failed, so nothing should read as red (audit F11).
+  func showCancelled() {
+    if !shownTarget { showListening() }
+    hideWorkItem?.cancel()
+    clearLockRing()
+    notchGlowView.state = .processing
+    orbIcon.state = .processing
+
+    crossfadeTextChange()
+    setHeader("Cancelled", color: Palette.accentLight)
+    setTranscript("Cancelled", color: NSColor(white: 1.0, alpha: 0.85), caret: false)
+    waveformView.reset()
+    HUDAnnouncer.announce("Cancelled")
+
+    let workItem = DispatchWorkItem { [weak self] in
+      self?.hide()
+    }
+    hideWorkItem = workItem
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: workItem)
+  }
+
   func showError(message: String) {
     if !shownTarget { showListening() }
     hideWorkItem?.cancel()

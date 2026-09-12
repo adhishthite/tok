@@ -11,6 +11,9 @@ public enum EngineEvent: Sendable {
   case microphoneReleased
   case failure(String)
   case success(String)
+  // The user stopped the turn (Escape, a chord-free second press). Nothing was pasted and
+  // nothing failed, so it is neither success nor failure.
+  case cancelled
   case liveText(String)
   case audioLevel(Double)
   case captureStarted(pid: Int32?, followFocus: Bool)

@@ -37,6 +37,7 @@ public final class HUDController {
       hud.hide()
     case .failure(let message): hud.showError(message: message)
     case .success(let text): hud.showSuccess(text: text)
+    case .cancelled: hud.showCancelled()
     case .liveText(let text): hud.updateLiveText(text)
     case .processingStatus(let text): showProcessingStatus(text)
     case .audioLevel(let db): hud.updateAudioLevel(db: db)

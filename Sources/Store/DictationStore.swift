@@ -230,7 +230,7 @@ final class DictationStore: DictationEngineDelegate {
     let wasActive = active
     switch event {
     case .ready, .starting, .listening, .locked, .processing, .busy, .hidden,
-      .microphoneReleased, .success, .failure, .captureStarted:
+      .microphoneReleased, .success, .failure, .cancelled, .captureStarted:
       // A newer lifecycle event decides the status, so the pending error reset is stale.
       cancelErrorReset()
     default: break
@@ -269,6 +269,12 @@ final class DictationStore: DictationEngineDelegate {
       message = "Done."
       // The previous failure is answered by this dictation.
       lastError = nil
+    case .cancelled:
+      // The user stopped the turn, so the menu bar goes back to ready rather than to the
+      // attention state a failure would leave behind.
+      status = .ready
+      message = "Cancelled."
+      lastError = nil
     case .liveText(let text): liveText = settings.configuration.privacyMode ? "" : text
     case .turnSettled(let record):
       history.reload()
@@ -281,7 +287,7 @@ final class DictationStore: DictationEngineDelegate {
         lastLatency = LatencySnapshot(record: record)
         let route = record.isLiveRoute.map { $0 ? "WS" : "REST" } ?? record.transport ?? "none"
         lastLatencyLine =
-          "LATENCY route=\(route) capture=\(Self.milliseconds(record.captureFinalizeMs)) api=\(Self.milliseconds(record.roundtripMs)) injection=\(Self.milliseconds(record.injectMs)) total=\(Self.milliseconds(total)) delivery=\(record.deliveryOutcome ?? "none")"
+          "LATENCY route=\(route) capture_start=\(Self.milliseconds(record.captureStartMs)) capture=\(Self.milliseconds(record.captureFinalizeMs)) first_interim=\(Self.milliseconds(record.firstInterimMs)) api=\(Self.milliseconds(record.roundtripMs)) injection=\(Self.milliseconds(record.injectMs)) total=\(Self.milliseconds(total)) delivery=\(record.deliveryOutcome ?? "none")"
         if let cleanup = record.postProcessing {
           lastLatencyLine +=
             " cleanup_status=\(cleanup.status) cleanup=\(Self.milliseconds(cleanup.latencyMs))"

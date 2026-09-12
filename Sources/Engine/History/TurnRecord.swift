@@ -52,4 +52,8 @@ public struct TurnRecord: Sendable {
   public var deliveryOutcome: String? = nil
   public var postProcessing: PostProcessingMetrics? = nil
   public var transcriptionCostUSD: Double? = nil
+  // First-word evidence (audit F13): key-down to the instant capture began, and turn start
+  // to the first interim text from the live service. Both NULL when not measured.
+  public var captureStartMs: Double? = nil
+  public var firstInterimMs: Double? = nil
 }

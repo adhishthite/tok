@@ -87,5 +87,11 @@ final class TurnRegressionTests: XCTestCase {
     restOnlyConfig.enableLiveWebSocket = false
     DictationEngine(config: restOnlyConfig).fixtureRestHedgeFailure(expectSettle: true)
 
+    // audit F11: a cancelled turn is settled without a paste, and the next turn is clean.
+    let cancelRecorder = EngineEventRecorder()
+    let cancelEngine = DictationEngine(config: hedgeConfig)
+    cancelEngine.delegate = cancelRecorder
+    cancelEngine.fixtureCancelledTurn(recorder: cancelRecorder)
+
   }
 }
