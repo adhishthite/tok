@@ -74,10 +74,10 @@ final class HotkeyManager {
     }
   }
 
-  /// Only the events the binding can produce (audit F12). A modifier binding is reported
-  /// through flagsChanged, an F-key or custom key through keyDown and keyUp. A listen-only
-  /// tap is still woken for every event it subscribes to, so a wider mask taxes every
-  /// keystroke the user types.
+  /// Only the events the binding needs (audit F12). A modifier binding is reported through
+  /// flagsChanged, plus keyDown when chord detection is on (the default for modifiers); an
+  /// F-key or custom key needs keyDown and keyUp. keyUp is never subscribed for a modifier.
+  /// A listen-only tap is woken for every event it subscribes to, so the mask stays minimal.
   var eventMask: CGEventMask {
     func bit(_ type: CGEventType) -> CGEventMask { CGEventMask(1) << CGEventMask(type.rawValue) }
     switch binding {

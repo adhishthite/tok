@@ -59,6 +59,19 @@ final class DiagnosticsFile: @unchecked Sendable {
     queue.sync { try? handle?.synchronize() }
   }
 
+  /// Deletes both files. "Clear log" must clear the persisted copy too, or the control
+  /// would promise a privacy action it does not perform.
+  func clear() {
+    queue.sync {
+      try? handle?.close()
+      handle = nil
+      try? FileManager.default.removeItem(at: fileURL)
+      try? FileManager.default.removeItem(at: rolledURL)
+      currentSize = 0
+      failed = false
+    }
+  }
+
   /// Flushes and releases the handle. Safe to call even if never opened.
   func close() {
     queue.sync {

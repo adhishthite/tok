@@ -83,7 +83,7 @@ extension DictationEngine {
     sessionQueue.async {
       self.wsCommitInFlight = true
       self.turnSettled = false
-      self.cancelTurn()
+      self.cancelTurn(source: "escape")
       check(self.turnSettled, "cancel closes the turn so no route can still paste it")
       self.processingLock.lock()
       let busy = self.isProcessing
@@ -97,7 +97,7 @@ extension DictationEngine {
       self.settle(turnId: 1, route: "WS", outcome: .empty(audioDuration: 1.0))
       check(self.turnSettled, "a turn started after a cancel settles normally")
       // A second cancel with no turn in flight writes nothing.
-      self.cancelTurn()
+      self.cancelTurn(source: "escape")
       done.signal()
     }
     check(done.wait(timeout: .now() + 2) == .success, "cancel fixture completes")

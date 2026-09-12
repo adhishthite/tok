@@ -374,9 +374,12 @@ final class DictationStore: DictationEngineDelegate {
     diagnosticsFile?.write(safeLine)
   }
 
-  /// Clears only the in-memory session log. The on-disk file is untouched, so
-  /// a saved report still covers activity from before the clear (audit F36).
-  func clearDiagnostics() { diagnostics.removeAll() }
+  /// Clears the session log and the persisted file together, so "Clear log" means what it
+  /// says (audit F36).
+  func clearDiagnostics() {
+    diagnostics.removeAll()
+    diagnosticsFile?.clear()
+  }
 
   /// Flushes the on-disk log and presents a save panel for a support report:
   /// a header of non-secret context, then the persisted diagnostics lines.

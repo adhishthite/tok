@@ -15,6 +15,11 @@ struct GeminiRestClient {
   /// instead of after a 400 that costs the whole round trip.
   static let maxInlineAudioBytes = 20 * 1024 * 1024
 
+  /// Seconds of 16 kHz 16-bit mono audio that fit under maxInlineAudioBytes once the WAV
+  /// header and base64 expansion are counted: about 491 s. The engine caps every turn here.
+  static let maxInlineAudioSeconds: Double =
+    Double(maxInlineAudioBytes * 3 / 4 - 44) / 32_000.0
+
   /// Bytes the base64 audio part will occupy for a PCM buffer of this size. 44 is the WAV
   /// header WAVEncoder prepends; base64 emits 4 characters per 3 input bytes, padded.
   static func inlineAudioBytes(pcmByteCount: Int) -> Int {

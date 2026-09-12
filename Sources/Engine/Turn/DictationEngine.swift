@@ -152,6 +152,11 @@ public final class DictationEngine {
   var wsTerminal = false
   var restTerminal = false
   var lastRestError: Error?
+  // sessionQueue-only. turnHasResult: a transcript reached settle(), so a cancel from here
+  // on must not destroy it. turnCopyOnlyRequested: Escape arrived after that point, so the
+  // text goes to the clipboard instead of the destination (review of PR 7).
+  private var turnHasResult = false
+  private var turnCopyOnlyRequested = false
   lazy var postProcessingStage = PostProcessingStage(queue: sessionQueue)
   var pendingRestRequest: CancellableRequest?
   var restAttemptStart: TimeInterval?
@@ -305,6 +310,13 @@ public final class DictationEngine {
         self?.feedback.updateLiveText(text)
       }
       liveClient?.onLiveTextUpdate = { text in textDelivery.submit(text) }
+      // A key the service keeps refusing stops the live route; say so once instead of
+      // leaving every turn to the backup route in silence.
+      liveClient?.onAuthRejected = { [weak self] in
+        DispatchQueue.main.async {
+          self?.feedback.showError(message: "API key rejected. Check the key in Settings.")
+        }
+      }
       liveClient?.connect()
     }
 
@@ -611,7 +623,8 @@ public final class DictationEngine {
     }
     // A locked turn is not being held, so no key can chord against it.
     guard captureActive, !turnLocked else { return }
-    Log.debug("HOTKEY", "Another key was pressed during the hold - capture abandoned.")
+    // Info, not debug: this is the only trace of a silently abandoned hold.
+    Log.info("HOTKEY", "Another key was pressed during the hold - capture abandoned.")
     discardCapture(record: false, announce: false)
   }
 
@@ -644,13 +657,12 @@ public final class DictationEngine {
     let busy = isProcessing
     processingLock.unlock()
     guard busy else { return }
-    // The pill answers on main immediately; the arbiter work belongs to sessionQueue, which
-    // is serial: a cancel queued behind a post-roll drain or an abandoned capture runs after
-    // it, and the busy re-check inside cancelTurn is what stops it acting on a turn that
-    // ended in the meantime.
-    feedback.showCancelled()
-    Log.info("TURN", "Dictation cancelled while finishing (\(source)).")
-    sessionQueue.async { [weak self] in self?.cancelTurn() }
+    // The arbiter work belongs to sessionQueue, which is serial: a cancel queued behind a
+    // post-roll drain or an abandoned capture runs after it, and the busy re-check inside
+    // cancelTurn is what stops it acting on a turn that ended in the meantime. The pill is
+    // shown from there too, because a late cancel may keep the transcript instead.
+    Log.info("TURN", "Cancel requested while finishing (\(source)).")
+    sessionQueue.async { [weak self] in self?.cancelTurn(source: source) }
   }
 
   /// Main thread. Ends the capture in flight without transcribing it. The audio is drained
@@ -690,6 +702,9 @@ public final class DictationEngine {
       if !self.config.keepMicrophoneWarm {
         DispatchQueue.main.async { [weak self] in self?.audioCapture.suspendEngine() }
       }
+      // No pipeline ran for this turn, so the previous turn's first-interim value is still
+      // in the field; a cancelled capture has none.
+      self.turnFirstInterimMs = nil
       if record { self.recordCancelledTurn(audioSeconds: duration) }
       self.processingLock.lock()
       self.isProcessing = false
@@ -703,7 +718,7 @@ public final class DictationEngine {
   /// the deadline and the cleanup stage all re-check it, so none of them reaches settle().
   /// settle() therefore stays the sole paste-or-error path; a cancel produces neither, which
   /// is why it does not go through it. Audio already uploaded cannot be recalled.
-  func cancelTurn() {
+  func cancelTurn(source: String) {
     guard !isStopping else { return }
     processingLock.lock()
     let busy = isProcessing
@@ -711,6 +726,18 @@ public final class DictationEngine {
     // The turn settled between the key press and this block: it already pasted, and a
     // second "cancelled" row would claim otherwise.
     guard busy else { return }
+    // The transcript already arrived, so discarding it would lose paid-for words with no
+    // trace. A second shortcut press means "next phrase": let the paste finish. Escape means
+    // "not here": keep the words on the clipboard instead of pasting them.
+    if turnHasResult {
+      if source == "escape" {
+        turnCopyOnlyRequested = true
+        Log.info("TURN", "Cancel arrived after the transcript; copying instead of pasting.")
+      } else {
+        Log.info("TURN", "Cancel press arrived after the transcript; pasting as normal.")
+      }
+      return
+    }
     currentTurnId &+= 1
     turnSettled = true
     pendingRestRequest?.cancel()
@@ -730,7 +757,10 @@ public final class DictationEngine {
     processingLock.lock()
     isProcessing = false
     processingLock.unlock()
-    DispatchQueue.main.async { [weak self] in self?.scheduleMicIdleRelease() }
+    DispatchQueue.main.async { [weak self] in
+      self?.feedback.showCancelled()
+      self?.scheduleMicIdleRelease()
+    }
   }
 
   /// The history row for a cancelled turn: no text and no delivery, so the stats query
@@ -914,14 +944,15 @@ public final class DictationEngine {
 
   // Main thread. Scheduled at capture start in every shortcut mode: the live service
   // ends a session at ten minutes, so a turn must finish before the current session
-  // does, whatever LOCK_LIMIT says. A REST-only configuration has no session, but its
-  // inline audio request caps out around 7.5 minutes, so the same bound applies there
-  // and a locked turn is never left uncapped (audit F33).
+  // does, whatever LOCK_LIMIT says. The REST route is the fallback for every turn and its
+  // inline request carries about eight minutes of audio, so the bound is the smaller of the
+  // live session and that cap; a locked turn is never left uncapped (audit F33).
   private func armSessionLimit() {
     sessionLimitWorkItem?.cancel()
     sessionLimitWorkItem = nil
     let remaining = liveClient?.sessionRemainingSeconds ?? GeminiLiveClient.sessionLimitSeconds
-    let limit = max(5.0, remaining - Self.sessionLimitMargin)
+    let limit =
+      max(5.0, min(remaining, GeminiRestClient.maxInlineAudioSeconds) - Self.sessionLimitMargin)
     let item = DispatchWorkItem { [weak self] in
       guard let self = self, self.captureActive else { return }
       self.sessionLimitWorkItem = nil
@@ -1104,6 +1135,8 @@ public final class DictationEngine {
     wsTerminal = false
     restTerminal = false
     lastRestError = nil
+    turnHasResult = false
+    turnCopyOnlyRequested = false
     let budget = TurnDeadline.budget(fallbackTimeout: config.restFallbackTimeout)
     let deadline = DispatchWorkItem { [weak self] in
       guard let self = self else { return }
@@ -1460,6 +1493,7 @@ public final class DictationEngine {
       let text, let transport, let firstTokenMs, let roundtripMs, let audioDuration, let keyUpTime,
       let captureFinalizeMs, let fallbackReason, let isLiveRoute, let inputTokens, let outputTokens):
       consecutiveNoSpeechTurns = 0
+      turnHasResult = true
       postProcessingStage.process(
         text: text, configuration: config, appName: turnFrontmostName,
         appBundleId: turnFrontmostBundleId
@@ -1715,6 +1749,17 @@ public final class DictationEngine {
       let holder = SecureInputMonitor.holderName()
       Log.warn("INJECT", "Secure input is held by \(holder ?? "another app") - copied, not pasted.")
       copyOnlyReason = "secure input"
+    } else if turnCopyOnlyRequested {
+      // Escape landed after the transcript: the user did not want it in this field, but the
+      // words are paid for, so they stay on the clipboard.
+      let copyStart = ProcessInfo.processInfo.systemUptime
+      if !TextInjector.copyOnly(text: text, appendSpace: config.trailingSpace) {
+        deliveryError = "Clipboard write failed. Text not copied."
+      }
+      injectMs = (ProcessInfo.processInfo.systemUptime - copyStart) * 1000.0
+      injected = false
+      Log.info("INJECT", "Cancelled after the transcript arrived - copied, not pasted.")
+      copyOnlyReason = "cancelled"
     } else if !AXIsProcessTrusted() {
       // Accessibility revoked while running: the synthesized Cmd+V would be silently
       // dropped by the system, losing the dictation. Copy instead and say why.
@@ -1814,6 +1859,8 @@ public final class DictationEngine {
           message = "Copied. Press ⌘V outside the password field."
         case "accessibility revoked":
           message = "Copied. Accessibility access is off. Press ⌘V to paste."
+        case "cancelled":
+          message = "Cancelled. Copied to clipboard. Press ⌘V to paste."
         default: message = "Copied. Focus changed. Press ⌘V to paste."
         }
         self.feedback.showError(message: message)

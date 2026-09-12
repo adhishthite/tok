@@ -163,6 +163,8 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   var turnCompletion:
     ((Result<(text: String, firstTokenMs: Double, totalMs: Double), Error>) -> Void)?
   var onLiveTextUpdate: ((String) -> Void)?
+  /// Called once when consecutive key rejections stop the reconnect loop.
+  var onAuthRejected: (() -> Void)?
   private let smartTranscription: Bool
   let languageCodes: [String]
   private let customVocabulary: [String]
@@ -438,6 +440,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     completion?(.failure(error))
     if stopReconnecting {
       Log.error("WS", "API key rejected; not reconnecting.")
+      onAuthRejected?()
       return
     }
     scheduleReconnect(epoch: epoch)
@@ -456,7 +459,9 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?
   ) {
     let text = reason.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    let rejected = closeCode == .policyViolation || Self.mentionsKeyRejection(text)
+    // Close code 1008 alone is not a key verdict: services use it for quota and rate limits
+    // too. Only a reason that names the key or authentication counts.
+    let rejected = Self.mentionsKeyRejection(text)
     lock.lock()
     if webSocketTask === self.webSocketTask { lastCloseIndicatedRejection = rejected }
     lock.unlock()
@@ -465,7 +470,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   private static func mentionsKeyRejection(_ reason: String) -> Bool {
     let lowered = reason.lowercased()
     return lowered.contains("api key") || lowered.contains("api_key")
-      || lowered.contains("unauthenticated") || lowered.contains("permission denied")
+      || lowered.contains("unauthenticated")
   }
 
   private func listenForMessages(task: URLSessionWebSocketTask, epoch: UInt64) {
