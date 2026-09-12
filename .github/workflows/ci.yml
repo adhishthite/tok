@@ -35,7 +35,7 @@ jobs:
       - name: Install build tools
         timeout-minutes: 5
         run: |
-          brew install xcodegen actionlint
+          brew install xcodegen actionlint uv
           make install
       - name: Validate workflow tooling
         run: make check-ci
