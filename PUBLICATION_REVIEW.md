@@ -232,3 +232,53 @@ Keychain Sparkle key. All long steps ran under bounded supervisors.
 The Stats window was not opened by hand before packaging; its behavior is
 covered by unit tests and a zero-context code review only. No installed Sparkle
 update from build 12 has been recorded yet.
+
+# Publication review: Tok 0.1.7, build 14
+
+Published on 2026-09-12 at 07:58:17 UTC as the latest release in
+`adhishthite/tok-releases`, tag `v0.1.7`, targeting public commit
+`bc63f4f69a41ee6189e68e2da629999294bc8771`. Private app source:
+`bb2362fcbbe4` (Bump to 0.1.7, build 14). It carries the 2026-09-12 audit fixes
+from pull request 7: cancel and chord handling, feedback and privacy-mode fixes,
+settings that apply without a restart, transport and microphone reliability,
+history and diagnostics supportability, VoiceOver announcements, and the Sparkle
+delegate that defers checks during a dictation.
+
+| Upload asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Tok.dmg | 3161840 | d37ef9eb2ff4ca32cd90c90243b4d09a784efa97912d1467e98513ffd8825e25 |
+| Tok.zip | 3193419 | 382152e80c6eef471b37b0c3585dd0a2d7c19609441ced4942d1a9277a6308af |
+| appcast.xml | 1177 | b8aa54a669e88b9cfeb67e9d88087394465443871f4af6af2034d5c217b9e70a |
+| checksums.txt | 226 | 9ae19ad69f0e8712a4ed70dc0aa890990c4cec8b4061ce8316cd8b3c414c9706 |
+
+Exact files: `build/package/build-14/release-assets/`. Only the four files above
+were uploaded. The local manifest is not uploaded.
+
+## Public release notes
+
+The notes published with the release are kept at `build/release-notes-14.md`.
+
+## Verification
+
+Apple accepted the app ZIP (`50af9a03-76f6-4073-ac37-78c9b37c621e`) and the
+final DMG (`ca773043-4750-4316-9f30-76460be3b3f1`). Each was uploaded once and
+resumed from its saved ID. Both were stapled and validated, and `spctl` reported
+`Notarized Developer ID`. `stage-assets` verified the universal binary, the
+macOS 14.0 minimum, the team identifier, and the ZIP contents before signing the
+feed with the Keychain Sparkle key. Server-reported digests of all four assets
+matched the staged hashes before and after publication. Anonymous HTTPS downloads
+through both the versioned and the latest URLs matched the staged hashes. The
+downloaded feed and archive passed `sign_update --verify`; an archive with one
+appended byte was rejected. Files remain in
+`build/anonymous-release-verification/v0.1.7/`.
+
+CI run 34681478781 for the source commit was first refused by GitHub because the
+account's Actions minutes were exhausted (macOS runners bill at 10x). After the
+plan change it ran: `make check` passed; the development packaging step was
+stopped by its 120 second bound during a cold Release build. That step produces a
+development artifact only, and the bound was raised to 240 seconds in `aab10ff`,
+which also stops packaging on pull requests and skips documentation-only changes.
+
+No installed Sparkle update from build 13 has been recorded yet. Full `make check`
+on the merged source passed locally before the bump: TokEngineTests 111 (3 live
+tests skipped), TokTests 52, TokHUDTests 12, Python script tests 25.
