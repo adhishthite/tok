@@ -9,6 +9,11 @@ final class UpdateStore {
   private(set) var canCheck = false
   @ObservationIgnored private var controller: SPUStandardUpdaterController?
   @ObservationIgnored private var observation: NSKeyValueObservation?
+  /// Answered by DictationStore. Sparkle must not check or relaunch during a turn
+  /// (audit F35); the delegate hooks consult this before any update UI.
+  @ObservationIgnored var isDictationActive: () -> Bool = { false }
+  /// Called by DictationStore when a turn ends, so a postponed relaunch can proceed.
+  func dictationEnded() {}
 
   func start() {
     guard controller == nil,

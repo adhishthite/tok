@@ -25,6 +25,7 @@ final class DictationStore: DictationEngineDelegate {
   private(set) var completedTurns = 0
   private(set) var settingsPending = false
   private(set) var retentionError: String?
+  private(set) var historyError: String?
   @ObservationIgnored private var retentionTimer: Timer?
   @ObservationIgnored private var retaining = false
   private(set) var hasLoaded = false
@@ -33,9 +34,7 @@ final class DictationStore: DictationEngineDelegate {
   /// Setup state is recorded once after launch and again only when completeness flips.
   @ObservationIgnored private var lastSetupComplete: Bool?
   var needsSetup: Bool { !permissions.allGranted || !settings.hasAPIKey }
-  var shortcutLabel: String {
-    hotkey == "fn" ? "Fn" : hotkey.replacingOccurrences(of: "_", with: " ").capitalized
-  }
+  var shortcutLabel: String { settings.configuration.shortcutLabel }
   var dictationActive: Bool { active }
   @ObservationIgnored private var shortcutTesting = false
   private var active: Bool { [.starting, .listening, .locked, .processing].contains(status) }
@@ -253,6 +252,7 @@ final class DictationStore: DictationEngineDelegate {
         reportRuntime()
       }
     case .diagnostic(let line): appendDiagnostic(line)
+    case .historyError(let reason): historyError = reason
     case .audioLevel, .captureStarted: break
     }
     applyPendingSettings()

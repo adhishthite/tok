@@ -42,6 +42,10 @@ public struct EngineConfiguration: Sendable {
   var compiledReplacementRules: [ReplacementEngine.CompiledRule] = []
   public var hotkey: String = "fn"
   public var hotkeyMode: String = "push_to_talk"  // "push_to_talk" or "toggle"
+  /// Human label for the shortcut key, shared by the HUD, the menu panel, and messages.
+  public var shortcutLabel: String {
+    hotkey == "fn" ? "Fn" : hotkey.replacingOccurrences(of: "_", with: " ").capitalized
+  }
   // Hold-to-lock: a hold this long (seconds) locks the turn - the release becomes a
   // non-event and the next press finishes. 0 disables; ignored in toggle mode.
   public var holdToLockSec: Double = 15.0

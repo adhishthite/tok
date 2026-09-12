@@ -28,6 +28,16 @@ public final class DictationEngine {
     }
   }
   let config: EngineConfiguration
+  // Settings that DictationStore swaps in without an engine restart (audit F30). The
+  // struct is replaced whole under hotLock and read as a snapshot on whichever queue
+  // needs it, so a mid-turn change applies from the next read without a data race.
+  private let hotLock = NSLock()
+  private var hotSettings: HotSettings
+  var hot: HotSettings {
+    hotLock.lock()
+    defer { hotLock.unlock() }
+    return hotSettings
+  }
   let audioCapture: AudioCaptureEngine
   private var liveClient: GeminiLiveClient?
   private var hotkeyManager: HotkeyManager?
@@ -165,6 +175,7 @@ public final class DictationEngine {
 
   public init(config: EngineConfiguration) {
     self.config = config
+    self.hotSettings = HotSettings(config)
     self.audioCapture = AudioCaptureEngine(
       preRollMs: config.preRollMs, chunkMs: config.chunkMs, silenceFlushMs: config.silenceFlushMs,
       inputDevice: config.inputDevice)
@@ -323,6 +334,17 @@ public final class DictationEngine {
     feedback.ready()
   }
 
+  /// Replaces the hot-applied settings from a fresh configuration. Main thread. Keys whose
+  /// consumers read `hot` (or the HUD, which the store updates itself) are marked
+  /// `restartsEngine: false` in SettingCatalog; every other key still rebuilds the engine.
+  public func applyHotSettings(from configuration: EngineConfiguration) {
+    hotLock.lock()
+    hotSettings = HotSettings(configuration)
+    hotLock.unlock()
+    Log.configure(
+      delegate: delegate, apiKey: config.geminiApiKey, privacyMode: configuration.privacyMode)
+  }
+
   private func recordTurn(_ record: TurnRecord) {
     history?.record(record)
     delegate?.engineDidEmit(.turnSettled(record))
@@ -395,7 +417,7 @@ public final class DictationEngine {
       Log.warn(
         "SECURE",
         "Secure input is held by \(holder ?? "another app") - dictation blocked (password field?)")
-      if config.soundFeedback {
+      if hot.soundFeedback {
         SoundManager.playErrorSound()
       }
       feedback.showError(message: "Secure input active  -  dictation blocked")
@@ -406,7 +428,7 @@ public final class DictationEngine {
     // routes will both time out ~10s later.
     if !NetworkMonitor.shared.isOnline {
       Log.warn("NET", "No internet connection - dictation blocked.")
-      if config.soundFeedback {
+      if hot.soundFeedback {
         SoundManager.playErrorSound()
       }
       feedback.showError(message: "No internet connection")
@@ -436,7 +458,7 @@ public final class DictationEngine {
       guard ready else {
         self.hotkeyManager?.resetToggle()
         self.feedback.showError(message: "Microphone unavailable. Try again.")
-        if self.config.soundFeedback { SoundManager.playErrorSound() }
+        if self.hot.soundFeedback { SoundManager.playErrorSound() }
         self.scheduleMicIdleRelease()
         return
       }
@@ -468,9 +490,9 @@ public final class DictationEngine {
     captureActive = true
     turnInputDevice = audioCapture.currentInput?.name
     turnInputTransport = audioCapture.currentInput?.transport
-    if config.soundFeedback { SoundManager.playStartSound() }
+    if hot.soundFeedback { SoundManager.playStartSound() }
     feedback.showListening(lockAfter: holdToLockInterval)
-    feedback.captureStarted(pid: turnFrontmostPID, followFocus: config.hudFollowFocus)
+    feedback.captureStarted(pid: turnFrontmostPID, followFocus: hot.hudFollowFocus)
     if config.restoreClipboard { TextInjector.prepareClipboard() }
     armHoldToLock()
     armSessionLimit()
@@ -523,7 +545,7 @@ public final class DictationEngine {
     // Release acknowledged, before the settle race: on a slow REST fallback there are
     // otherwise seconds of silence between letting go and the commit earcon. While the
     // output is ducked the cue's own volume is boosted to compensate.
-    if config.soundFeedback && config.releaseSound {
+    if hot.soundFeedback && hot.releaseSound {
       let scale: Float =
         AudioDucker.shared.isDucked ? Float(1.0 / max(0.15, config.duckFraction)) : 1.0
       SoundManager.playReleaseSound(volumeScale: scale)
@@ -563,7 +585,7 @@ public final class DictationEngine {
         "LOCK",
         "Turn locked after \(String(format: "%g", lockAfter))s hold - release the key; press it again to finish."
       )
-      if self.config.soundFeedback {
+      if self.hot.soundFeedback {
         let scale: Float =
           AudioDucker.shared.isDucked ? Float(1.0 / max(0.15, self.config.duckFraction)) : 1.0
         SoundManager.playLockSound(volumeScale: scale)
@@ -1084,7 +1106,7 @@ public final class DictationEngine {
     case .failure(let error):
       Log.error(
         route == "microphone" ? "MIC" : "TRANSCRIBE", "Turn failed: \(error.localizedDescription)")
-      if config.soundFeedback { SoundManager.playErrorSound() }
+      if hot.soundFeedback { SoundManager.playErrorSound() }
       let hudMessage =
         (error as NSError).domain == "Tok.Microphone"
         ? "Microphone interrupted. Try again."
@@ -1301,7 +1323,7 @@ public final class DictationEngine {
       } else {
         let result = TextInjector.inject(
           text: text, restorePreviousClipboard: config.restoreClipboard,
-          completionSound: config.soundFeedback, appendSpace: config.trailingSpace,
+          completionSound: hot.soundFeedback, appendSpace: config.trailingSpace,
           shouldDispatch: {
             guard !self.isStopping, !SecureInputMonitor.isActive, AXIsProcessTrusted() else {
               return false
@@ -1337,7 +1359,7 @@ public final class DictationEngine {
       }
     }
 
-    if copyOnlyReason != nil, deliveryError == nil, config.soundFeedback {
+    if copyOnlyReason != nil, deliveryError == nil, hot.soundFeedback {
       // Text still landed - on the clipboard - so this is a commit, not an error sound.
       SoundManager.playCommitSound()
     }
@@ -1369,8 +1391,8 @@ public final class DictationEngine {
     let usageMetered = (inputTokens != nil || outputTokens != nil)
     let effectiveInputTokens = inputTokens ?? Int((audioDuration + 1.0) * 25.0)
     let effectiveOutputTokens = outputTokens ?? max(1, text.count / 4)
-    let inputPrice = isLiveRoute ? config.liveInputPricePer1M : config.restInputPricePer1M
-    let outputPrice = isLiveRoute ? config.liveOutputPricePer1M : config.restOutputPricePer1M
+    let inputPrice = isLiveRoute ? hot.liveInputPricePer1M : hot.restInputPricePer1M
+    let outputPrice = isLiveRoute ? hot.liveOutputPricePer1M : hot.restOutputPricePer1M
     let turnCostUSD =
       Double(effectiveInputTokens) / 1_000_000.0 * inputPrice
       + Double(effectiveOutputTokens) / 1_000_000.0 * outputPrice
