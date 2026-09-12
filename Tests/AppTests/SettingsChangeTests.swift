@@ -109,9 +109,13 @@ final class SettingsChangeTests: XCTestCase {
 
   func testFailureKeepsTheErrorAfterTheStatusClears() {
     let store = DictationStore()
-    store.engineDidEmit(.failure("No speech detected"))
+    store.engineDidEmit(.failure("Network timeout. Nothing pasted."))
     XCTAssertEqual(store.status, .error)
-    XCTAssertEqual(store.lastError, "No speech detected")
+    XCTAssertEqual(store.lastError, "Network timeout. Nothing pasted.")
+    // A quiet clip is a calmer state than a fault, with its own menu-bar symbol.
+    store.engineDidEmit(.failure(DictationEngine.noSpeechMessage))
+    XCTAssertEqual(store.status, .noSpeech)
+    XCTAssertEqual(store.status.symbol, "waveform.slash")
     store.engineDidEmit(.success("Done"))
     XCTAssertEqual(store.status, .ready)
     XCTAssertNil(store.lastError)

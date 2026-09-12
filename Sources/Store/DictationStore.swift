@@ -264,7 +264,7 @@ final class DictationStore: DictationEngineDelegate {
       status = .microphoneReleased
       message = ShortcutPrompt.wake(shortcut: shortcutLabel, toggleMode: toggleMode)
     case .failure(let reason):
-      status = .error
+      status = reason == DictationEngine.noSpeechMessage ? .noSpeech : .error
       message = reason
       lastError = reason
       appendDiagnostic("[ERROR] [APP] \(reason)")
@@ -331,7 +331,7 @@ final class DictationStore: DictationEngineDelegate {
   private func scheduleErrorReset() {
     cancelErrorReset()
     let item = DispatchWorkItem { [weak self] in
-      guard let self, self.status == .error else { return }
+      guard let self, [.error, .noSpeech].contains(self.status) else { return }
       self.errorResetWorkItem = nil
       self.status = .ready
       self.message = self.readyMessage

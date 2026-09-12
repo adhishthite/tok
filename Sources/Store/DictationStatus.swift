@@ -8,6 +8,8 @@ enum DictationStatus: String {
   case processing = "Transcribing"
   case microphoneReleased = "Microphone released"
   case error = "Needs attention"
+  // A quiet clip is not a fault, so the menu bar shows a muted waveform, not an alarm.
+  case noSpeech = "No speech detected"
   var symbol: String {
     switch self {
     case .paused: "pause.circle"
@@ -17,6 +19,7 @@ enum DictationStatus: String {
     case .listening: "mic.fill"
     case .locked: "lock.fill"
     case .microphoneReleased: "mic.slash"
+    case .noSpeech: "waveform.slash"
     }
   }
 }

@@ -11,6 +11,10 @@ struct StatusMenu: View {
           .resizable().interpolation(.high).frame(width: 36, height: 36)
           .accessibilityHidden(true)
         Text("Tok").font(.title3.weight(.semibold))
+        // The version sits beside the name so a support report and a screenshot both
+        // identify the build without opening About.
+        Text(BuildIdentity.version).font(.caption).foregroundStyle(.tertiary)
+          .padding(.top, 3)
         Spacer()
         Text(store.isPaused ? "Paused" : store.shortcutLabel)
           .font(.system(.callout, design: .rounded).weight(.medium))
@@ -37,11 +41,11 @@ struct StatusMenu: View {
             .font(.callout).foregroundStyle(.secondary)
         }
       }
-      navigationButton("Vocabulary…", symbol: "character.book.closed", color: .purple) {
+      navigationButton("Vocabulary", symbol: "character.book.closed") {
         store.showVocabulary?()
       }
-      navigationButton("History…", symbol: "clock", color: .teal) { show("history") }
-      navigationButton("Stats…", symbol: "chart.bar.xaxis", color: .orange, detail: statsDetail) {
+      navigationButton("History", symbol: "clock") { show("history") }
+      navigationButton("Stats", symbol: "chart.bar.xaxis", detail: statsDetail) {
         show("stats")
       }
       Divider()
@@ -89,7 +93,7 @@ struct StatusMenu: View {
       Text(error).font(.callout).foregroundStyle(.secondary)
       Spacer(minLength: 0)
       // Reachable outside DEBUG, unlike the Developer-menu entry below (audit F36).
-      Button("Diagnostics…") { show("diagnostics") }
+      Button("Diagnostics") { show("diagnostics") }
         .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
         .help("Opens timing, warnings, and errors for this dictation.")
       Button("Dismiss", systemImage: "xmark.circle") { store.dismissLastError() }
@@ -102,15 +106,16 @@ struct StatusMenu: View {
     return words > 0 ? "\(StatsFormat.count(words)) today" : nil
   }
   private func navigationButton(
-    _ title: String, symbol: String, color: Color, detail: String? = nil,
+    _ title: String, symbol: String, detail: String? = nil,
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
       HStack(spacing: 10) {
+        // Plain template symbols, as in the system's own menus. Colored tiles read as a
+        // consumer app, not a utility.
         Image(systemName: symbol)
-          .font(.system(size: 14, weight: .medium)).foregroundStyle(.white)
-          .frame(width: 26, height: 26)
-          .background(color.gradient, in: RoundedRectangle(cornerRadius: 7))
+          .font(.system(size: 15, weight: .regular)).foregroundStyle(.secondary)
+          .frame(width: 22, height: 22)
           .accessibilityHidden(true)
         Text(title).font(.callout).foregroundStyle(.primary)
         Spacer()

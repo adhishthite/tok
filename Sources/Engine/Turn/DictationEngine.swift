@@ -938,6 +938,10 @@ public final class DictationEngine {
     DispatchQueue.main.asyncAfter(deadline: .now() + lockAfter, execute: item)
   }
 
+  /// The one failure that is not a fault: the clip held no speech. The store maps it to a
+  /// calmer menu-bar state than a real error.
+  public static let noSpeechMessage = "No speech detected"
+
   /// Margin kept before the live session limit so the final audio and end signals
   /// still land inside the session.
   static let sessionLimitMargin = 15.0
@@ -1118,7 +1122,7 @@ public final class DictationEngine {
       isProcessing = false
       processingLock.unlock()
       scheduleRejectedTurnUI { [weak self] in
-        self?.feedback.showError(message: "No speech detected")
+        self?.feedback.showError(message: Self.noSpeechMessage)
         self?.scheduleMicIdleRelease()
       }
       return
@@ -1511,7 +1515,7 @@ public final class DictationEngine {
     case .empty(let audioDuration):
       noteNoSpeechTurn()
       DispatchQueue.main.async { [weak self] in
-        self?.feedback.showError(message: "No speech detected")
+        self?.feedback.showError(message: Self.noSpeechMessage)
       }
       recordTurn(
         TurnRecord(
@@ -1667,7 +1671,7 @@ public final class DictationEngine {
     guard !trimmed.isEmpty else {
       Log.warn("AI", "Received empty transcription from Gemini.")
       DispatchQueue.main.async { [weak self] in
-        self?.feedback.showError(message: "No speech detected")
+        self?.feedback.showError(message: Self.noSpeechMessage)
       }
       recordTurn(
         TurnRecord(
