@@ -88,6 +88,10 @@ struct StatusMenu: View {
     HStack(alignment: .firstTextBaseline, spacing: 6) {
       Text(error).font(.callout).foregroundStyle(.secondary)
       Spacer(minLength: 0)
+      // Reachable outside DEBUG, unlike the Developer-menu entry below (audit F36).
+      Button("Diagnostics…") { show("diagnostics") }
+        .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
+        .help("Opens timing, warnings, and errors for this dictation.")
       Button("Dismiss", systemImage: "xmark.circle") { store.dismissLastError() }
         .labelStyle(.iconOnly).buttonStyle(.borderless).foregroundStyle(.secondary)
         .help("Dismisses the last dictation error.")

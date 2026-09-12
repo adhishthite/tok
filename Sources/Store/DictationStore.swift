@@ -49,6 +49,9 @@ final class DictationStore: DictationEngineDelegate {
   @ObservationIgnored private var vocabularyWatcher: VocabularyWatcher?
   @ObservationIgnored private var watchedVocabularyURL: URL?
   @ObservationIgnored private var engine: DictationEngine?
+  /// The persisted counterpart to the in-memory `diagnostics` log (audit F36).
+  /// Created in `start()`, once `settings.supportDirectory` is known.
+  @ObservationIgnored private var diagnosticsFile: DiagnosticsFile?
   var hotkey: String { settings.configuration.hotkey }
   private var toggleMode: Bool { settings.configuration.hotkeyMode == "toggle" }
   private var readyMessage: String {
@@ -61,6 +64,8 @@ final class DictationStore: DictationEngineDelegate {
   }
   func start() {
     settings.load()
+    // The support directory only exists once settings has loaded (audit F36).
+    diagnosticsFile = DiagnosticsFile(directory: settings.supportDirectory)
     // Sparkle must not interrupt a live turn, so it asks the store before acting.
     updates.isDictationActive = { [weak self] in self?.dictationActive ?? false }
     updates.start()
@@ -365,7 +370,50 @@ final class DictationStore: DictationEngineDelegate {
     let safeLine = key.isEmpty ? line : line.replacingOccurrences(of: key, with: "[redacted]")
     diagnostics.append(DiagnosticEntry(line: safeLine))
     if diagnostics.count > 300 { diagnostics.removeFirst(diagnostics.count - 300) }
+    // Redaction above already stripped the key, so the persisted copy is safe too.
+    diagnosticsFile?.write(safeLine)
   }
 
+  /// Clears only the in-memory session log. The on-disk file is untouched, so
+  /// a saved report still covers activity from before the clear (audit F36).
   func clearDiagnostics() { diagnostics.removeAll() }
+
+  /// Flushes the on-disk log and presents a save panel for a support report:
+  /// a header of non-secret context, then the persisted diagnostics lines.
+  /// Follows the pattern of `HistoryViewStore.exportCSV` (audit F36).
+  func saveDiagnosticsReport() async {
+    diagnosticsFile?.flush()
+    let panel = NSSavePanel()
+    panel.nameFieldStringValue = "Tok diagnostics.txt"
+    panel.message =
+      "Saves timing, warnings, and non-secret settings for troubleshooting. Never your API key."
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    let header = diagnosticsReportHeader()
+    let file = diagnosticsFile
+    await Task.detached(priority: .utility) {
+      let body = file?.reportContents() ?? ""
+      try? (header + body).write(to: url, atomically: true, encoding: .utf8)
+    }.value
+  }
+
+  /// App version, OS version, last latency line, permissions, and the
+  /// non-secret protocol knobs worth including in a support report. Never
+  /// the API key.
+  private func diagnosticsReportHeader() -> String {
+    let os = ProcessInfo.processInfo.operatingSystemVersionString
+    let permissionsLine =
+      "microphone=\(permissions.microphone) accessibility=\(permissions.accessibility) inputMonitoring=\(permissions.inputMonitoring)"
+    let keys = [
+      "WS_ENDPOINT_ALIGNED", "SILENCE_FLUSH_MS", "CHUNK_MS", "VAD_MODE", "REST_FALLBACK_TIMEOUT",
+      "HOTKEY", "HOTKEY_MODE",
+    ]
+    let settingsLines = keys.map { "\($0)=\(settings.string($0))" }.joined(separator: "\n")
+    return """
+      Tok \(BuildIdentity.version), \(os)
+      \(lastLatencyLine)
+      Permissions: \(permissionsLine)
+      \(settingsLines)
+
+      """
+  }
 }

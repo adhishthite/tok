@@ -40,7 +40,9 @@ links to inspect local files and supporting details.
   Correction learning is off by default and stores only word pairs.
 - **The overlay and menu** can hide dictated words during screen sharing with
   "Hide dictated words on screen".
-- **Diagnostics** keep a session log in memory. Transcript text is not logged.
+- **Diagnostics** keep a session log in memory, plus a rolling file on disk in
+  the same folder. Both hold timing and error lines only, never transcript
+  text or your API key, and the file is capped at about 1 MB.
 
 ## Usage metrics
 
