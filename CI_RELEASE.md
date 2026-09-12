@@ -8,10 +8,16 @@ release tags or assets are published. Publication needs approval of exact assets
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on pushes to main, pull requests, and manual
-requests, using macOS 26 and Xcode 26.6. It validates tooling, runs `make check`,
-and packages a development ZIP. Tests use the documented 300-second hosted
-check deadline; packaging uses 120 seconds. Artifacts are retained for 14 days.
-These are development artifacts, not signed public releases.
+requests, using macOS 26 and Xcode 26.6. Pushes and pull requests trigger a run
+only when a build input changes (`Sources`, `Tests`, `Resources`, `Scripts`,
+`Tools`, `Config`, `project.yml`, `Makefile`, or the workflows). Every run
+validates tooling and runs `make check` under the documented 300-second hosted
+deadline. The Sparkle package checkout is cached between runs, keyed on
+`project.yml`. Only manual runs (`gh workflow run CI --ref main`) also package a
+development ZIP, bounded at 240 seconds and retained for 14 days. These are
+development artifacts, not signed public releases. macOS minutes count 10x
+against the plan's included minutes, which is why the package step and the
+Markdown-only pushes were removed from the automatic path.
 
 ## Approved release route
 

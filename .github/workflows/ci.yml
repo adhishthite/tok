@@ -1,15 +1,34 @@
 name: CI
 
+# macOS minutes bill at 10x against the Pro plan's 3,000 included minutes, so the
+# job runs only when a build input changes. Markdown, audits, and review notes never
+# reach xcodebuild. README.md and PRIVACY.md are checked by make check-settings but
+# stay excluded here, as they were under the earlier ignore list; run the workflow
+# manually after editing their settings tables.
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'audits/**'
+    paths:
+      - 'Sources/**'
+      - 'Tests/**'
+      - 'Resources/**'
+      - 'Scripts/**'
+      - 'Tools/**'
+      - 'Config/**'
+      - 'project.yml'
+      - 'Makefile'
+      - '.github/workflows/**'
   pull_request:
-    paths-ignore:
-      - '**.md'
-      - 'audits/**'
+    paths:
+      - 'Sources/**'
+      - 'Tests/**'
+      - 'Resources/**'
+      - 'Scripts/**'
+      - 'Tools/**'
+      - 'Config/**'
+      - 'project.yml'
+      - 'Makefile'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
@@ -32,6 +51,17 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
+      # The Sparkle fetch and resolve took 20 seconds of every run at build 14. The
+      # checkout lives under DerivedData/SourcePackages and is keyed on project.yml,
+      # where the package pin lives. DerivedData itself is not cached: Xcode invalidates
+      # it unreliably on hosted runners and the restore costs more than the rebuild.
+      - name: Restore Swift package checkouts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: build/DerivedData/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
       - name: Install build tools
         timeout-minutes: 5
         run: |
@@ -44,16 +74,17 @@ jobs:
         env:
           TOK_BUILD_TIMEOUT_SECONDS: 300
         run: python3 Scripts/bounded_run.py --seconds 300 --label ci-check -- make check
-      # macOS minutes bill at 10x. The Release package is a third of every run and nobody
-      # downloads it from a pull request, so it is built only for main and manual runs.
+      # The Release build was 30 percent of every main run and nothing consumes the
+      # development ZIP automatically, so it is built only on manual runs:
+      #   gh workflow run CI --ref main
       # A cold Release build on the hosted runner passed 120 seconds at build 14, so the
-      # bound is 240 seconds: still far below the job timeout, and only on main.
+      # bound is 240 seconds: still far below the job timeout.
       - name: Package development build
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch'
         timeout-minutes: 5
         run: python3 Scripts/bounded_run.py --seconds 240 --label ci-package -- make package
       - name: Upload development artifact
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Tok-development-${{ github.sha }}
