@@ -67,6 +67,30 @@ final class HistoryRepositoryTests: XCTestCase {
     XCTAssertTrue(cleared.isEmpty)
   }
 
+  func testCountMatchesEntriesFilterIndependentOfLimit() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var config = EngineConfiguration()
+    config.historyDbPath = directory.appendingPathComponent("history.db").path
+    let writer = HistoryStore(config: config)
+    for index in 0..<7 {
+      writer.record(record(text: "Row \(index)", words: 1, latency: 100, cost: 0))
+    }
+    writer.record(record(text: "Other app text", words: 1, latency: 100, cost: 0))
+    writer.close()
+    let repository = HistoryRepository(path: config.historyDbPath)
+    // count(search:since:) must use the same WHERE clause as entries(...), so a
+    // capped limit never hides how many rows actually match (audit F31).
+    let total = try await repository.count()
+    XCTAssertEqual(total, 8)
+    let capped = try await repository.entries(limit: 3)
+    XCTAssertEqual(capped.count, 3)
+    let filtered = try await repository.count(search: "Row")
+    XCTAssertEqual(filtered, 7)
+    let none = try await repository.count(search: "nonexistent")
+    XCTAssertEqual(none, 0)
+  }
+
   private func record(text: String, words: Int, latency: Double, cost: Double) -> TurnRecord {
     TurnRecord(
       outcome: "success", text: text, charCount: text.count, wordCount: words,

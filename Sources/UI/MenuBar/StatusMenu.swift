@@ -21,17 +21,21 @@ struct StatusMenu: View {
       if store.needsSetup {
         Text("Finish setup to start dictating.").foregroundStyle(.secondary)
         Button("Set up Tok") { store.showSetup?() }.buttonStyle(.borderedProminent)
-      } else if store.status == .error {
-        Text(store.message).font(.callout)
-      } else if !store.settings.bool("PRIVACY_MODE"), !store.lastText.isEmpty {
-        Text(store.lastText).font(.callout).lineLimit(4).textSelection(.enabled)
-        Button("Copy last dictation", systemImage: "doc.on.doc") { store.copyLastDictation() }
-          .buttonStyle(.borderless).font(.callout)
       } else {
-        Text(
-          store.isPaused ? "Resume when you’re ready." : "Hold \(store.shortcutLabel) and speak."
-        )
-        .font(.callout).foregroundStyle(.secondary)
+        // The last error no longer hides the transcript and the Copy button: a failed
+        // delivery is exactly when the words are needed most (audit F04).
+        if let error = store.lastError { errorRow(error) }
+        if !store.settings.bool("PRIVACY_MODE"), !store.lastText.isEmpty {
+          if let delivery = store.lastDelivery {
+            Text(delivery).font(.caption).foregroundStyle(.secondary)
+          }
+          Text(store.lastText).font(.callout).lineLimit(4).textSelection(.enabled)
+          Button("Copy last dictation", systemImage: "doc.on.doc") { store.copyLastDictation() }
+            .buttonStyle(.borderless).font(.callout)
+        } else if store.lastError == nil {
+          Text(store.isPaused ? "Resume when you’re ready." : prompt)
+            .font(.callout).foregroundStyle(.secondary)
+        }
       }
       navigationButton("Vocabulary…", symbol: "character.book.closed", color: .purple) {
         store.showVocabulary?()
@@ -73,6 +77,20 @@ struct StatusMenu: View {
     .onAppear {
       store.refreshPermissions()
       store.stats.refreshGlance()
+    }
+  }
+  private var prompt: String {
+    ShortcutPrompt.menu(
+      shortcut: store.shortcutLabel,
+      toggleMode: store.settings.string("HOTKEY_MODE") == "toggle")
+  }
+  private func errorRow(_ error: String) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 6) {
+      Text(error).font(.callout).foregroundStyle(.secondary)
+      Spacer(minLength: 0)
+      Button("Dismiss", systemImage: "xmark.circle") { store.dismissLastError() }
+        .labelStyle(.iconOnly).buttonStyle(.borderless).foregroundStyle(.secondary)
+        .help("Dismisses the last dictation error.")
     }
   }
   private var statsDetail: String? {

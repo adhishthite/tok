@@ -120,9 +120,16 @@ final class MicrophoneLifecycle: @unchecked Sendable {
   }
 
   func receivedBuffer(generation: UInt64, at time: TimeInterval) {
-    queue.async { [self] in
-      controller.receivedBuffer(generation: generation, at: time)
-      publishHealth(controller.healthy ? controller.lastBuffer : nil)
-    }
+    queue.async { [self] in receivedBufferOnQueue(generation: generation, at: time) }
+  }
+
+  /// Buffer-health entry point for callers that already run on `queue`, such as the capture
+  /// engine's coalescing delivery. Health must not travel through main: a main-thread stall
+  /// would age the buffer past the controller's 0.75 s freshness window and interrupt a live
+  /// hold even though audio kept flowing.
+  func receivedBufferOnQueue(generation: UInt64, at time: TimeInterval) {
+    dispatchPrecondition(condition: .onQueue(queue))
+    controller.receivedBuffer(generation: generation, at: time)
+    publishHealth(controller.healthy ? controller.lastBuffer : nil)
   }
 }

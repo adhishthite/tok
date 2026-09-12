@@ -121,3 +121,20 @@ extension GeminiLiveClient {
     beginCommit(turn: turnID, completion: completion)
   }
 }
+
+extension GeminiLiveClient {
+  /// Feeds a top-level usageMetadata message, the shape every live server message can carry.
+  func fixtureUsage(prompt: Int?, response: Int?, responseKey: String = "responseTokenCount") {
+    var usage: [String: Any] = [:]
+    if let prompt { usage["promptTokenCount"] = prompt }
+    if let response { usage[responseKey] = response }
+    let bytes = try! JSONSerialization.data(withJSONObject: ["usageMetadata": usage])
+    handleIncomingMessage(.data(bytes), epoch: connectionID)
+  }
+  /// Whether an idle keepalive ping is armed for the current connection.
+  var fixtureKeepaliveArmed: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return keepaliveWorkItem != nil
+  }
+}

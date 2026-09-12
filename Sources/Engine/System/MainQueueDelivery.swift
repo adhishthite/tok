@@ -1,33 +1,8 @@
-import AVFoundation
-import AppKit
-import AudioToolbox
-import Carbon
-import CoreAudio
 import Foundation
-import IOKit
-import Network
-import SQLite3
 
-final class MainQueueDelivery<Value> {
-  let lock = NSLock()
-  var latest: Value?
-  var scheduled = false
-  let consume: (Value) -> Void
-  init(_ consume: @escaping (Value) -> Void) { self.consume = consume }
-  func submit(_ value: Value) {
-    lock.lock()
-    latest = value
-    let start = !scheduled
-    scheduled = true
-    lock.unlock()
-    guard start else { return }
-    DispatchQueue.main.async {
-      self.lock.lock()
-      let value = self.latest
-      self.latest = nil
-      self.scheduled = false
-      self.lock.unlock()
-      if let value = value { self.consume(value) }
-    }
-  }
+/// QueueDelivery bound to the main queue, for consumers that own main-thread state (HUD
+/// updates, capture-interruption presentation). Anything that owns its own queue should
+/// use QueueDelivery directly.
+final class MainQueueDelivery<Value>: QueueDelivery<Value> {
+  init(_ consume: @escaping (Value) -> Void) { super.init(queue: .main, consume) }
 }

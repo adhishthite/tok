@@ -43,7 +43,7 @@ struct VocabularyView: View {
       Button("Analyze history", action: analyze)
     } message: {
       Text(
-        "This sends up to 500 saved dictations from the last 30 days, your vocabulary, and observed word corrections to Gemini. You choose which suggestions to add."
+        "This sends up to 500 saved dictations from the last 30 days, the app you dictated each one into, your vocabulary, and observed word corrections to Gemini. No timestamps are sent. You choose which suggestions to add."
       )
     }
     .sheet(

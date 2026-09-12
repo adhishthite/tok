@@ -36,6 +36,11 @@
 	<string>$(TOK_UPDATE_FEED_URL)</string>
 	<key>SUPublicEDKey</key>
 	<string>ePNHxtjergzJZ6pGj79g42mf0jP0scEfpPXnajmeFXw=</string>
+	<!-- Fixes F35: an explicit value here means Sparkle sets
+	     automaticallyChecksForUpdates itself and never shows its own
+	     permission prompt on the second launch. -->
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
 	<key>SUShowReleaseNotes</key>
 	<false/>
 	<key>SUSendProfileInfo</key>

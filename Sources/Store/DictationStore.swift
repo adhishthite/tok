@@ -26,6 +26,13 @@ final class DictationStore: DictationEngineDelegate {
   private(set) var settingsPending = false
   private(set) var retentionError: String?
   private(set) var historyError: String?
+  /// The last failure text, kept for the menu after `status` returns to ready (audit F03).
+  private(set) var lastError: String?
+  /// How the last dictation reached the app, in plain language (audit F04).
+  private(set) var lastDelivery: String?
+  @ObservationIgnored private var errorResetWorkItem: DispatchWorkItem?
+  /// Matches the HUD error linger, so the icon clears when the overlay does.
+  private static let errorDisplaySeconds = 3.0
   @ObservationIgnored private var retentionTimer: Timer?
   @ObservationIgnored private var retaining = false
   private(set) var hasLoaded = false
@@ -43,13 +50,19 @@ final class DictationStore: DictationEngineDelegate {
   @ObservationIgnored private var watchedVocabularyURL: URL?
   @ObservationIgnored private var engine: DictationEngine?
   var hotkey: String { settings.configuration.hotkey }
+  private var toggleMode: Bool { settings.configuration.hotkeyMode == "toggle" }
+  private var readyMessage: String {
+    ShortcutPrompt.ready(shortcut: shortcutLabel, toggleMode: toggleMode)
+  }
   init(settings: SettingsStore = SettingsStore()) {
     self.settings = settings
     self.metrics = MetricsStore(supportDirectory: settings.supportDirectory)
-    settings.didChange = { [weak self] in self?.settingsChanged() }
+    settings.didChange = { [weak self] keys in self?.settingsChanged(keys) }
   }
   func start() {
     settings.load()
+    // Sparkle must not interrupt a live turn, so it asks the store before acting.
+    updates.isDictationActive = { [weak self] in self?.dictationActive ?? false }
     updates.start()
     configureVocabularyWatcher()
     hasLoaded = true
@@ -75,7 +88,18 @@ final class DictationStore: DictationEngineDelegate {
       lastSetupComplete = !needsSetup
       recordSetupState()
     }
+    // Revoked Accessibility or Input Monitoring access is invisible while an engine
+    // exists, because the checks below run only before one is created (audit F16).
+    if engine != nil, !permissions.allGranted {
+      stop()
+      status = .setup
+      message = "Grant microphone, Accessibility, and Input Monitoring access."
+      return
+    }
     guard engine == nil, !isPaused else { return }
+    // A load failure is usually transient: a locked Keychain, or a support folder that
+    // was not writable yet. Retry once per refresh instead of staying dead (audit F34).
+    if settings.loadError != nil { settings.load() }
     if let error = settings.loadError {
       message = error
       return
@@ -131,10 +155,11 @@ final class DictationStore: DictationEngineDelegate {
       }
     }
   }
-  func settingsChanged() {
+  func settingsChanged(_ keys: Set<String>) {
     if settings.configuration.privacyMode {
       lastText = ""
       liveText = ""
+      lastDelivery = nil
     }
     if metrics.enabled != settings.configuration.shareUsageMetrics {
       metrics.configure(enabled: settings.configuration.shareUsageMetrics)
@@ -143,6 +168,11 @@ final class DictationStore: DictationEngineDelegate {
     applyRetention()
     configureVocabularyWatcher()
     hud?.update(configuration: settings.configuration)
+    engine?.applyHotSettings(from: settings.configuration)
+    // Only a key the engine reads at construction is worth a rebuild. Sounds, overlay,
+    // pricing, stats, and retention are applied above or through hot settings (audit F30).
+    // A pending rebuild from an earlier change stays scheduled.
+    guard Self.requiresEngineRestart(keys) else { return }
     settingsWorkItem?.cancel()
     let item = DispatchWorkItem { [weak self] in
       guard let self else { return }
@@ -151,6 +181,13 @@ final class DictationStore: DictationEngineDelegate {
     }
     settingsWorkItem = item
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: item)
+  }
+  /// A key outside the catalog, including the `everySetting` sentinel, always rebuilds.
+  private static func requiresEngineRestart(_ keys: Set<String>) -> Bool {
+    keys.contains { key in
+      guard let setting = SettingCatalog.all.first(where: { $0.key == key }) else { return true }
+      return setting.restartsEngine
+    }
   }
   private func applyPendingSettings() {
     guard settingsPending, !active else { return }
@@ -190,17 +227,25 @@ final class DictationStore: DictationEngineDelegate {
   }
   private func consume(_ event: EngineEvent) {
     hud?.handle(event)
+    let wasActive = active
+    switch event {
+    case .ready, .starting, .listening, .locked, .processing, .busy, .hidden,
+      .microphoneReleased, .success, .failure, .captureStarted:
+      // A newer lifecycle event decides the status, so the pending error reset is stale.
+      cancelErrorReset()
+    default: break
+    }
     switch event {
     case .ready:
       status = .ready
-      message = "Hold \(hotkey) to dictate."
+      message = readyMessage
     case .starting:
       status = .starting
       message = "Getting ready…"
     case .listening:
       status = .listening
       liveText = ""
-      message = "Speak, then release to paste."
+      message = ShortcutPrompt.listening(shortcut: shortcutLabel, toggleMode: toggleMode)
     case .locked:
       status = .locked
       message = "Release the key. Press again to finish."
@@ -209,23 +254,28 @@ final class DictationStore: DictationEngineDelegate {
       message = "Finishing your dictation."
     case .hidden:
       status = .ready
-      message = "Hold \(hotkey) to dictate."
+      message = readyMessage
     case .microphoneReleased:
       status = .microphoneReleased
-      message = "Hold \(hotkey) to wake the microphone."
+      message = ShortcutPrompt.wake(shortcut: shortcutLabel, toggleMode: toggleMode)
     case .failure(let reason):
       status = .error
       message = reason
+      lastError = reason
       appendDiagnostic("[ERROR] [APP] \(reason)")
+      scheduleErrorReset()
     case .success:
       status = .ready
       message = "Done."
+      // The previous failure is answered by this dictation.
+      lastError = nil
     case .liveText(let text): liveText = settings.configuration.privacyMode ? "" : text
     case .turnSettled(let record):
       history.reload()
       stats.record(record)
       metrics.record(.dictation(envelope: metrics.envelope(), record: record))
       if let text = record.text { lastText = settings.configuration.privacyMode ? "" : text }
+      lastDelivery = DeliveryLabel.menuDelivery(record.deliveryOutcome)
       if record.outcome == "success" { completedTurns += 1 }
       if let total = record.totalMs {
         lastLatency = LatencySnapshot(record: record)
@@ -255,7 +305,31 @@ final class DictationStore: DictationEngineDelegate {
     case .historyError(let reason): historyError = reason
     case .audioLevel, .captureStarted: break
     }
+    // Sparkle waits for the turn to finish before it may install or relaunch.
+    if wasActive, !active { updates.dictationEnded() }
     applyPendingSettings()
+  }
+
+  func dismissLastError() { lastError = nil }
+
+  /// The HUD hides its error after about three seconds without emitting an event, so the
+  /// menu-bar icon stayed on "Needs attention" until the next turn (audit F03).
+  private func scheduleErrorReset() {
+    cancelErrorReset()
+    let item = DispatchWorkItem { [weak self] in
+      guard let self, self.status == .error else { return }
+      self.errorResetWorkItem = nil
+      self.status = .ready
+      self.message = self.readyMessage
+      self.reportRuntime()
+    }
+    errorResetWorkItem = item
+    DispatchQueue.main.asyncAfter(deadline: .now() + Self.errorDisplaySeconds, execute: item)
+  }
+
+  private func cancelErrorReset() {
+    errorResetWorkItem?.cancel()
+    errorResetWorkItem = nil
   }
   private static func milliseconds(_ value: Double?) -> String {
     guard let value, value.isFinite else { return "n/a" }

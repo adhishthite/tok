@@ -13,7 +13,13 @@ final class SettingsStore {
   private(set) var values: [String: String] = [:]
   private(set) var overrides: [String: String] = [:]
   @ObservationIgnored private(set) var configuration = EngineConfiguration()
-  @ObservationIgnored var didChange: (() -> Void)?
+  /// Reports which settings changed, so DictationStore can skip the engine rebuild for
+  /// keys marked `restartsEngine: false` (audit F30). A set containing `everySetting`
+  /// means the change is not confined to catalog keys and every consumer must reapply.
+  @ObservationIgnored var didChange: ((Set<String>) -> Void)?
+  /// Sentinel key for a change that is wider than the catalog: an API key update, an
+  /// imported configuration file, or a reloaded vocabulary file.
+  static let everySetting = "*"
   @ObservationIgnored var stageVocabularyImport: ((URL, String) -> Bool)?
   @ObservationIgnored private let defaults: UserDefaults
   let supportDirectory: URL
@@ -24,6 +30,10 @@ final class SettingsStore {
     return expanded.hasPrefix("/")
       ? URL(fileURLWithPath: expanded) : supportDirectory.appendingPathComponent(expanded)
   }
+
+  /// The vocabulary file contents for the URL they were read from. Rebuilding on every
+  /// settings change used to re-read the file each time (audit F30).
+  @ObservationIgnored private var vocabularyCache: (url: URL, text: String?)?
 
   init(defaults: UserDefaults = .standard, supportDirectory: URL? = nil) {
     self.defaults = defaults
@@ -57,7 +67,7 @@ final class SettingsStore {
           overrides[setting.key] = value
         }
       }
-      rebuild()
+      rebuild(rereadVocabulary: true)
       loadError = nil
     } catch {
       loadError = "Could not load settings. Check file permissions and Keychain access."
@@ -75,24 +85,34 @@ final class SettingsStore {
     defaults.set(value, forKey: key)
     values[key] = value
     rebuild()
-    didChange?()
+    didChange?([key])
   }
   func reset() {
     for setting in SettingCatalog.all { defaults.removeObject(forKey: setting.key) }
     values = [:]
     rebuild()
-    didChange?()
+    didChange?(Set(SettingCatalog.all.map(\.key)))
   }
 
-  private func rebuild() {
+  private func rebuild(rereadVocabulary: Bool = false) {
     var effective = values.merging(overrides) { _, override in override }
     effective["GEMINI_API_KEY"] =
       ProcessInfo.processInfo.environment["GEMINI_API_KEY"].flatMap { $0.isEmpty ? nil : $0 }
       ?? configuration.geminiApiKey
-    let vocabulary = try? String(contentsOf: resolvedVocabularyURL, encoding: .utf8)
+    let vocabulary = vocabularyText(rereading: rereadVocabulary)
     configuration = EngineConfiguration.load(values: effective, vocabularyText: vocabulary)
     configuration.buildId = BuildIdentity.revision
     hasAPIKey = !configuration.geminiApiKey.isEmpty
+  }
+
+  /// Reads the vocabulary file only when asked to, or when the resolved path changed.
+  /// A write through this store invalidates the cache itself.
+  private func vocabularyText(rereading: Bool) -> String? {
+    let url = resolvedVocabularyURL
+    if !rereading, let cache = vocabularyCache, cache.url == url { return cache.text }
+    let text = try? String(contentsOf: url, encoding: .utf8)
+    vocabularyCache = (url, text)
+    return text
   }
 
   func validateAndSaveAPIKey(_ key: String) async throws {
@@ -103,7 +123,7 @@ final class SettingsStore {
     try Keychain.saveAPIKey(trimmed)
     configuration.geminiApiKey = trimmed
     rebuild()
-    didChange?()
+    didChange?([Self.everySetting])
   }
   func testConnection() async throws {
     try await ServiceProbe.validate(configuration: configuration)
@@ -148,7 +168,7 @@ final class SettingsStore {
       }
     }
     rebuild()
-    if notify { didChange?() }
+    if notify { didChange?([Self.everySetting]) }
     return result
   }
 
@@ -171,11 +191,13 @@ final class SettingsStore {
       to: vocabularyURL, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes(
       [.posixPermissions: 0o600], ofItemAtPath: vocabularyURL.path)
+    // The file just changed under the cache, and the path may not change with it.
+    vocabularyCache = nil
     return .saved
   }
 
   func reloadVocabulary() {
-    rebuild()
-    didChange?()
+    rebuild(rereadVocabulary: true)
+    didChange?([Self.everySetting])
   }
 }

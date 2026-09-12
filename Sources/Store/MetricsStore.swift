@@ -60,12 +60,17 @@ final class MetricsStore {
   }
 
   /// Appends one event. Events with keys outside the schema are refused.
+  ///
+  /// Audit F37: this used to read and rewrite the whole queue file on main for
+  /// every event. It now appends one line to the open file and tracks the count
+  /// in memory; a full read-trim-rewrite only happens once the queue actually
+  /// grows past the limit, not on every call.
   func record(_ event: MetricEvent) {
     guard enabled, event.undocumentedKeys.isEmpty, let data = try? event.json() else { return }
-    var lines = queuedLines()
-    lines.append(String(decoding: data, as: UTF8.self))
-    if lines.count > Self.queueLimit { lines.removeFirst(lines.count - Self.queueLimit) }
-    writeQueue(lines)
+    guard appendLine(data) else { return }
+    queuedCount += 1
+    lastPayload = Self.prettyJSON(String(decoding: data, as: UTF8.self))
+    if queuedCount > Self.queueLimit { trimQueue() }
   }
 
   func resetInstallID() {
@@ -98,6 +103,40 @@ final class MetricsStore {
   private func queuedLines() -> [String] {
     guard let text = try? String(contentsOf: queueURL, encoding: .utf8) else { return [] }
     return text.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+  }
+
+  /// Appends one JSON line to the queue file without reading it first, creating
+  /// the file (with the same permissions writeQueue uses) when it does not
+  /// exist yet. Returns false if the append could not be completed.
+  private func appendLine(_ data: Data) -> Bool {
+    let directory = queueURL.deletingLastPathComponent()
+    do {
+      try FileManager.default.createDirectory(
+        at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+      if !FileManager.default.fileExists(atPath: queueURL.path) {
+        guard
+          FileManager.default.createFile(
+            atPath: queueURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        else { return false }
+      }
+      let handle = try FileHandle(forWritingTo: queueURL)
+      defer { try? handle.close() }
+      try handle.seekToEnd()
+      try handle.write(contentsOf: data + Data("\n".utf8))
+    } catch {
+      return false
+    }
+    return true
+  }
+
+  /// Reads the queue once, drops the oldest rows past the limit, and rewrites
+  /// it in one shot. Only called when the incrementally tracked count has
+  /// actually exceeded queueLimit, not on every recorded event.
+  private func trimQueue() {
+    var lines = queuedLines()
+    guard lines.count > Self.queueLimit else { return }
+    lines.removeFirst(lines.count - Self.queueLimit)
+    writeQueue(lines)
   }
 
   private func writeQueue(_ lines: [String]) {

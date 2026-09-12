@@ -12,7 +12,6 @@ final class CorrectionWatcher {
 
   let history: HistoryStore?
   private let delayMs: Int
-  private let privacyMode: Bool
   // Lowercased boost terms: a correction whose right side is a known vocabulary term
   // passes the proper-noun gate even when lowercase ("kubectl", "gcloud").
   let vocabSet: Set<String>
@@ -24,7 +23,6 @@ final class CorrectionWatcher {
   init(config: EngineConfiguration, history: HistoryStore?) {
     self.history = history
     self.delayMs = config.learnDelayMs
-    self.privacyMode = config.privacyMode
     self.vocabSet = Set(config.customVocabulary.map { $0.lowercased() })
   }
 

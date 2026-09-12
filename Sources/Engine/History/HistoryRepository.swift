@@ -89,6 +89,42 @@ public final class HistoryRepository: @unchecked Sendable {
       }
     }
   }
+  /// Total rows matching the same filter as `entries`, ignoring `limit` (audit F31).
+  /// HistoryViewStore uses this to show "Showing N of M" instead of silently
+  /// capping the table at the default row limit.
+  public func count(search: String = "", since: Date? = nil) async throws -> Int {
+    try await withCheckedThrowingContinuation { continuation in
+      queue.async {
+        do {
+          guard FileManager.default.fileExists(atPath: self.path) else {
+            continuation.resume(returning: 0)
+            return
+          }
+          let count = try self.withDatabase { db -> Int in
+            let sql = """
+              SELECT COUNT(*) FROM transcriptions WHERE ts_epoch >= ? AND
+                (COALESCE(text,'') LIKE ? ESCAPE char(92) OR COALESCE(app_name,'') LIKE ? ESCAPE char(92))
+              """
+            let statement = try Self.prepare(db, sql)
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_double(statement, 1, since?.timeIntervalSince1970 ?? 0)
+            let term =
+              "%"
+              + search.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(
+                of: "%", with: "\\%"
+              ).replacingOccurrences(of: "_", with: "\\_") + "%"
+            Self.bind(statement, 2, term)
+            Self.bind(statement, 3, term)
+            guard sqlite3_step(statement) == SQLITE_ROW else {
+              throw HistoryRepositoryError.queryFailed
+            }
+            return Int(sqlite3_column_int64(statement, 0))
+          }
+          continuation.resume(returning: count)
+        } catch { continuation.resume(throwing: error) }
+      }
+    }
+  }
   public func statistics(since: Date) async throws -> HistoryStatistics {
     try await withCheckedThrowingContinuation { continuation in
       queue.async {

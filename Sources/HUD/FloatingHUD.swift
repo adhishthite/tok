@@ -64,24 +64,56 @@ final class FloatingHUD: NSObject {
     didSet { notchGlowView.particlesEnabled = particlesEnabled }
   }
 
-  // Screen-share privacy: the pill never renders dictated words - a generic placeholder
-  // stands in while streaming and the success beat shows no transcript.
+  // Screen-share privacy: the pill never renders dictated words. It stays on screen with
+  // a single state word, because hiding it entirely left success and failure looking the
+  // same. Nothing dictated is drawn in this mode.
   var privacyMode: Bool = false {
     didSet {
       guard oldValue != privacyMode else { return }
       lastFrameState = nil
       if privacyMode {
+        // Words already on screen must go the instant the switch flips, not one frame later.
         deferredLiveText = nil
-        setTranscript("", color: .white, caret: false)
-        hostView.layer?.removeAllAnimations()
-        hostView.alphaValue = 0
-        hostPanel.orderOut(nil)
-      } else if shownTarget {
-        applyFrame()
-        if reduceMotion { hostView.alphaValue = 1 }
-        hostPanel.orderFrontRegardless()
+        setTranscript(privacyStateWord(), color: NSColor(white: 1.0, alpha: 0.85), caret: false)
       }
+      guard shownTarget else { return }
+      applyFrame()
+      if reduceMotion { hostView.alphaValue = 1 }
+      hostPanel.orderFrontRegardless()
     }
+  }
+
+  // The word privacy mode shows in place of the transcript. Enough to know what the HUD
+  // is doing, never a dictated word.
+  private func privacyStateWord() -> String {
+    switch notchGlowView.state {
+    case .listening: return "Listening"
+    case .processing: return "Finishing…"
+    case .success: return "Done"
+    case .error: return lastErrorWord
+    case .idle: return ""
+    }
+  }
+
+  // State word for the last failure in privacy mode. Only outcomes that are not errors
+  // keep their own word ("Copied", "Cancelled"); every real failure reads "Error", because
+  // a leading word like "No" or "Microphone" says nothing on its own.
+  private var lastErrorWord = "Error"
+
+  static func shortErrorWord(_ message: String) -> String {
+    let first = message.split(whereSeparator: { $0 == " " || $0 == "\n" }).first.map(String.init)
+    let trimmed = first?.trimmingCharacters(in: CharacterSet.alphanumerics.inverted) ?? ""
+    return ["Copied", "Cancelled"].contains(trimmed) ? trimmed : "Error"
+  }
+
+  // The hotkey shape decides the listening placeholder: in toggle mode nothing is held,
+  // so "release" would be a lie. Set from EngineConfiguration on every settings change.
+  var hotkeyMode: String = "push_to_talk"
+  var shortcutLabel: String = "Fn"
+
+  var listeningPlaceholder: String {
+    hotkeyMode == "toggle"
+      ? "Speak, then press \(shortcutLabel) to paste" : "Speak, then release to paste"
   }
 
   // CADisplayLink on macOS 14+ (stored as AnyObject so the property needs no availability
@@ -93,6 +125,7 @@ final class FloatingHUD: NSObject {
   // 120Hz. Pill MOTION stays at native refresh; the slow-breathing glow doesn't need it.
   private var glowAccumulator: CGFloat = 0.0
   private let motionReduced: () -> Bool
+  private let contrastIncreased: () -> Bool
   private let accessibilityNotifications: NotificationCenter
   private var accessibilityObserver: NSObjectProtocol?
   private var lastReducedMotion: Bool
@@ -107,9 +140,13 @@ final class FloatingHUD: NSObject {
 
   init(
     reduceMotion: @escaping () -> Bool,
-    accessibilityNotifications: NotificationCenter = NSWorkspace.shared.notificationCenter
+    accessibilityNotifications: NotificationCenter = NSWorkspace.shared.notificationCenter,
+    increaseContrast: @escaping () -> Bool = {
+      NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+    }
   ) {
     motionReduced = reduceMotion
+    contrastIncreased = increaseContrast
     self.accessibilityNotifications = accessibilityNotifications
     lastReducedMotion = reduceMotion()
     let screen = NSScreen.main ?? NSScreen.screens.first ?? NSScreen()
@@ -281,6 +318,9 @@ final class FloatingHUD: NSObject {
   }
 
   private func accessibilityDisplayOptionsChanged() {
+    // Increase Contrast rides the same notification as Reduce Motion, and it can change
+    // on its own, so it is handled before the reduced-motion early exit.
+    applyContrastSurface()
     let reduced = reduceMotion
     guard reduced != lastReducedMotion else { return }
     lastReducedMotion = reduced
@@ -304,7 +344,7 @@ final class FloatingHUD: NSObject {
         lockRingView.strength = 0
       }
       applyFrame()
-      hostView.alphaValue = shownTarget && !privacyMode ? 1 : 0
+      hostView.alphaValue = shownTarget ? 1 : 0
       notchGlowView.alphaValue = shownTarget ? 1 : 0
       if !shownTarget {
         hostPanel.orderOut(nil)
@@ -403,11 +443,23 @@ final class FloatingHUD: NSObject {
       backplateView.layer?.cornerCurve = curve
     }
     backplateView.specularRim = notchInfo.hasPhysicalNotch
-    backplateView.baseAlpha = notchInfo.hasPhysicalNotch ? 0.97 : 0.58
+    applyContrastSurface()
     backplateView.needsDisplay = true
-    materialView.isHidden = notchInfo.hasPhysicalNotch
     notchGlowView.needsDisplay = true
     applyFrame()
+  }
+
+  // Pill mode has no bezel behind it, so its surface was translucent enough that the
+  // 9 pt header and the dim placeholder fell under readable contrast on a light
+  // wallpaper. The surface carries the fix; notch mode keeps its hardware-black look.
+  // Increase Contrast goes all the way to an opaque plate and drops the blur material.
+  private func applyContrastSurface() {
+    let opaque = contrastIncreased()
+    let base: CGFloat = opaque ? 1.0 : (notchInfo.hasPhysicalNotch ? 0.97 : 0.80)
+    materialView.isHidden = notchInfo.hasPhysicalNotch || opaque
+    guard backplateView.baseAlpha != base else { return }
+    backplateView.baseAlpha = base
+    backplateView.needsDisplay = true
   }
 
   // MARK: Display tick
@@ -589,9 +641,9 @@ final class FloatingHUD: NSObject {
     let shadowStrength: CGFloat = notchInfo.hasPhysicalNotch ? 0.55 : 0.0
     pillWrapper.layer?.shadowOpacity = Float(shadowStrength * surfaceAlpha)
     if !reduceMotion {
-      // Privacy mode is aura-only: the glow states and earcons carry everything; a
-      // pill showing placeholder text is pure noise on a shared screen.
-      hostView.alphaValue = privacyMode ? 0.0 : surfaceAlpha
+      // Privacy mode keeps the pill: it carries a state word only, so it leaks nothing
+      // while still telling success from failure.
+      hostView.alphaValue = surfaceAlpha
       notchGlowView.alphaValue = surfaceAlpha
     }
     if !notchInfo.hasPhysicalNotch {
@@ -758,9 +810,9 @@ final class FloatingHUD: NSObject {
     orbIcon.audioLevel = 0.0
     setHeader("Listening", color: NSColor(white: 1.0, alpha: 0.55))
     // The pill appears on key-down, so the user is already holding: say what to do next.
-    setTranscript(
-      "Speak, then release to paste", color: NSColor(white: 1.0, alpha: 0.45), caret: false)
+    setTranscript(listeningPlaceholder, color: NSColor(white: 1.0, alpha: 0.45), caret: false)
     waveformView.reset()
+    HUDAnnouncer.announce("Listening")
 
     // A fresh entrance starts collapsed at rest; a retarget mid-exit keeps the spring's
     // live position and velocity, so the pill turns around instead of restarting.
@@ -782,14 +834,10 @@ final class FloatingHUD: NSObject {
       hostView.alphaValue = 0.0
       notchGlowView.alphaValue = 0.0
       notchPanel.orderFrontRegardless()
-      if !privacyMode {
-        hostPanel.orderFrontRegardless()
-      }
+      hostPanel.orderFrontRegardless()
       NSAnimationContext.runAnimationGroup { context in
         context.duration = 0.16
-        if !self.privacyMode {
-          self.hostView.animator().alphaValue = 1.0
-        }
+        self.hostView.animator().alphaValue = 1.0
         self.notchGlowView.animator().alphaValue = 1.0
       }
       return
@@ -797,9 +845,7 @@ final class FloatingHUD: NSObject {
 
     applyFrame()
     notchPanel.orderFrontRegardless()
-    if !privacyMode {
-      hostPanel.orderFrontRegardless()
-    }
+    hostPanel.orderFrontRegardless()
     startTick()
   }
 
@@ -842,6 +888,7 @@ final class FloatingHUD: NSObject {
     crossfadeTextChange()
     setHeader("Locked", color: Palette.locked)
     setTranscript(Self.lockHint, color: NSColor(white: 1.0, alpha: 0.70), caret: false)
+    HUDAnnouncer.announce("Recording locked")
     // Hold the hint long enough to read; streamed words queue behind it (tick flushes
     // them). Reduced motion has no tick to flush with, so it skips the hold.
     lockHintUntil = reduceMotion ? 0 : CACurrentMediaTime() + 1.8
@@ -934,7 +981,7 @@ final class FloatingHUD: NSObject {
     let existing =
       deferred?.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
       ?? currentTranscriptText
-    if privacyMode || existing.isEmpty || existing == "Speak, then release to paste"
+    if privacyMode || existing.isEmpty || existing == listeningPlaceholder
       || existing == Self.lockHint
     {
       setTranscript("Finishing…", color: NSColor(white: 1.0, alpha: 0.70), caret: false)
@@ -942,6 +989,14 @@ final class FloatingHUD: NSObject {
       setTranscript(existing, color: NSColor(white: 1.0, alpha: 0.70), caret: false)
     }
     waveformView.reset()
+  }
+
+  // Progress inside a long finish, for example a fallback route taking over. Only the
+  // eyebrow word changes, so the processing animation and the user's words stay put.
+  func updateProcessingStatus(_ text: String) {
+    guard notchGlowView.state == .processing else { return }
+    crossfadeTextChange()
+    setHeader(text, color: Palette.accentLight)
   }
 
   func showSuccess(text: String) {
@@ -956,6 +1011,7 @@ final class FloatingHUD: NSObject {
     let clean = text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
     setTranscript(privacyMode || clean.isEmpty ? "Done" : clean, color: .white, caret: false)
     waveformView.reset()
+    HUDAnnouncer.announce("Pasted")
 
     let workItem = DispatchWorkItem { [weak self] in
       self?.hide()
@@ -971,16 +1027,40 @@ final class FloatingHUD: NSObject {
     notchGlowView.state = .error
     orbIcon.state = .error
 
+    lastErrorWord = Self.shortErrorWord(message)
+
     crossfadeTextChange()
     setHeader("Error", color: Palette.error)
-    setTranscript(message, color: NSColor(white: 1.0, alpha: 0.85), caret: false)
+    let shown = privacyMode ? lastErrorWord : message
+    setTranscript(shown, color: NSColor(white: 1.0, alpha: 0.85), caret: false)
     waveformView.reset()
+    // A recovery instruction is useless truncated, so the pill sizes itself to the
+    // message (capped at maxPillWidth by neededWidth).
+    let needed = neededWidth(forText: shown)
+    if abs(needed - widthSpring.target) > 8.0 {
+      widthSpring.target = needed
+      if reduceMotion {
+        widthSpring.snap()
+        applyFrame()
+      } else {
+        startTick()
+      }
+    }
+    HUDAnnouncer.announce(message)
 
     let workItem = DispatchWorkItem { [weak self] in
       self?.hide()
     }
     hideWorkItem = workItem
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.4, execute: workItem)
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + Self.errorLinger(for: message), execute: workItem)
+  }
+
+  // Failures that carry a recovery instruction need reading time: anything longer than
+  // 40 characters, or a copy-only notice, lingers 3 s. Short failures keep the brisk
+  // 1.4 s beat so the HUD gets out of the way.
+  static func errorLinger(for message: String) -> TimeInterval {
+    message.count > 40 || message.hasPrefix("Copied") ? 3.0 : 1.4
   }
 
   func hide() {

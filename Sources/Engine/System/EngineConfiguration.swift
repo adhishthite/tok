@@ -65,8 +65,8 @@ public struct EngineConfiguration: Sendable {
   // Ambient particle motes under the notch while listening (CAEmitterLayer, GPU-composited;
   // skipped under Reduce Motion).
   public var hudParticles: Bool = true
-  // Screen-share privacy: the pill is hidden entirely (aura glow + earcons carry all
-  // state) and the terminal prints only a char count. Paste still happens; the history
+  // Screen-share privacy: the pill shows one state word and never a dictated word (the
+  // aura tint tells success from failure) and the terminal prints only a char count. Paste still happens; the history
   // DB still records locally.
   public var privacyMode: Bool = false
   // Duck the system output while recording so music/video on speakers doesn't bleed into

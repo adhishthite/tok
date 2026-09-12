@@ -181,8 +181,10 @@ final class AuraView: NSView {
     // One tint per frame - the Google cycle lives in TIME, not along the stroke.
     let tint: NSColor
     switch state {
-    case .success: tint = Palette.accentDeep
-    case .error: tint = Palette.accentLight
+    // Success and error must read apart at a glance, especially in privacy mode where
+    // the aura is most of the signal. Two shades of the accent blue never did.
+    case .success: tint = Palette.success
+    case .error: tint = Palette.error
     default: tint = Palette.listeningColor(at: phase)
     }
 
@@ -394,7 +396,7 @@ final class AuraView: NSView {
     // ring stays crisp on Retina.
     shapeLayer.contentsScale = hostLayer.contentsScale
     shapeLayer.fillColor = NSColor.clear.cgColor
-    shapeLayer.strokeColor = Palette.accentDeep.cgColor
+    shapeLayer.strokeColor = Palette.success.cgColor
     shapeLayer.lineCap = .round
     shapeLayer.lineJoin = .round
     // Model values land on the END state before the animation is added, so removing

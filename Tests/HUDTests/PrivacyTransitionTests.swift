@@ -6,7 +6,7 @@ import XCTest
 
 @MainActor
 final class HUDPrivacyTransitionTests: XCTestCase {
-  func testPrivacyHidesCachedTextWithoutWaitingForAnotherFrame() {
+  func testPrivacyReplacesCachedTextWithStateWordWithoutWaitingForAnotherFrame() {
     for reduced in [false, true] {
       let hud = FloatingHUD(reduceMotion: { reduced })
       defer {
@@ -21,9 +21,9 @@ final class HUDPrivacyTransitionTests: XCTestCase {
       hud.hostView.alphaValue = 1
       XCTAssertEqual(hud.currentTranscriptText, "Private fixture words")
       hud.privacyMode = true
-      XCTAssertEqual(hud.hostView.alphaValue, 0)
-      XCTAssertFalse(hud.hostPanel.isVisible)
-      XCTAssertTrue(hud.currentTranscriptText.isEmpty)
+      // The pill stays up so success and failure still read apart; only the words go.
+      XCTAssertTrue(hud.hostPanel.isVisible)
+      XCTAssertEqual(hud.currentTranscriptText, "Done")
     }
   }
 
@@ -79,11 +79,12 @@ final class HUDPrivacyTransitionTests: XCTestCase {
     XCTAssertEqual(hud.currentTranscriptText, "Synthetic queued words")
     XCTAssertFalse(hud.isTicking)
     hud.privacyMode = true
+    XCTAssertEqual(hud.currentTranscriptText, "Listening")
     reduced = false
     notifications.post(
       name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
-    XCTAssertFalse(hud.hostPanel.isVisible)
-    XCTAssertEqual(hud.hostView.alphaValue, 0)
+    XCTAssertTrue(hud.hostPanel.isVisible)
+    XCTAssertEqual(hud.currentTranscriptText, "Listening")
   }
 
   func testEnablingReduceMotionDuringExitHidesPanelsImmediately() {

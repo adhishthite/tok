@@ -136,13 +136,11 @@ enum PostProcessingClient {
           / 1_000_000
       }
     }
-    guard let candidate = (json["candidates"] as? [[String: Any]])?.first,
-      candidate["finishReason"] as? String == "STOP",
-      let content = candidate["content"] as? [String: Any],
-      let parts = content["parts"] as? [[String: Any]]
-    else { return PostProcessingResult(text: original, metrics: metrics) }
-    let responseText = parts.filter { $0["thought"] as? Bool != true }
-      .compactMap { $0["text"] as? String }.joined()
+    // Shared with the REST transcription route so both read the envelope the same way.
+    // Anything other than complete text keeps the original transcript and the failed status.
+    guard case .text(let responseText) = GenerateContentDecoder.decode(json) else {
+      return PostProcessingResult(text: original, metrics: metrics)
+    }
     guard
       let value = try? JSONSerialization.jsonObject(with: Data(responseText.utf8))
         as? [String: Any],

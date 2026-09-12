@@ -19,8 +19,9 @@ links to inspect local files and supporting details.
 - **Vocabulary for recognition** sends your vocabulary terms to Gemini to help
   recognize them. The vocabulary file is stored locally.
 - **Vocabulary suggestions** ("Analyze history" in Vocabulary) send up to 500
-  saved dictations, existing vocabulary, learned corrections, and any context you
-  provide to the Gemini API only when you ask for suggestions.
+  saved dictations, the app you dictated each one into, existing vocabulary,
+  learned corrections, and any context you provide to the Gemini API only when
+  you ask for suggestions. No timestamps are sent.
 - **Update checks** fetch a signed appcast from GitHub and send no profile
   information. Sparkle's profile reporting is disabled in the build.
 - **Usage metrics** are off by default. See below.

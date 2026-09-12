@@ -5,14 +5,22 @@ import TokEngine
 @MainActor
 @Observable
 final class HistoryViewStore {
-  var search = "" { didSet { reload(debounceSearch: true) } }
-  var days = 7 { didSet { reload() } }
+  var search = "" { didSet { reload(debounceSearch: true, resetLimit: true) } }
+  var days = 7 {
+    didSet { reload(resetLimit: true) }
+  }
   var selection: Set<Int64> = []
   private(set) var entries: [HistoryEntry] = []
   private(set) var statistics = HistoryStatistics.empty
   private(set) var loading = false
   private(set) var error: String?
   var visible = false
+  /// Audit F31: History capped silently at this many rows. Kept, but now visible
+  /// and raisable, instead of a hard ceiling the user never sees.
+  static let pageSize = 500
+  private(set) var limit = pageSize
+  /// Total rows matching the current filter, independent of `limit`.
+  private(set) var totalCount = 0
   @ObservationIgnored private var repository = HistoryRepository(path: "")
   @ObservationIgnored private var queryTask: Task<Void, Never>?
 
@@ -20,8 +28,15 @@ final class HistoryViewStore {
     repository = HistoryRepository(path: path)
     if visible { reload() }
   }
-  func reload(debounceSearch: Bool = false) {
+  /// Raises the visible row cap by one page and reloads. Simple "show more"
+  /// instead of cursor pagination, per the audit remedy.
+  func showMore() {
+    limit += Self.pageSize
+    reload()
+  }
+  func reload(debounceSearch: Bool = false, resetLimit: Bool = false) {
     guard visible else { return }
+    if resetLimit { limit = Self.pageSize }
     queryTask?.cancel()
     loading = true
     queryTask = Task { [weak self] in
@@ -35,12 +50,15 @@ final class HistoryViewStore {
           : self.days == 0
             ? Date(timeIntervalSince1970: 0)
             : Calendar.current.date(byAdding: .day, value: -self.days, to: Date())!
-        async let rows = self.repository.entries(search: self.search, since: since)
+        async let rows = self.repository.entries(
+          search: self.search, since: since, limit: self.limit)
         async let stats = self.repository.statistics(since: since)
-        let result = try await (rows, stats)
+        async let total = self.repository.count(search: self.search, since: since)
+        let result = try await (rows, stats, total)
         guard !Task.isCancelled else { return }
         self.entries = result.0
         self.statistics = result.1
+        self.totalCount = result.2
         self.selection.formIntersection(Set(result.0.map(\.id)))
         self.error = nil
         self.loading = false

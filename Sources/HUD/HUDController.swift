@@ -11,6 +11,10 @@ public final class HUDController {
   public func update(configuration: EngineConfiguration) {
     enabled = configuration.showHUD
     hud.privacyMode = configuration.privacyMode
+    // Listening copy names the key the user must press in toggle mode, so both fields
+    // ride every settings change.
+    hud.hotkeyMode = configuration.hotkeyMode
+    hud.shortcutLabel = configuration.shortcutLabel
     hud.revealStyle = configuration.hudRevealStyle
     hud.particlesEnabled = configuration.hudParticles
     if !enabled { hud.hide() }
@@ -44,6 +48,13 @@ public final class HUDController {
       }
     default: break
     }
+  }
+
+  // Progress inside a long finish. The engine has no event for this yet; a later change
+  // routes one here.
+  public func showProcessingStatus(_ text: String) {
+    guard enabled else { return }
+    hud.updateProcessingStatus(text)
   }
 
   public func preview() {

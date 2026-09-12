@@ -204,8 +204,8 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | Server quiet window | <code>VAD_SILENCE_MS</code> | <code>1500</code> | 200 to 5000 | Milliseconds of silence before the tuned server mode finishes speech. |
 | Live input price | <code>LIVE_INPUT_PRICE_PER_1M</code> | <code>3.50</code> | 0.0 to 1000.0 | US dollars per million tokens, used for cost estimates. |
 | Live output price | <code>LIVE_OUTPUT_PRICE_PER_1M</code> | <code>21.00</code> | 0.0 to 1000.0 | US dollars per million tokens, used for cost estimates. |
-| Rest input price | <code>REST_INPUT_PRICE_PER_1M</code> | <code>0.30</code> | 0.0 to 1000.0 | US dollars per million tokens, used for cost estimates. |
-| Rest output price | <code>REST_OUTPUT_PRICE_PER_1M</code> | <code>2.50</code> | 0.0 to 1000.0 | US dollars per million tokens, used for cost estimates. |
+| REST input price | <code>REST_INPUT_PRICE_PER_1M</code> | <code>0.30</code> | 0.0 to 1000.0 | US dollars per million tokens, used for cost estimates. |
+| REST output price | <code>REST_OUTPUT_PRICE_PER_1M</code> | <code>2.50</code> | 0.0 to 1000.0 | US dollars per million tokens, used for cost estimates. |
 | Cleanup input price | <code>POST_PROCESS_INPUT_PRICE_PER_1M</code> | <code>0.30</code> | 0.0 to 1000.0 | USD per million input tokens, for cost estimates. Default matches Gemini 3.5 Flash-Lite standard pricing. |
 | Cleanup output price | <code>POST_PROCESS_OUTPUT_PRICE_PER_1M</code> | <code>2.50</code> | 0.0 to 1000.0 | USD per million output tokens, including reported thinking tokens. Costs remain unknown when usage is not reported. |
 | History database path | <code>HISTORY_DB</code> | (empty) | Text | Empty uses Tok’s Application Support folder. |
