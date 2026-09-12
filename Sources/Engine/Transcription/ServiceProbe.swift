@@ -10,12 +10,13 @@ public enum ServiceProbe {
 
   /// models.get for one configured model: the cheapest call that fails for a mistyped,
   /// retired, or inaccessible model. The key check alone would pass such a model and the
-  /// first real dictation would then fail to open its live session.
+  /// first real dictation would then fail to open its live session. A name with a "models/"
+  /// prefix or any other slash is refused: the runtime clients prepend "models/" themselves,
+  /// so accepting it here would pass a name that fails at dictation time.
   static func modelURL(for model: String) -> URL? {
-    let name = model.hasPrefix("models/") ? String(model.dropFirst("models/".count)) : model
-    guard !name.isEmpty, name.allSatisfy({ $0.isLetter || $0.isNumber || "-._".contains($0) })
+    guard !model.isEmpty, model.allSatisfy({ $0.isLetter || $0.isNumber || "-._".contains($0) })
     else { return nil }
-    return URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(name)")
+    return URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(model)")
   }
 
   public static func validate(configuration: EngineConfiguration) async throws {
@@ -32,8 +33,9 @@ public enum ServiceProbe {
     if let problem = message(forStatus: keyStatus) {
       throw failure(code: keyStatus, message: problem)
     }
-    // Then each model the engine will actually call, in the order a dictation uses them.
-    for model in [configuration.geminiLiveModel, configuration.geminiModel] where !model.isEmpty {
+    // Then each model the engine will actually call, in the order a dictation uses them. A
+    // REST-only configuration never opens a live session, so its live model is not checked.
+    for model in modelsToProbe(configuration) {
       guard let modelURL = modelURL(for: model) else {
         throw failure(code: 5, message: "The model name \"\(model)\" is not valid.")
       }
@@ -42,6 +44,13 @@ public enum ServiceProbe {
         throw failure(code: modelStatus, message: problem)
       }
     }
+  }
+
+  static func modelsToProbe(_ configuration: EngineConfiguration) -> [String] {
+    var models: [String] = []
+    if configuration.enableLiveWebSocket { models.append(configuration.geminiLiveModel) }
+    models.append(configuration.geminiModel)
+    return models.filter { !$0.isEmpty }
   }
 
   private static func status(of url: URL, apiKey: String) async throws -> Int {

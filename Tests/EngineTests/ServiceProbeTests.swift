@@ -50,12 +50,19 @@ final class ServiceProbeTests: XCTestCase {
     XCTAssertEqual(
       ServiceProbe.modelURL(for: "gemini-3.5-transcribe-live")?.absoluteString,
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-transcribe-live")
-    XCTAssertEqual(
-      ServiceProbe.modelURL(for: "models/gemini-3.5-flash-lite")?.path,
-      "/v1beta/models/gemini-3.5-flash-lite")
-    // Anything that could change the path or add a query is refused, not sent.
+    // A resource-prefixed name would pass here and fail at runtime, so it is refused, as
+    // is anything that could change the path or add a query.
+    XCTAssertNil(ServiceProbe.modelURL(for: "models/gemini-3.5-flash-lite"))
     XCTAssertNil(ServiceProbe.modelURL(for: "gemini/../models"))
     XCTAssertNil(ServiceProbe.modelURL(for: ""))
+    var configuration = EngineConfiguration()
+    configuration.geminiLiveModel = "live-model"
+    configuration.geminiModel = "rest-model"
+    configuration.enableLiveWebSocket = true
+    XCTAssertEqual(ServiceProbe.modelsToProbe(configuration), ["live-model", "rest-model"])
+    // REST-only never opens a live session, so a retired live model must not block setup.
+    configuration.enableLiveWebSocket = false
+    XCTAssertEqual(ServiceProbe.modelsToProbe(configuration), ["rest-model"])
     XCTAssertEqual(
       ServiceProbe.message(forModel: "nope", status: 404),
       "The model \"nope\" is not available for this key.")
