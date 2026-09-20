@@ -28,6 +28,7 @@ struct SettingsPane: View {
     case .vocabulary: VocabularyPane()
     case .privacy: PrivacyPane()
     case .advanced: AdvancedPane()
+    case .experimental: ExperimentalPane()
     case .about: AboutPane()
     }
   }

@@ -103,7 +103,7 @@ real-dictation accuracy, latency, or accessibility acceptance.
 
 ## Optional: TypeSafe judgments
 
-Settings > Transcription > "TypeSafe judgments" adds an optional [TypeSafe](https://typesafe.ai)
+Settings > Experimental > "TypeSafe judgments" adds an optional [TypeSafe](https://typesafe.ai)
 key. The feature stays off, with no network calls and no behavior change, until a key is
 saved AND a one-time check of TypeSafe's models endpoint succeeds; a key that fails the
 check stays disabled until a different key is saved. The key lives in the macOS Keychain,
@@ -112,7 +112,7 @@ like the Gemini key.
 With a verified key, Tok sends small, targeted requests to TypeSafe (never on the paste
 path) for three things:
 
-1. **Typed-correction genuineness** - when a typed-correction pair (Settings > Transcription >
+1. **Typed-correction genuineness** - when a typed-correction pair (Settings > Vocabulary >
    "Learn from typed corrections") looks like a candidate, Jev judges whether the correction
    is a genuine misrecognition fix rather than a wording change, replacing a cruder
    capitalization/vocabulary heuristic.

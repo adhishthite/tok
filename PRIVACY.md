@@ -22,7 +22,7 @@ links to inspect local files and supporting details.
   saved dictations, the app you dictated each one into, existing vocabulary,
   learned corrections, and any context you provide to the Gemini API only when
   you ask for suggestions. No timestamps are sent.
-- **Optional TypeSafe judgments** (Settings > Transcription > "TypeSafe judgments"): with a
+- **Optional TypeSafe judgments** (Settings > Experimental > "TypeSafe judgments"): with a
   saved and verified TypeSafe API key, transcript text, the destination app name and bundle
   identifier, and typed-correction word pairs (with their surrounding sentence) are sent to
   `api.typesafe.ai` for scoring. Running "Analyze history" additionally sends past saved
