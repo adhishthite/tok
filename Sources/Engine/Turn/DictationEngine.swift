@@ -240,6 +240,12 @@ public final class DictationEngine {
     history?.onError = { [weak self] message in
       DispatchQueue.main.async { self?.delegate?.engineDidEmit(.historyError(message)) }
     }
+    // Forwards every availability transition through the same delegate every other engine
+    // event uses; engineDidEmit hops to main itself, so no extra dispatch is needed here.
+    // The callback fires on judgmentService.queue, never while its lock is held.
+    self.judgmentService.onAvailabilityChange = { [weak self] availability in
+      self?.delegate?.engineDidEmit(.judgmentAvailability(availability))
+    }
     if config.learnCorrections {
       if config.historyEnabled {
         self.correctionWatcher = CorrectionWatcher(
@@ -404,6 +410,10 @@ public final class DictationEngine {
     }
     self.hotkeyManager = hotkey
 
+    // The judgment probe (kicked off in init) may already have settled before a delegate
+    // existed to hear about it, so push the current snapshot once at startup rather than
+    // relying only on the next transition (otherwise the store shows a stale `.off`).
+    delegate?.engineDidEmit(.judgmentAvailability(judgmentService.availability))
     feedback.ready()
   }
 

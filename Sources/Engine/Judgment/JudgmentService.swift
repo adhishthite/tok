@@ -6,7 +6,8 @@ import Foundation
 ///
 /// Never touches `sessionQueue` or main: probing and dispatch both happen on `queue`, and the
 /// transport's own completions land on its background delegate queue. With no key, `configure`
-/// never touches `queue` or the network at all.
+/// builds no transport and issues no request; it uses `queue` only to deliver the `.off`
+/// availability notification, and only when a handler is installed.
 final class JudgmentService {
   let queue = DispatchQueue(label: "com.adhishthite.tok.judgment", qos: .utility)
   private let lock = NSLock()
@@ -16,12 +17,64 @@ final class JudgmentService {
   private var probing = false
   private var waiters: [(Bool) -> Void] = []
   private let makeTransport: (String) -> JudgmentTransport
+  private var availabilityValue: JudgmentAvailability = .off
+  // Bumped under `lock` on every write to `availabilityValue`, so a queued notification can
+  // tell whether the state moved on before it was delivered.
+  private var availabilityGeneration: UInt64 = 0
+  private var availabilityChangeHandler: ((JudgmentAvailability) -> Void)?
 
   /// Thread-safe snapshot; false until the probe for the current key has succeeded.
   var isAvailable: Bool {
     lock.lock()
     defer { lock.unlock() }
     return available
+  }
+
+  /// Thread-safe snapshot of the richer state behind `isAvailable`, for surfaces (Settings)
+  /// that need to show why judgments are off, not just whether.
+  var availability: JudgmentAvailability {
+    lock.lock()
+    defer { lock.unlock() }
+    return availabilityValue
+  }
+
+  /// Fired on `queue`, after `lock` is released, on every `availability` transition. Set once
+  /// by `DictationEngine` at construction; reads and writes are lock-guarded so a probe
+  /// completion racing a fresh `configure` call never tears the handler.
+  var onAvailabilityChange: ((JudgmentAvailability) -> Void)? {
+    get {
+      lock.lock()
+      defer { lock.unlock() }
+      return availabilityChangeHandler
+    }
+    set {
+      lock.lock()
+      availabilityChangeHandler = newValue
+      lock.unlock()
+    }
+  }
+
+  /// Never call out while holding `lock` (CLAUDE.md). Reads the handler under lock, then
+  /// invokes it after releasing, on `queue`.
+  ///
+  /// The generation is re-checked on `queue` before delivery. `finishProbe` releases the lock
+  /// (and logs) before it notifies, so a `configure` landing in that gap would otherwise have
+  /// its `.checking` delivered first and the old key's verdict delivered after it, leaving the
+  /// UI on a result the service itself has already discarded. A superseded generation is
+  /// dropped instead; the newer write queued its own notification.
+  private func emitAvailabilityChange(_ newValue: JudgmentAvailability, generation: UInt64) {
+    lock.lock()
+    let handler = availabilityChangeHandler
+    lock.unlock()
+    guard let handler else { return }
+    queue.async { [weak self] in
+      guard let service = self else { return }
+      service.lock.lock()
+      let superseded = service.availabilityGeneration != generation
+      service.lock.unlock()
+      guard !superseded else { return }
+      handler(newValue)
+    }
   }
 
   init(
@@ -57,11 +110,16 @@ final class JudgmentService {
     available = false
     probing = newClient != nil
     client = newClient
+    availabilityValue = newClient == nil ? .off : .checking
+    availabilityGeneration &+= 1
+    let newAvailability = availabilityValue
+    let newGeneration = availabilityGeneration
     let staleWaiters = waiters
     waiters = []
     lock.unlock()
     // Never call out while holding the lock.
     for waiter in staleWaiters { waiter(false) }
+    emitAvailabilityChange(newAvailability, generation: newGeneration)
     guard let newClient else { return }
     queue.async { [weak self] in
       guard let service = self else { return }
@@ -87,6 +145,13 @@ final class JudgmentService {
     let pending = waiters
     waiters = []
     let ok = available
+    switch result {
+    case .success: availabilityValue = .available
+    case .failure(let error): availabilityValue = .unavailable(reason: error.diagnosticDescription)
+    }
+    availabilityGeneration &+= 1
+    let newAvailability = availabilityValue
+    let newGeneration = availabilityGeneration
     lock.unlock()
     // Logging happens after the lock is released (never hold a lock while logging).
     switch result {
@@ -96,6 +161,7 @@ final class JudgmentService {
       Log.warn("Jev", "Probe failed: \(error.diagnosticDescription); judgments disabled.")
     }
     for waiter in pending { waiter(ok) }
+    emitAvailabilityChange(newAvailability, generation: newGeneration)
   }
 
   /// Waits for an in-flight probe to settle. Only for call sites that already run in an async

@@ -106,4 +106,77 @@ final class JudgmentServiceTests: XCTestCase {
     await fulfillment(of: [settled], timeout: 2)
     XCTAssertEqual(stub.probeCallCount, 1)
   }
+
+  /// Thread-safe recorder for `onAvailabilityChange` callbacks: they land on
+  /// `JudgmentService.queue`, never the test's calling thread.
+  private final class AvailabilityRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [JudgmentAvailability] = []
+    func append(_ value: JudgmentAvailability) {
+      lock.lock()
+      values.append(value)
+      lock.unlock()
+    }
+    var snapshot: [JudgmentAvailability] {
+      lock.lock()
+      defer { lock.unlock() }
+      return values
+    }
+  }
+
+  func testAvailabilityChangeEmitsOffWhenKeyIsCleared() {
+    let stub = StubTransport(probeResult: .success(()))
+    // Starts with no key so the handler is installed before the first transition. Seeding the
+    // key in the initializer instead would race the probe's callback against the handler
+    // assignment, and the recorded sequence would depend on which won.
+    let service = JudgmentService(apiKey: "") { _ in stub }
+    let recorder = AvailabilityRecorder()
+    let seeded = expectation(description: "seed key verified")
+    let offEmitted = expectation(description: "off emitted")
+    service.onAvailabilityChange = { value in
+      recorder.append(value)
+      // Reading `availability` from inside the callback proves the lock is not held while
+      // the callback runs: `availability` locks the same NSLock, so this would hang forever
+      // (and time the test out) if the handler ran before `lock` was released.
+      _ = service.availability
+      if value == .available { seeded.fulfill() }
+      if value == .off { offEmitted.fulfill() }
+    }
+    service.configure(apiKey: "seed-key")
+    wait(for: [seeded], timeout: 2)
+    service.configure(apiKey: "")
+    wait(for: [offEmitted], timeout: 2)
+    XCTAssertEqual(recorder.snapshot, [.checking, .available, .off])
+  }
+
+  func testAvailabilityChangeEmitsCheckingThenAvailableForGoodProbe() {
+    let stub = StubTransport(probeResult: .success(()))
+    let service = JudgmentService(apiKey: "") { _ in stub }
+    let recorder = AvailabilityRecorder()
+    let availableEmitted = expectation(description: "available emitted")
+    service.onAvailabilityChange = { value in
+      recorder.append(value)
+      _ = service.availability
+      if value == .available { availableEmitted.fulfill() }
+    }
+    service.configure(apiKey: "good-key")
+    wait(for: [availableEmitted], timeout: 2)
+    XCTAssertEqual(recorder.snapshot, [.checking, .available])
+  }
+
+  func testAvailabilityChangeEmitsCheckingThenUnavailableWithReasonForFailedProbe() {
+    let stub = StubTransport(probeResult: .failure(.unauthorized))
+    let service = JudgmentService(apiKey: "") { _ in stub }
+    let recorder = AvailabilityRecorder()
+    let unavailableEmitted = expectation(description: "unavailable emitted")
+    service.onAvailabilityChange = { value in
+      recorder.append(value)
+      _ = service.availability
+      if case .unavailable = value { unavailableEmitted.fulfill() }
+    }
+    service.configure(apiKey: "bad-key")
+    wait(for: [unavailableEmitted], timeout: 2)
+    XCTAssertEqual(
+      recorder.snapshot, [.checking, .unavailable(reason: "HTTP 401 (key rejected)")])
+  }
 }
