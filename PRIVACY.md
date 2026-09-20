@@ -22,6 +22,13 @@ links to inspect local files and supporting details.
   saved dictations, the app you dictated each one into, existing vocabulary,
   learned corrections, and any context you provide to the Gemini API only when
   you ask for suggestions. No timestamps are sent.
+- **Optional TypeSafe judgments** (Settings > Transcription > "TypeSafe judgments"): with a
+  saved and verified TypeSafe API key, transcript text, the destination app name and bundle
+  identifier, and typed-correction word pairs (with their surrounding sentence) are sent to
+  `api.typesafe.ai` for scoring. Running "Analyze history" additionally sends past saved
+  dictations to `api.typesafe.ai`: repeated-dictation pairs, and up to three transcript
+  excerpts for each suggested replacement rule. Audio is never sent, and no timestamps are
+  sent. Without a key, nothing is sent to TypeSafe.
 - **Update checks** fetch a signed appcast from GitHub and send no profile
   information. Sparkle's profile reporting is disabled in the build.
 - **Usage metrics** are off by default. See below.

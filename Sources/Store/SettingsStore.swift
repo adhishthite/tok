@@ -9,6 +9,11 @@ final class SettingsStore {
   var apiKeyProvidedByEnvironment: Bool {
     !(ProcessInfo.processInfo.environment["GEMINI_API_KEY"] ?? "").isEmpty
   }
+  // Optional upgrade (see Engine/Judgment); mirrors the Gemini key flow exactly.
+  private(set) var hasTypeSafeKey = false
+  var typesafeApiKeyProvidedByEnvironment: Bool {
+    !(ProcessInfo.processInfo.environment["TYPESAFE_API_KEY"] ?? "").isEmpty
+  }
   private(set) var loadError: String?
   private(set) var values: [String: String] = [:]
   private(set) var overrides: [String: String] = [:]
@@ -59,6 +64,7 @@ final class SettingsStore {
         }
       #endif
       configuration.geminiApiKey = try Keychain.readAPIKey() ?? ""
+      configuration.typesafeApiKey = try Keychain.readAPIKey(.typesafe) ?? ""
       values = [:]
       overrides = [:]
       for setting in SettingCatalog.all {
@@ -99,10 +105,14 @@ final class SettingsStore {
     effective["GEMINI_API_KEY"] =
       ProcessInfo.processInfo.environment["GEMINI_API_KEY"].flatMap { $0.isEmpty ? nil : $0 }
       ?? configuration.geminiApiKey
+    effective["TYPESAFE_API_KEY"] =
+      ProcessInfo.processInfo.environment["TYPESAFE_API_KEY"].flatMap { $0.isEmpty ? nil : $0 }
+      ?? configuration.typesafeApiKey
     let vocabulary = vocabularyText(rereading: rereadVocabulary)
     configuration = EngineConfiguration.load(values: effective, vocabularyText: vocabulary)
     configuration.buildId = BuildIdentity.revision
     hasAPIKey = !configuration.geminiApiKey.isEmpty
+    hasTypeSafeKey = !configuration.typesafeApiKey.isEmpty
   }
 
   /// Reads the vocabulary file only when asked to, or when the resolved path changed.
@@ -129,6 +139,18 @@ final class SettingsStore {
     try await ServiceProbe.validate(configuration: configuration)
   }
 
+  func validateAndSaveTypeSafeKey(_ key: String) async throws {
+    let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+    try await TypeSafeProbe.validate(apiKey: trimmed)
+    try Keychain.saveAPIKey(trimmed, account: .typesafe)
+    configuration.typesafeApiKey = trimmed
+    rebuild()
+    didChange?([Self.everySetting])
+  }
+  func testTypeSafeConnection() async throws {
+    try await TypeSafeProbe.validate(apiKey: configuration.typesafeApiKey)
+  }
+
   @discardableResult
   func importConfiguration(from source: URL, notify: Bool = true) throws
     -> ConfigurationImportResult
@@ -136,6 +158,7 @@ final class SettingsStore {
     let url = source.hasDirectoryPath ? source.appendingPathComponent(".env") : source
     var imported = try EnvImporter.read(url)
     let importedKey = imported.removeValue(forKey: "GEMINI_API_KEY")
+    let importedTypeSafeKey = imported.removeValue(forKey: "TYPESAFE_API_KEY")
     imported.removeValue(forKey: "HISTORY_DB")
     // Importing preferences must not shorten the owner's history retention.
     // Existing-record deletion is confirmed separately in History settings.
@@ -149,6 +172,10 @@ final class SettingsStore {
     if let key = importedKey, !key.isEmpty {
       try Keychain.saveAPIKey(key)
       configuration.geminiApiKey = key
+    }
+    if let key = importedTypeSafeKey, !key.isEmpty {
+      try Keychain.saveAPIKey(key, account: .typesafe)
+      configuration.typesafeApiKey = key
     }
     var result = vocabulary == nil ? ConfigurationImportResult.chooseVocabulary : .settingsOnly
     if let contents {

@@ -13,4 +13,13 @@ extension CorrectionWatcher {
     let wrong: String
     let right: String
   }
+
+  // A candidate correction before the genuineness gate (item 1): the changed word pair plus
+  // the surrounding window sentences, which a Jev genuineness judgment needs for context.
+  struct Candidate {
+    let wrong: String
+    let right: String
+    let pastedWindow: String
+    let editedWindow: String
+  }
 }

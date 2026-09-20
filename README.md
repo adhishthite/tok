@@ -101,6 +101,36 @@ choice. Never commit credentials.
 guide before preparing release artifacts. Passing offline tests does not establish
 real-dictation accuracy, latency, or accessibility acceptance.
 
+## Optional: TypeSafe judgments
+
+Settings > Transcription > "TypeSafe judgments" adds an optional [TypeSafe](https://typesafe.ai)
+key. The feature stays off, with no network calls and no behavior change, until a key is
+saved AND a one-time check of TypeSafe's models endpoint succeeds; a key that fails the
+check stays disabled until a different key is saved. The key lives in the macOS Keychain,
+like the Gemini key.
+
+With a verified key, Tok sends small, targeted requests to TypeSafe (never on the paste
+path) for three things:
+
+1. **Typed-correction genuineness** - when a typed-correction pair (Settings > Transcription >
+   "Learn from typed corrections") looks like a candidate, Jev judges whether the correction
+   is a genuine misrecognition fix rather than a wording change, replacing a cruder
+   capitalization/vocabulary heuristic.
+2. **Vocabulary analysis** ("Analyze history" in Vocabulary) - Jev confirms re-dictation pairs
+   and scores each suggested term or replacement rule; suggestions show this as a confidence
+   percentage.
+3. **Per-turn quality** - after a dictation is delivered, Jev scores whether it was filler,
+   how clean the transcript is, and its register and language, stored alongside that history
+   row for later review.
+
+What is sent: transcript text, typed-correction word pairs and their surrounding sentence,
+and the destination app name and bundle identifier. "Analyze history" additionally sends past
+saved dictations as repeated-dictation pairs and rule excerpts. Never audio, never window
+contents, never timestamps. A `PRIVACY_MODE` setting redacts logs only; it does not stop
+TypeSafe requests. See
+[PRIVACY.md](PRIVACY.md). Cost is about $0.042 per million input tokens; a single judgment
+request is typically a few hundred tokens.
+
 ## Configuration
 
 Most options are available in Settings. Expand the complete reference for defaults,

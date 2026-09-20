@@ -142,6 +142,7 @@ final class HistoryStore {
         source TEXT NOT NULL DEFAULT 'ax_readback',
         build_id TEXT
       );
+      -- source also takes 'ax_readback_jev' once Jev judges the pair (Engine/Judgment).
       CREATE INDEX IF NOT EXISTS idx_corrections_ts ON corrections(ts_epoch);
       """
     if sqlite3_exec(opened, schema, nil, nil, nil) != SQLITE_OK {
@@ -173,6 +174,17 @@ final class HistoryStore {
       "ALTER TABLE transcriptions ADD COLUMN delivery_outcome TEXT",
       "ALTER TABLE transcriptions ADD COLUMN capture_start_ms REAL",
       "ALTER TABLE transcriptions ADD COLUMN first_interim_ms REAL",
+      // Engine/Judgment (optional; see JudgmentService). NULL on every row unless a
+      // TypeSafe key was configured and available at record time. genuineness and jev_filler
+      // are nouls in 0...1; jev_plausibility is the raw 4-level TypeSafe score in 0...3.
+      "ALTER TABLE corrections ADD COLUMN genuineness REAL",
+      "ALTER TABLE transcriptions ADD COLUMN jev_filler REAL",
+      "ALTER TABLE transcriptions ADD COLUMN jev_plausibility REAL",
+      "ALTER TABLE transcriptions ADD COLUMN jev_register TEXT",
+      "ALTER TABLE transcriptions ADD COLUMN jev_language TEXT",
+      "ALTER TABLE transcriptions ADD COLUMN jev_model TEXT",
+      "ALTER TABLE transcriptions ADD COLUMN jev_ms INTEGER",
+      "ALTER TABLE transcriptions ADD COLUMN jev_input_tokens INTEGER",
     ] {
       sqlite3_exec(opened, migration, nil, nil, nil)
     }
@@ -255,7 +267,11 @@ final class HistoryStore {
     }
   }
 
-  func record(_ r: TurnRecord) {
+  /// `completion`, when given, delivers the new row's `sqlite3_last_insert_rowid` on `queue`
+  /// once the insert succeeds (never called on failure). Used to correlate a later Jev
+  /// judgment (`updateJudgment`) with the row it belongs to; existing callers that pass no
+  /// completion are unaffected.
+  func record(_ r: TurnRecord, completion: ((Int64) -> Void)? = nil) {
     queue.async { [weak self] in
       guard let self = self else { return }
       self.openIfNeeded()
@@ -263,7 +279,9 @@ final class HistoryStore {
         self.report(success: false)
         return
       }
-      self.report(success: self.withInsertRetry { self.insertTranscription(db, r) })
+      let ok = self.withInsertRetry { self.insertTranscription(db, r) }
+      self.report(success: ok)
+      if ok { completion?(sqlite3_last_insert_rowid(db)) }
     }
   }
 
@@ -360,7 +378,13 @@ final class HistoryStore {
 
   // Typed-correction observation from CorrectionWatcher: only the changed word pair is
   // stored, never the surrounding field content. Fire-and-forget like record().
-  func recordCorrection(wrong: String, right: String, appName: String) {
+  //
+  // `genuineness` is the Jev noul (0...1) when a TypeSafe key judged the pair, and `source`
+  // is `"ax_readback_jev"` in that case, `"ax_readback"` otherwise (see CorrectionWatcher).
+  func recordCorrection(
+    wrong: String, right: String, appName: String, genuineness: Double? = nil,
+    source: String = "ax_readback"
+  ) {
     queue.async { [weak self] in
       guard let self = self else { return }
       self.openIfNeeded()
@@ -368,17 +392,20 @@ final class HistoryStore {
       // Corrections share the row-level retry but never raise onError: they are a learning
       // signal, not the user's transcript.
       _ = self.withInsertRetry {
-        self.insertCorrection(db, wrong: wrong, right: right, appName: appName)
+        self.insertCorrection(
+          db, wrong: wrong, right: right, appName: appName, genuineness: genuineness,
+          source: source)
       }
     }
   }
 
   private func insertCorrection(
-    _ db: OpaquePointer, wrong: String, right: String, appName: String
+    _ db: OpaquePointer, wrong: String, right: String, appName: String, genuineness: Double?,
+    source: String
   ) -> Int32 {
     let sql = """
-      INSERT INTO corrections (ts_utc, ts_epoch, session_id, wrong_text, right_text, app_name, source, build_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO corrections (ts_utc, ts_epoch, session_id, wrong_text, right_text, app_name, source, build_id, genuineness)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       """
     var stmt: OpaquePointer?
     let prepared = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
@@ -395,12 +422,69 @@ final class HistoryStore {
     bindText(stmt, 4, wrong)
     bindText(stmt, 5, right)
     bindText(stmt, 6, appName.isEmpty ? nil : appName)
-    bindText(stmt, 7, "ax_readback")
+    bindText(stmt, 7, source)
     bindText(stmt, 8, buildId)
+    bindDouble(stmt, 9, genuineness)
     let stepped = sqlite3_step(stmt)
     if stepped != SQLITE_DONE {
       Log.warn(
         "HISTORY", "Failed to insert correction row: \(String(cString: sqlite3_errmsg(db)))")
+    }
+    sqlite3_finalize(stmt)
+    return stepped
+  }
+
+  // Item 3: writes a Jev per-turn quality judgment onto an already-inserted transcriptions
+  // row, keyed by rowid (see record(_:completion:)). Fire-and-forget, called only from
+  // JudgmentService's own queue via TranscriptQualityJudge - never sessionQueue or main.
+  func updateJudgment(
+    rowid: Int64, filler: Double?, plausibility: Double?, register: String?, language: String?,
+    model: String?, ms: Int?, inputTokens: Int?
+  ) {
+    queue.async { [weak self] in
+      guard let self = self else { return }
+      // A closed or never-opened DB is a deliberate silent no-op: the judgment arrives after
+      // the row was already inserted, so by here the store is shutting down and there is
+      // nothing left to annotate. openIfNeeded() would reopen it for a learning signal only.
+      guard let db = self.db else { return }
+      _ = self.withInsertRetry {
+        self.updateJudgmentRow(
+          db, rowid: rowid, filler: filler, plausibility: plausibility, register: register,
+          language: language, model: model, ms: ms, inputTokens: inputTokens)
+      }
+    }
+  }
+
+  private func updateJudgmentRow(
+    _ db: OpaquePointer, rowid: Int64, filler: Double?, plausibility: Double?, register: String?,
+    language: String?, model: String?, ms: Int?, inputTokens: Int?
+  ) -> Int32 {
+    let sql = """
+      UPDATE transcriptions
+      SET jev_filler = ?, jev_plausibility = ?, jev_register = ?, jev_language = ?,
+          jev_model = ?, jev_ms = ?, jev_input_tokens = ?
+      WHERE id = ?
+      """
+    var stmt: OpaquePointer?
+    let prepared = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
+    guard prepared == SQLITE_OK else {
+      Log.warn(
+        "HISTORY", "Failed to prepare Jev judgment update: \(String(cString: sqlite3_errmsg(db)))")
+      sqlite3_finalize(stmt)
+      return prepared
+    }
+    bindDouble(stmt, 1, filler)
+    bindDouble(stmt, 2, plausibility)
+    bindText(stmt, 3, register)
+    bindText(stmt, 4, language)
+    bindText(stmt, 5, model)
+    bindInt(stmt, 6, ms)
+    bindInt(stmt, 7, inputTokens)
+    sqlite3_bind_int64(stmt, 8, rowid)
+    let stepped = sqlite3_step(stmt)
+    if stepped != SQLITE_DONE {
+      Log.warn(
+        "HISTORY", "Failed to update Jev judgment row: \(String(cString: sqlite3_errmsg(db)))")
     }
     sqlite3_finalize(stmt)
     return stepped

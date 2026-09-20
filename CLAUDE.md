@@ -24,6 +24,7 @@ Tok is not a Google product and carries no Google branding.
 - `HUD/` is AppKit + Core Animation on an NSPanel. Do not rewrite in SwiftUI.
   Never animate the panel frame. `HoldRingView`'s backing layer is the
   CAShapeLayer via `makeBackingLayer`. All colors come from the Tok palette.
+- `Engine/Judgment` is optional, gated on the TypeSafe key, and never on the paste path.
 - One type per file, named after the type. Normal access control.
 
 ## Engine invariants (inherited; do not relearn these)
