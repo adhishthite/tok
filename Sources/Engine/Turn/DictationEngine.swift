@@ -135,6 +135,24 @@ public final class DictationEngine {
   // the audio it already paid for on the history row (audit F11).
   private var turnAudioSeconds: Double?
 
+  // Connection state, hedge, and round-trip split (item D). Unlike the AB/C fields below,
+  // these are not read through recordTurn's central fallback-fill: a reviewer flagged that
+  // pattern as racy for main-thread state (handleKeyDown can reset a turn* var before the
+  // previous turn's row is fully built off-thread), so these are sessionQueue-only and
+  // stamped directly into the TurnRecord at each settle-time construction site, exactly
+  // where turnSettlePath already is. Reset in runTurnPipeline alongside turnSettlePath;
+  // turnHedgeFired/turnHedgeWinner are also touched from executeRestFallback and settle(),
+  // both sessionQueue-only.
+  private var turnReconnectedDuringTurn: Bool?
+  // Not private: the audit F21 hedge-race fixture (Tests/EngineTests/Fixtures) sets this
+  // directly, the same way it already reaches wsCommitInFlight/restTerminal below.
+  var turnHedgeFired = false
+  private var turnHedgeWinner: String?
+  private var turnCommitToLastSendMs: Double?
+  private var turnCommitToFirstMsgMs: Double?
+  private var turnCommitToFinalMs: Double?
+  private var turnCommitToTurnCompleteMs: Double?
+
   // Item AB: self-describing rows and key-down readiness. Same cross-thread discipline as
   // the first-word evidence above - written on main, read on sessionQueue via recordTurn's
   // central fallback-fill, except turnOnsetDb (sessionQueue-only, like turnPeakDb) and
@@ -148,6 +166,11 @@ public final class DictationEngine {
   private var turnPrerollMsUsed: Double?
   private var turnMsSincePrevCapture: Double?
   private var turnOnsetDb: Double?
+  // item D: the Live socket's readiness and session age at this same key-down instant,
+  // read through GeminiLiveClient's lock-guarded accessor. Same cross-thread discipline
+  // (and the same accepted race window) as turnMicStateAtKeydown above.
+  private var turnSocketStateAtKeydown: String?
+  private var turnSocketAgeMs: Double?
   private let captureTimingLock = NSLock()
   private var lastCaptureEndUptime: TimeInterval?
 
@@ -381,6 +404,12 @@ public final class DictationEngine {
           self?.feedback.showError(message: "API key rejected. Check the key in Settings.")
         }
       }
+      // Connection lifecycle telemetry (item D): async on the history queue, never shown in
+      // UI. May fire from main, sendQueue, or settleQueue; recordConnectionEvent only ever
+      // does queue.async, so this never blocks whichever thread the event happened on.
+      liveClient?.onConnectionEvent = { [weak self] kind, turnOpen, socketAgeS in
+        self?.history?.recordConnectionEvent(kind: kind, turnOpen: turnOpen, socketAgeS: socketAgeS)
+      }
       liveClient?.connect(reason: "startup")
     }
 
@@ -505,6 +534,11 @@ public final class DictationEngine {
     if stamped.quietResets == nil { stamped.quietResets = turnQuietResets }
     if stamped.trailPeakDb == nil { stamped.trailPeakDb = turnTrailPeakDb }
     if stamped.noiseFloorDb == nil { stamped.noiseFloorDb = turnNoiseFloorDb }
+    // Connection readiness at key-down, filled the same way.
+    if stamped.socketStateAtKeydown == nil {
+      stamped.socketStateAtKeydown = turnSocketStateAtKeydown
+    }
+    if stamped.socketAgeMs == nil { stamped.socketAgeMs = turnSocketAgeMs }
     // Item 3: a delivered (pasted or copy-only), non-empty transcript gets a fire-and-forget
     // Jev quality judgment once history has assigned it a rowid. Respects PRIVACY_MODE the
     // same way history already does (no extra gating: history keeps recording under privacy
@@ -683,6 +717,11 @@ public final class DictationEngine {
     // the same instant that decides whether the "Getting ready" pill is even scheduled.
     let micWasWarm = audioCapture.isEngineRunning
     turnMicStateAtKeydown = micWasWarm ? "warm" : "cold"
+    // item D: connection readiness at the same key-down instant, through a brief lock scope
+    // on the live client (never sessionQueue.sync from main).
+    let socketSnapshot = liveClient?.socketStateAtKeydown
+    turnSocketStateAtKeydown = socketSnapshot?.state ?? "closed"
+    turnSocketAgeMs = socketSnapshot?.ageMs
     if !micWasWarm { scheduleStartingNotice(generation: generation) }
     audioCapture.ensureReady { [weak self] ready in
       guard let self = self, self.capturePending, self.captureGeneration == generation else {
@@ -1177,6 +1216,13 @@ public final class DictationEngine {
     turnSpeechFrames = speechFrames
     turnSettlePath = nil
     turnFirstInterimMs = nil
+    turnReconnectedDuringTurn = nil
+    turnHedgeFired = false
+    turnHedgeWinner = nil
+    turnCommitToLastSendMs = nil
+    turnCommitToFirstMsgMs = nil
+    turnCommitToFinalMs = nil
+    turnCommitToTurnCompleteMs = nil
     turnAudioSeconds = duration
     turnCaptureFinalizeMs = (ProcessInfo.processInfo.systemUptime - pipelineStartTime) * 1000
     if interrupted {
@@ -1484,6 +1530,9 @@ public final class DictationEngine {
     captureFinalizeMs: Double, reason: String, isRetry: Bool = false, backupRoute: Bool = false
   ) {
     guard currentTurnId == turnId, !turnSettled else { return }
+    // A hedge or fallback REST call was started for this live turn (item D); which route's
+    // result actually settles it is decided in settle().
+    if backupRoute { turnHedgeFired = true }
     if backupRoute, !isRetry {
       DispatchQueue.main.async { [weak self] in
         self?.feedback.showProcessingStatus("Using backup route")
@@ -1623,6 +1672,20 @@ public final class DictationEngine {
       return
     }
     turnSettled = true
+    // Connection state, hedge, and round-trip split (item D): read here, before any of this
+    // function's own cleanup (abandonTurn, below) can itself rotate the socket and taint
+    // reconnected_during_turn with a reconnect that settle() caused rather than one the
+    // turn actually raced against.
+    turnReconnectedDuringTurn = liveClient?.lastConnectionChangedDuringTurn
+    let roundTrip = liveClient?.lastRoundTrip
+    turnCommitToLastSendMs = roundTrip?.lastSendMs
+    turnCommitToFirstMsgMs = roundTrip?.firstMsgMs
+    turnCommitToFinalMs = roundTrip?.finalMs
+    turnCommitToTurnCompleteMs = roundTrip?.turnCompleteMs
+    // hedge_winner names whichever route's result actually reaches settle(); it is NULL
+    // whenever no hedge or fallback REST call was ever started for this turn.
+    turnHedgeWinner =
+      turnHedgeFired ? (route == "WS" ? "ws" : (route == "REST" ? "rest" : nil)) : nil
     pendingTurnDeadline?.cancel()
     pendingTurnDeadline = nil
     pendingRestRequest?.cancel()
@@ -1691,7 +1754,14 @@ public final class DictationEngine {
           speechFrames: turnSpeechFrames,
           settlePath: turnSettlePath,
           finishMode: turnFinishMode,
-          eventQueueMs: turnEventQueueMs
+          eventQueueMs: turnEventQueueMs,
+          reconnectedDuringTurn: turnReconnectedDuringTurn,
+          hedgeFired: turnHedgeFired,
+          hedgeWinner: turnHedgeWinner,
+          commitToLastSendMs: turnCommitToLastSendMs,
+          commitToFirstMsgMs: turnCommitToFirstMsgMs,
+          commitToFinalMs: turnCommitToFinalMs,
+          commitToTurnCompleteMs: turnCommitToTurnCompleteMs
         ))
       processingLock.lock()
       isProcessing = false
@@ -1741,7 +1811,14 @@ public final class DictationEngine {
           speechFrames: turnSpeechFrames,
           settlePath: turnSettlePath,
           finishMode: turnFinishMode,
-          eventQueueMs: turnEventQueueMs
+          eventQueueMs: turnEventQueueMs,
+          reconnectedDuringTurn: turnReconnectedDuringTurn,
+          hedgeFired: turnHedgeFired,
+          hedgeWinner: turnHedgeWinner,
+          commitToLastSendMs: turnCommitToLastSendMs,
+          commitToFirstMsgMs: turnCommitToFirstMsgMs,
+          commitToFinalMs: turnCommitToFinalMs,
+          commitToTurnCompleteMs: turnCommitToTurnCompleteMs
         ))
       processingLock.lock()
       isProcessing = false
@@ -1847,7 +1924,14 @@ public final class DictationEngine {
           speechFrames: turnSpeechFrames,
           settlePath: turnSettlePath,
           finishMode: turnFinishMode,
-          eventQueueMs: turnEventQueueMs
+          eventQueueMs: turnEventQueueMs,
+          reconnectedDuringTurn: turnReconnectedDuringTurn,
+          hedgeFired: turnHedgeFired,
+          hedgeWinner: turnHedgeWinner,
+          commitToLastSendMs: turnCommitToLastSendMs,
+          commitToFirstMsgMs: turnCommitToFirstMsgMs,
+          commitToFinalMs: turnCommitToFinalMs,
+          commitToTurnCompleteMs: turnCommitToTurnCompleteMs
         ))
       processingLock.lock()
       isProcessing = false
@@ -2077,7 +2161,14 @@ public final class DictationEngine {
       settlePath: turnSettlePath,
       finishMode: turnFinishMode,
       eventQueueMs: turnEventQueueMs,
-      deliveryOutcome: injected ? "dispatched" : (deliveryError == nil ? "copied" : "failed")
+      deliveryOutcome: injected ? "dispatched" : (deliveryError == nil ? "copied" : "failed"),
+      reconnectedDuringTurn: turnReconnectedDuringTurn,
+      hedgeFired: turnHedgeFired,
+      hedgeWinner: turnHedgeWinner,
+      commitToLastSendMs: turnCommitToLastSendMs,
+      commitToFirstMsgMs: turnCommitToFirstMsgMs,
+      commitToFinalMs: turnCommitToFinalMs,
+      commitToTurnCompleteMs: turnCommitToTurnCompleteMs
     )
 
     record.postProcessing = postProcessing

@@ -205,7 +205,11 @@ public final class HistoryRepository: @unchecked Sendable {
         throw HistoryRepositoryError.queryFailed
       }
       do {
-        for table in ["transcriptions", "corrections"] {
+        // connection_events is additive (item D): a database this process opened before
+        // HistoryStore ever created it (or wrote by an older build) may not have the table
+        // yet. Skip it rather than fail the whole prune.
+        for table in ["transcriptions", "corrections", "connection_events"] {
+          guard Self.tableExists(table, in: db) else { continue }
           let statement = try Self.prepare(db, "DELETE FROM \(table) WHERE ts_epoch < ?")
           defer { sqlite3_finalize(statement) }
           sqlite3_bind_double(statement, 1, cutoff.timeIntervalSince1970)
@@ -224,11 +228,14 @@ public final class HistoryRepository: @unchecked Sendable {
   }
   public func clear() async throws {
     try await mutate { db in
-      guard
-        sqlite3_exec(
-          db, "BEGIN IMMEDIATE; DELETE FROM transcriptions; DELETE FROM corrections; COMMIT;", nil,
-          nil, nil) == SQLITE_OK
-      else {
+      var sql = "BEGIN IMMEDIATE; DELETE FROM transcriptions; DELETE FROM corrections;"
+      // Same additive-table tolerance as prune: a pre-item-D database has no
+      // connection_events table to clear.
+      if Self.tableExists("connection_events", in: db) {
+        sql += " DELETE FROM connection_events;"
+      }
+      sql += " COMMIT;"
+      guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
         sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
         throw HistoryRepositoryError.queryFailed
       }
@@ -260,7 +267,25 @@ public final class HistoryRepository: @unchecked Sendable {
     defer { sqlite3_close(handle) }
     sqlite3_busy_timeout(handle, 2000)
     try HistoryPostProcessingSchema.migrate(handle)
+    // No schema writes here (item D): this path also serves entries()/count()/statistics(),
+    // the read-only History browsing paths, which must not pay for a DDL statement (or need
+    // write access) on every call. connection_events is created by HistoryStore's own
+    // migration; prune/clear tolerate it being absent via tableExists below.
     return try body(handle)
+  }
+  private static func tableExists(_ name: String, in db: OpaquePointer) -> Bool {
+    var statement: OpaquePointer?
+    guard
+      sqlite3_prepare_v2(
+        db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", -1, &statement, nil)
+        == SQLITE_OK, let statement
+    else {
+      sqlite3_finalize(statement)
+      return false
+    }
+    defer { sqlite3_finalize(statement) }
+    bind(statement, 1, name)
+    return sqlite3_step(statement) == SQLITE_ROW
   }
   private static func prepare(_ db: OpaquePointer, _ sql: String) throws -> OpaquePointer {
     var statement: OpaquePointer?

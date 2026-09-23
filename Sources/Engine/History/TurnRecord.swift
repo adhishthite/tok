@@ -77,4 +77,18 @@ public struct TurnRecord: Sendable {
   public var quietResets: Int? = nil
   public var trailPeakDb: Double? = nil
   public var noiseFloorDb: Double? = nil
+  // Connection state, hedge, and round-trip split (item D). socketStateAtKeydown/
+  // socketAgeMs are filled centrally in recordTurn, the same as micStateAtKeydown above.
+  // The rest are stamped explicitly at each settle-time construction site, the same way
+  // settlePath already is: they come from the sessionQueue-only arbiter and the live
+  // client's lock-guarded state, not from a main-thread turn* var.
+  public var socketStateAtKeydown: String? = nil
+  public var socketAgeMs: Double? = nil
+  public var reconnectedDuringTurn: Bool? = nil
+  public var hedgeFired: Bool? = nil
+  public var hedgeWinner: String? = nil
+  public var commitToLastSendMs: Double? = nil
+  public var commitToFirstMsgMs: Double? = nil
+  public var commitToFinalMs: Double? = nil
+  public var commitToTurnCompleteMs: Double? = nil
 }

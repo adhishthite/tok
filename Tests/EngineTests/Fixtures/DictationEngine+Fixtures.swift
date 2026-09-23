@@ -110,3 +110,34 @@ extension DictationEngine {
       "cancel records one cancelled row and never a stale one: \(outcomes)")
   }
 }
+extension DictationEngine {
+  /// item D: hedge_fired/hedge_winner are stamped in settle(), from sessionQueue-only
+  /// arbiter state, not from a main-thread turn* var. A fresh engine's turn #0 is already
+  /// live, so no capture or network call is needed; enableLiveWebSocket is off so liveClient
+  /// stays nil and reconnectedDuringTurn/the round-trip fields settle to NULL, exactly the
+  /// values a REST-only configuration should record.
+  func fixtureHedgeStamping(recorder: EngineEventRecorder, hedgeFired: Bool, route: String) {
+    let done = DispatchSemaphore(value: 0)
+    sessionQueue.async {
+      if hedgeFired { self.turnHedgeFired = true }
+      self.settle(turnId: 0, route: route, outcome: .empty(audioDuration: 1.0))
+      done.signal()
+    }
+    check(done.wait(timeout: .now() + 2) == .success, "hedge stamping fixture completes")
+    let record = recorder.events.compactMap { event -> TurnRecord? in
+      if case .turnSettled(let record) = event { return record }
+      return nil
+    }.first
+    check(record?.hedgeFired == hedgeFired, "hedge_fired reflects whether a hedge/fallback ran")
+    if hedgeFired {
+      check(
+        record?.hedgeWinner == (route == "WS" ? "ws" : "rest"),
+        "hedge_winner names the route that settled the turn")
+    } else {
+      check(record?.hedgeWinner == nil, "no hedge means hedge_winner is NULL")
+    }
+    check(
+      record?.reconnectedDuringTurn == nil && record?.commitToLastSendMs == nil,
+      "no live client means the connection/round-trip fields stay NULL")
+  }
+}

@@ -58,6 +58,41 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     defer { lock.unlock() }
     return readyState
   }
+  /// Connection readiness and session age at the instant of a key-down: "ready" with the
+  /// socket's age when a session is established, "connecting" while a handshake is in
+  /// flight, "closed" otherwise. A brief lock scope; callers on main must never do more.
+  var socketStateAtKeydown: (state: String, ageMs: Double?) {
+    lock.lock()
+    defer { lock.unlock() }
+    if readyState {
+      return ("ready", (ProcessInfo.processInfo.systemUptime - sessionEstablishedAt) * 1000.0)
+    }
+    return (webSocketTask != nil ? "connecting" : "closed", nil)
+  }
+  // Whether the socket identity changed (a new connection was established) or was lost
+  // while the current turn was open. Reset in startNewTurn; set in connect() and
+  // connectionFailed(), both already under `lock`. Read via lastConnectionChangedDuringTurn
+  // after settle, the same pattern as lastSettlePath.
+  private var turnConnectionChanged = false
+  var lastConnectionChangedDuringTurn: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return turnConnectionChanged
+  }
+  // Round-trip split from commit to each network milestone the turn passes, all ms. Each is
+  // set at most once per turn, at the moment the event lands, under `lock`; startNewTurn
+  // resets them. Read via lastRoundTrip after settle, the same pattern as lastSettlePath.
+  private var commitToLastSendMs: Double?
+  private var commitToFirstMsgMs: Double?
+  private var commitToFinalMs: Double?
+  private var commitToTurnCompleteMs: Double?
+  var lastRoundTrip:
+    (lastSendMs: Double?, firstMsgMs: Double?, finalMs: Double?, turnCompleteMs: Double?)
+  {
+    lock.lock()
+    defer { lock.unlock() }
+    return (commitToLastSendMs, commitToFirstMsgMs, commitToFinalMs, commitToTurnCompleteMs)
+  }
   /// Seconds left before the current session reaches the documented limit, or nil when
   /// no session is established.
   var sessionRemainingSeconds: Double? {
@@ -169,6 +204,11 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   var onLiveTextUpdate: ((String) -> Void)?
   /// Called once when consecutive key rejections stop the reconnect loop.
   var onAuthRejected: (() -> Void)?
+  /// Connection lifecycle telemetry (item D): fired for a connect attempt, a lost
+  /// connection, or an explicit close. Never called under `lock`. The receiver (History,
+  /// through DictationEngine) writes asynchronously on its own queue, so this never blocks
+  /// whichever thread the event happened on.
+  var onConnectionEvent: ((_ kind: String, _ turnOpen: Bool, _ socketAgeS: Double?) -> Void)?
   private let smartTranscription: Bool
   let languageCodes: [String]
   private let customVocabulary: [String]
@@ -282,6 +322,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     if expectedConnection == nil { authRejectionCount = 0 }
     reconnectEnabled = true
     connectionID &+= 1
+    turnConnectionChanged = true
     let epoch = connectionID
     let old = webSocketTask
     self.webSocketTask = task
@@ -293,6 +334,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     }
     rotateWhenIdle = false
     pendingConnectReason = reason
+    let turnOpenAtConnect = turnOpen
     lock.unlock()
     old?.cancel(with: .goingAway, reason: nil)
     task.resume()
@@ -303,6 +345,20 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     Log.debug("WS", "Connecting to Gemini Live WebSockets (\(model), reason=\(reason))...")
     sendSetupMessage(task: task, epoch: epoch)
     listenForMessages(task: task, epoch: epoch)
+    onConnectionEvent?(Self.connectionEventKind(forConnectReason: reason), turnOpenAtConnect, nil)
+  }
+
+  /// Maps the free-form `reason` a connect attempt is tagged with to one of the fixed
+  /// connection_events kinds. Every reason this client actually passes to connect()
+  /// ("startup", "rotation", "wake", and the default "reconnect") is named explicitly;
+  /// anything else still gets a kind rather than being dropped.
+  private static func connectionEventKind(forConnectReason reason: String) -> String {
+    switch reason {
+    case "startup": return "connect_startup"
+    case "rotation": return "connect_rotation"
+    case "wake": return "connect_wake"
+    default: return "connect_reconnect"
+    }
   }
 
   private func sendSetupMessage(task: URLSessionWebSocketTask, epoch: UInt64) {
@@ -415,12 +471,18 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     }
   }
 
-  func connectionFailed(epoch: UInt64, error: Error) {
+  /// `reason` only distinguishes a failed idle keepalive ping ("keepalive") from every other
+  /// cause for the connection_events kind it reports; it changes no reconnect behavior.
+  func connectionFailed(epoch: UInt64, error: Error, reason: String = "error") {
     lock.lock()
     guard epoch == connectionID else {
       lock.unlock()
       return
     }
+    let turnOpenAtFailure = turnOpen
+    let socketAgeS =
+      sessionEstablishedAt > 0 ? ProcessInfo.processInfo.systemUptime - sessionEstablishedAt : nil
+    turnConnectionChanged = true
     readyState = false
     connectedState = false
     if turnOpen && turnSentAnyMessage {
@@ -447,6 +509,8 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     let stopReconnecting = authRejectionCount >= Self.maxAuthRejections
     if stopReconnecting { reconnectEnabled = false }
     lock.unlock()
+    onConnectionEvent?(
+      reason == "keepalive" ? "lost_keepalive" : "lost_error", turnOpenAtFailure, socketAgeS)
     completion?(.failure(error))
     if stopReconnecting {
       Log.error("WS", "API key rejected; not reconnecting.")
@@ -541,6 +605,12 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     }
 
     messageTurn = turnID
+
+    // Round-trip split (item D): the first server message of any kind after this turn's
+    // commit, whatever it carries.
+    if isCommitting, commitToFirstMsgMs == nil {
+      commitToFirstMsgMs = (ProcessInfo.processInfo.systemUptime - turnCommitTime) * 1000.0
+    }
 
     // 0. Server error handling
     if let errorObj = json["error"] as? [String: Any] {
@@ -648,6 +718,10 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
         self.lastTokenReceivedTime = now
         if self.isCommitting {
           self.lastPostCommitTokenTime = now
+          // Round-trip split (item D): commit_to_final_ms is defined as the last
+          // transcription message received before settle, so this is overwritten on every
+          // post-commit update rather than latched on the first one.
+          self.commitToFinalMs = (now - self.turnCommitTime) * 1000.0
           if isFinalTranscription {
             self.lastPostCommitFinalTime = now
           } else if isUserSpeech {
@@ -686,6 +760,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
         && !hasFiredTurnCompletion
       {
         serverCompletionReceived = true
+        commitToTurnCompleteMs = (ProcessInfo.processInfo.systemUptime - turnCommitTime) * 1000.0
       }
       shouldCompleteServerTurn = serverCompletionReceived && commitWritesComplete
 
@@ -984,6 +1059,11 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     self.lastPostCommitFinalTime = nil
     self.turnCompletion = nil
     self.completedUsage = nil
+    self.turnConnectionChanged = false
+    self.commitToLastSendMs = nil
+    self.commitToFirstMsgMs = nil
+    self.commitToFinalMs = nil
+    self.commitToTurnCompleteMs = nil
     if usageCountsArePerTurn {
       // Per-turn counts do not carry over. Clearing them means a turn the server reports
       // no usage for records none instead of repeating the previous turn's numbers.
@@ -1257,6 +1337,11 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     }
     commitWritesComplete = true
     commitWritesCompletedAt = ProcessInfo.processInfo.systemUptime
+    // Round-trip split (item D): the last audio frame and end-of-turn signals are on the
+    // wire once every write this commit queued has been acknowledged by its completion
+    // handler (or, for the manual/aligned path with no separate terminal message, once the
+    // audio itself has drained) - exactly the instant this notify fires.
+    commitToLastSendMs = (commitWritesCompletedAt - turnCommitTime) * 1000.0
     var initialDelay = Self.settleInitialWaitWithoutTokens
     if let final = lastPostCommitFinalTime {
       initialDelay = max(0, Self.settleFinalGrace - (commitWritesCompletedAt - final))
@@ -1375,7 +1460,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
         "WS",
         "Keepalive ping failed; treating the live connection as lost (idle, socket age "
           + "\(String(format: "%.0f", socketAgeSeconds))s).")
-      self.connectionFailed(epoch: epoch, error: error)
+      self.connectionFailed(epoch: epoch, error: error, reason: "keepalive")
     }
   }
 
@@ -1421,6 +1506,11 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   func disconnect() {
     lock.lock()
     connectionID &+= 1
+    let hadConnection = webSocketTask != nil
+    let socketAgeS =
+      sessionEstablishedAt > 0 ? ProcessInfo.processInfo.systemUptime - sessionEstablishedAt : nil
+    let turnOpenAtDisconnect = turnOpen
+    turnConnectionChanged = true
     reconnectEnabled = false
     sessionRotationWorkItem?.cancel()
     sessionRotationWorkItem = nil
@@ -1444,6 +1534,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     isCommitting = false
     lock.unlock()
     task?.cancel(with: .normalClosure, reason: nil)
+    if hadConnection { onConnectionEvent?("closed_by_client", turnOpenAtDisconnect, socketAgeS) }
     completion?(
       .failure(
         NSError(

@@ -163,10 +163,31 @@ final class HistoryStore {
         banked_quiet_ms REAL,
         quiet_resets INTEGER,
         trail_peak_db REAL,
-        noise_floor_db REAL
+        noise_floor_db REAL,
+        socket_state_at_keydown TEXT,
+        socket_age_ms REAL,
+        reconnected_during_turn INTEGER,
+        hedge_fired INTEGER,
+        hedge_winner TEXT,
+        commit_to_last_send_ms REAL,
+        commit_to_first_msg_ms REAL,
+        commit_to_final_ms REAL,
+        commit_to_turn_complete_ms REAL
       );
       CREATE INDEX IF NOT EXISTS idx_transcriptions_ts ON transcriptions(ts_epoch);
       CREATE INDEX IF NOT EXISTS idx_transcriptions_session ON transcriptions(session_id);
+      CREATE TABLE IF NOT EXISTS connection_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts_epoch REAL NOT NULL,
+        kind TEXT NOT NULL,
+        turn_open INTEGER,
+        socket_age_s REAL,
+        build_id TEXT
+      );
+      -- Never shown in UI; a diagnostics-only lifecycle trace for the Live socket
+      -- (connect/reconnect/rotate/wake, lost, closed). Included in retention pruning and
+      -- the delete-all-history path alongside transcriptions/corrections.
+      CREATE INDEX IF NOT EXISTS idx_connection_events_ts ON connection_events(ts_epoch);
       CREATE TABLE IF NOT EXISTS corrections (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ts_utc TEXT NOT NULL,
@@ -242,6 +263,15 @@ final class HistoryStore {
       "ALTER TABLE transcriptions ADD COLUMN quiet_resets INTEGER",
       "ALTER TABLE transcriptions ADD COLUMN trail_peak_db REAL",
       "ALTER TABLE transcriptions ADD COLUMN noise_floor_db REAL",
+      "ALTER TABLE transcriptions ADD COLUMN socket_state_at_keydown TEXT",
+      "ALTER TABLE transcriptions ADD COLUMN socket_age_ms REAL",
+      "ALTER TABLE transcriptions ADD COLUMN reconnected_during_turn INTEGER",
+      "ALTER TABLE transcriptions ADD COLUMN hedge_fired INTEGER",
+      "ALTER TABLE transcriptions ADD COLUMN hedge_winner TEXT",
+      "ALTER TABLE transcriptions ADD COLUMN commit_to_last_send_ms REAL",
+      "ALTER TABLE transcriptions ADD COLUMN commit_to_first_msg_ms REAL",
+      "ALTER TABLE transcriptions ADD COLUMN commit_to_final_ms REAL",
+      "ALTER TABLE transcriptions ADD COLUMN commit_to_turn_complete_ms REAL",
     ] {
       sqlite3_exec(opened, migration, nil, nil, nil)
     }
@@ -362,8 +392,11 @@ final class HistoryStore {
         post_roll_ms, post_roll_max_ms, trail_silence_db, experiment_tag, mic_state_at_keydown,
         ms_since_prev_capture, preroll_ms_used, starting_notice_shown, onset_db,
         finalize_exit, finalize_drain_ms, trail_wait_ms, banked_quiet_ms, quiet_resets,
-        trail_peak_db, noise_floor_db
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        trail_peak_db, noise_floor_db,
+        socket_state_at_keydown, socket_age_ms, reconnected_during_turn, hedge_fired,
+        hedge_winner, commit_to_last_send_ms, commit_to_first_msg_ms, commit_to_final_ms,
+        commit_to_turn_complete_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       """
 
     var stmt: OpaquePointer?
@@ -450,6 +483,15 @@ final class HistoryStore {
     self.bindInt(stmt, 72, r.quietResets)
     self.bindDouble(stmt, 73, r.trailPeakDb)
     self.bindDouble(stmt, 74, r.noiseFloorDb)
+    self.bindText(stmt, 75, r.socketStateAtKeydown)
+    self.bindDouble(stmt, 76, r.socketAgeMs)
+    self.bindBool(stmt, 77, r.reconnectedDuringTurn)
+    self.bindBool(stmt, 78, r.hedgeFired)
+    self.bindText(stmt, 79, r.hedgeWinner)
+    self.bindDouble(stmt, 80, r.commitToLastSendMs)
+    self.bindDouble(stmt, 81, r.commitToFirstMsgMs)
+    self.bindDouble(stmt, 82, r.commitToFinalMs)
+    self.bindDouble(stmt, 83, r.commitToTurnCompleteMs)
 
     let stepped = sqlite3_step(stmt)
     if stepped != SQLITE_DONE {
@@ -568,6 +610,53 @@ final class HistoryStore {
     if stepped != SQLITE_DONE {
       Log.warn(
         "HISTORY", "Failed to update Jev judgment row: \(String(cString: sqlite3_errmsg(db)))")
+    }
+    sqlite3_finalize(stmt)
+    return stepped
+  }
+
+  // Connection lifecycle telemetry (item D): never shown in UI, so it never raises onError
+  // and never touches PRIVACY_MODE (transcriptions do not gate on it either; there is no
+  // transcript text or app/device name in a connection_events row to begin with).
+  // Fire-and-forget on the history queue, exactly like record(): the caller (GeminiLiveClient,
+  // through DictationEngine's callback) may be running on main or a client-internal queue,
+  // and must never block waiting for this write.
+  func recordConnectionEvent(kind: String, turnOpen: Bool, socketAgeS: Double?) {
+    queue.async { [weak self] in
+      guard let self = self else { return }
+      self.openIfNeeded()
+      guard let db = self.db else { return }
+      _ = self.withInsertRetry {
+        self.insertConnectionEvent(db, kind: kind, turnOpen: turnOpen, socketAgeS: socketAgeS)
+      }
+    }
+  }
+
+  private func insertConnectionEvent(
+    _ db: OpaquePointer, kind: String, turnOpen: Bool, socketAgeS: Double?
+  ) -> Int32 {
+    let sql = """
+      INSERT INTO connection_events (ts_epoch, kind, turn_open, socket_age_s, build_id)
+      VALUES (?, ?, ?, ?, ?)
+      """
+    var stmt: OpaquePointer?
+    let prepared = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
+    guard prepared == SQLITE_OK else {
+      Log.warn(
+        "HISTORY",
+        "Failed to prepare connection event insert: \(String(cString: sqlite3_errmsg(db)))")
+      sqlite3_finalize(stmt)
+      return prepared
+    }
+    bindDouble(stmt, 1, Date().timeIntervalSince1970)
+    bindText(stmt, 2, kind)
+    bindBool(stmt, 3, turnOpen)
+    bindDouble(stmt, 4, socketAgeS)
+    bindText(stmt, 5, buildId)
+    let stepped = sqlite3_step(stmt)
+    if stepped != SQLITE_DONE {
+      Log.warn(
+        "HISTORY", "Failed to insert connection event: \(String(cString: sqlite3_errmsg(db)))")
     }
     sqlite3_finalize(stmt)
     return stepped
