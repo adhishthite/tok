@@ -205,7 +205,7 @@ public final class HistoryRepository: @unchecked Sendable {
         throw HistoryRepositoryError.queryFailed
       }
       do {
-        // connection_events is additive (item D): a database this process opened before
+        // connection_events is additive: a database this process opened before
         // HistoryStore ever created it (or wrote by an older build) may not have the table
         // yet. Skip it rather than fail the whole prune.
         for table in ["transcriptions", "corrections", "connection_events"] {
@@ -267,7 +267,7 @@ public final class HistoryRepository: @unchecked Sendable {
     defer { sqlite3_close(handle) }
     sqlite3_busy_timeout(handle, 2000)
     try HistoryPostProcessingSchema.migrate(handle)
-    // No schema writes here (item D): this path also serves entries()/count()/statistics(),
+    // No schema writes here: this path also serves entries()/count()/statistics(),
     // the read-only History browsing paths, which must not pay for a DDL statement (or need
     // write access) on every call. connection_events is created by HistoryStore's own
     // migration; prune/clear tolerate it being absent via tableExists below.

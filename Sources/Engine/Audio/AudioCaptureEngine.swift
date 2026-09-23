@@ -64,7 +64,7 @@ final class AudioCaptureEngine {
   private let maxPreRollBytes: Int
   private var preRollBytesInTurn = 0
   // Count of frameDbValues entries contributed by pre-roll audio at the start of this turn
-  // (item AB's onset_db excludes them). Set once, right after the pre-roll folds into the
+  // (onset_db excludes them). Set once, right after the pre-roll folds into the
   // stats accumulator in startRecordingOnQueue, under `lock` like preRollBytesInTurn.
   private var preRollFrameCountInTurn = 0
 
@@ -95,7 +95,7 @@ final class AudioCaptureEngine {
   var onAudioChunk: ((Data) -> Void)?
   var onAudioLevel: ((Double) -> Void)?
 
-  // Item AB: milliseconds of pre-roll audio actually prepended to the turn now finishing (0
+  // Milliseconds of pre-roll audio actually prepended to the turn now finishing (0
   // when pre-roll was off or the mic was cold). Snapshot under `lock`, then compute outside
   // it - no I/O or callbacks here, just arithmetic on the copy.
   var preRollMsUsedInTurn: Double {
@@ -105,7 +105,7 @@ final class AudioCaptureEngine {
     return Double(bytes) / 32.0
   }
 
-  // Item AB: first-word-clipping proxy - the loudest of the first five 20ms frames of
+  // First-word-clipping proxy - the loudest of the first five 20ms frames of
   // NEWLY captured audio after capture start, excluding pre-roll. NULL (nil) if the clip has
   // no post-pre-roll frames at all. Snapshot under `lock`, compute outside it.
   var onsetDbInTurn: Double? {
@@ -686,7 +686,7 @@ final class AudioCaptureEngine {
       // idle), so their stats are folded in once here - a ≤400ms scan, off the key-up
       // path entirely.
       accumulateStats(data: preRollRingBuffer)
-      // Frames the pre-roll completed; onset_db (item AB) starts reading after this many.
+      // Frames the pre-roll completed; onset_db starts reading after this many.
       preRollFrameCountInTurn = frameDbValues.count
       preRollRingBuffer.removeAll(keepingCapacity: true)
     }

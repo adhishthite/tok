@@ -4,7 +4,7 @@ import XCTest
 
 @testable import TokEngine
 
-/// Connection state, hedge, and round-trip split (item D). Covers the additive migration,
+/// Connection state, hedge, and round-trip split. Covers the additive migration,
 /// TurnRecord round-tripping the new transcriptions columns through HistoryStore, and the
 /// new connection_events table: insert, retention pruning, and the delete-all-history path.
 final class ConnectionStateHistoryTests: XCTestCase {

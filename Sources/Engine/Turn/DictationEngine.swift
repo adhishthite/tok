@@ -135,7 +135,7 @@ public final class DictationEngine {
   // the audio it already paid for on the history row (audit F11).
   private var turnAudioSeconds: Double?
 
-  // Connection state, hedge, and round-trip split (item D). Unlike the AB/C fields below,
+  // Connection state, hedge, and round-trip split. Unlike the fields below,
   // these are not read through recordTurn's central fallback-fill: a reviewer flagged that
   // pattern as racy for main-thread state (handleKeyDown can reset a turn* var before the
   // previous turn's row is fully built off-thread), so these are sessionQueue-only and
@@ -153,7 +153,7 @@ public final class DictationEngine {
   private var turnCommitToFinalMs: Double?
   private var turnCommitToTurnCompleteMs: Double?
 
-  // Item AB: self-describing rows and key-down readiness. Same cross-thread discipline as
+  // Self-describing rows and key-down readiness. Same cross-thread discipline as
   // the first-word evidence above - written on main, read on sessionQueue via recordTurn's
   // central fallback-fill, except turnOnsetDb (sessionQueue-only, like turnPeakDb) and
   // lastCaptureEndUptime (written on sessionQueue right after stopRecording, read on main at
@@ -166,7 +166,7 @@ public final class DictationEngine {
   private var turnPrerollMsUsed: Double?
   private var turnMsSincePrevCapture: Double?
   private var turnOnsetDb: Double?
-  // item D: the Live socket's readiness and session age at this same key-down instant,
+  // The Live socket's readiness and session age at this same key-down instant,
   // read through GeminiLiveClient's lock-guarded accessor. Same cross-thread discipline
   // (and the same accepted race window) as turnMicStateAtKeydown above.
   private var turnSocketStateAtKeydown: String?
@@ -404,7 +404,7 @@ public final class DictationEngine {
           self?.feedback.showError(message: "API key rejected. Check the key in Settings.")
         }
       }
-      // Connection lifecycle telemetry (item D): async on the history queue, never shown in
+      // Connection lifecycle telemetry: async on the history queue, never shown in
       // UI. May fire from main, sendQueue, or settleQueue; recordConnectionEvent only ever
       // does queue.async, so this never blocks whichever thread the event happened on.
       liveClient?.onConnectionEvent = { [weak self] kind, turnOpen, socketAgeS in
@@ -713,11 +713,11 @@ public final class DictationEngine {
     capturePending = true
     captureGeneration &+= 1
     let generation = captureGeneration
-    // Item AB: "warm" iff the mic was already running when this key-down was decided -
+    // "warm" when the mic was already running when this key-down was decided -
     // the same instant that decides whether the "Getting ready" pill is even scheduled.
     let micWasWarm = audioCapture.isEngineRunning
     turnMicStateAtKeydown = micWasWarm ? "warm" : "cold"
-    // item D: connection readiness at the same key-down instant, through a brief lock scope
+    // Connection readiness at the same key-down instant, through a brief lock scope
     // on the live client (never sessionQueue.sync from main).
     let socketSnapshot = liveClient?.socketStateAtKeydown
     turnSocketStateAtKeydown = socketSnapshot?.state ?? "closed"
@@ -1025,7 +1025,7 @@ public final class DictationEngine {
     // start of "Total Key-Up -> Paste" latency measurement.
     let handlerTime = ProcessInfo.processInfo.systemUptime
     let keyUpTime = eventTime.flatMap { $0 > 0 && $0 <= handlerTime ? $0 : nil } ?? handlerTime
-    // Item AB: wall-clock equivalent of keyUpTime. When keyUpTime came from an event
+    // Wall-clock equivalent of keyUpTime. When keyUpTime came from an event
     // timestamp (uptime-based, in the past), shift now's epoch back by the same queueing
     // delay instead of stamping the moment this handler happened to run.
     turnKeyUpEpoch = Date().timeIntervalSince1970 - (handlerTime - keyUpTime)
@@ -1530,7 +1530,7 @@ public final class DictationEngine {
     captureFinalizeMs: Double, reason: String, isRetry: Bool = false, backupRoute: Bool = false
   ) {
     guard currentTurnId == turnId, !turnSettled else { return }
-    // A hedge or fallback REST call was started for this live turn (item D); which route's
+    // A hedge or fallback REST call was started for this live turn; which route's
     // result actually settles it is decided in settle().
     if backupRoute { turnHedgeFired = true }
     if backupRoute, !isRetry {
@@ -1672,7 +1672,7 @@ public final class DictationEngine {
       return
     }
     turnSettled = true
-    // Connection state, hedge, and round-trip split (item D): read here, before any of this
+    // Connection state, hedge, and round-trip split: read here, before any of this
     // function's own cleanup (abandonTurn, below) can itself rotate the socket and taint
     // reconnected_during_turn with a reconnect that settle() caused rather than one the
     // turn actually raced against.

@@ -111,7 +111,7 @@ extension DictationEngine {
   }
 }
 extension DictationEngine {
-  /// item D: hedge_fired/hedge_winner are stamped in settle(), from sessionQueue-only
+  /// hedge_fired and hedge_winner are stamped in settle(), from sessionQueue-only
   /// arbiter state, not from a main-thread turn* var. A fresh engine's turn #0 is already
   /// live, so no capture or network call is needed; enableLiveWebSocket is off so liveClient
   /// stays nil and reconnectedDuringTurn/the round-trip fields settle to NULL, exactly the

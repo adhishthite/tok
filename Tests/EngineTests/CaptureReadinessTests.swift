@@ -4,7 +4,7 @@ import XCTest
 
 @testable import TokEngine
 
-/// Item AB: self-describing rows and key-down readiness. Covers EXPERIMENT_TAG parsing, the
+/// Self-describing rows and key-down readiness. Covers EXPERIMENT_TAG parsing, the
 /// additive migration, TurnRecord round-tripping the new columns through HistoryStore, and
 /// the onset_db pure function.
 final class CaptureReadinessTests: XCTestCase {

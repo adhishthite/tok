@@ -56,7 +56,7 @@ public struct TurnRecord: Sendable {
   // to the first interim text from the live service. Both NULL when not measured.
   public var captureStartMs: Double? = nil
   public var firstInterimMs: Double? = nil
-  // Self-describing rows and key-down readiness (item AB). All NULL when not measured;
+  // Self-describing rows and key-down readiness. All NULL when not measured;
   // recordTurn fills these centrally the same way it fills captureStartMs/firstInterimMs,
   // so no other TurnRecord construction site needs to pass them.
   public var keyDownEpoch: Double? = nil
@@ -77,7 +77,7 @@ public struct TurnRecord: Sendable {
   public var quietResets: Int? = nil
   public var trailPeakDb: Double? = nil
   public var noiseFloorDb: Double? = nil
-  // Connection state, hedge, and round-trip split (item D). socketStateAtKeydown/
+  // Connection state, hedge, and round-trip split. socketStateAtKeydown/
   // socketAgeMs are filled centrally in recordTurn, the same as micStateAtKeydown above.
   // The rest are stamped explicitly at each settle-time construction site, the same way
   // settlePath already is: they come from the sessionQueue-only arbiter and the live

@@ -3,7 +3,7 @@ import XCTest
 
 @testable import TokEngine
 
-/// Connection state, hedge, and round-trip split (item D), at the GeminiLiveClient level:
+/// Connection state, hedge, and round-trip split, at the GeminiLiveClient level:
 /// the key-down readiness accessor, the per-turn reconnect/loss flag, the commit round-trip
 /// split, and the connect-reason-to-connection_events-kind mapping.
 final class ConnectionStateClientTests: XCTestCase {

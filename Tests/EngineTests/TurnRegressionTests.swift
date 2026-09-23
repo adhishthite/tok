@@ -93,7 +93,7 @@ final class TurnRegressionTests: XCTestCase {
     cancelEngine.delegate = cancelRecorder
     cancelEngine.fixtureCancelledTurn(recorder: cancelRecorder)
 
-    // item D: hedge_fired/hedge_winner, stamped in settle() from sessionQueue-only state.
+    // hedge_fired and hedge_winner, stamped in settle() from sessionQueue-only state.
     let noHedgeRecorder = EngineEventRecorder()
     let noHedgeEngine = DictationEngine(config: restOnlyConfig)
     noHedgeEngine.delegate = noHedgeRecorder

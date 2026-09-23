@@ -204,7 +204,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   var onLiveTextUpdate: ((String) -> Void)?
   /// Called once when consecutive key rejections stop the reconnect loop.
   var onAuthRejected: (() -> Void)?
-  /// Connection lifecycle telemetry (item D): fired for a connect attempt, a lost
+  /// Connection lifecycle telemetry: fired for a connect attempt, a lost
   /// connection, or an explicit close. Never called under `lock`. The receiver (History,
   /// through DictationEngine) writes asynchronously on its own queue, so this never blocks
   /// whichever thread the event happened on.
@@ -606,7 +606,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
 
     messageTurn = turnID
 
-    // Round-trip split (item D): the first server message of any kind after this turn's
+    // Round-trip split: the first server message of any kind after this turn's
     // commit, whatever it carries.
     if isCommitting, commitToFirstMsgMs == nil {
       commitToFirstMsgMs = (ProcessInfo.processInfo.systemUptime - turnCommitTime) * 1000.0
@@ -718,7 +718,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
         self.lastTokenReceivedTime = now
         if self.isCommitting {
           self.lastPostCommitTokenTime = now
-          // Round-trip split (item D): commit_to_final_ms is defined as the last
+          // Round-trip split: commit_to_final_ms is defined as the last
           // transcription message received before settle, so this is overwritten on every
           // post-commit update rather than latched on the first one.
           self.commitToFinalMs = (now - self.turnCommitTime) * 1000.0
@@ -1337,7 +1337,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     }
     commitWritesComplete = true
     commitWritesCompletedAt = ProcessInfo.processInfo.systemUptime
-    // Round-trip split (item D): the last audio frame and end-of-turn signals are on the
+    // Round-trip split: the last audio frame and end-of-turn signals are on the
     // wire once every write this commit queued has been acknowledged by its completion
     // handler (or, for the manual/aligned path with no separate terminal message, once the
     // audio itself has drained) - exactly the instant this notify fires.

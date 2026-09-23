@@ -34,7 +34,7 @@ final class HistoryStore {
   let chunkMs: Int
   let silenceFlushMs: Int
   private let buildId: String?
-  // Effective capture-timing knobs for this engine instance (item AB), stamped on every row
+  // Effective capture-timing knobs for this engine instance, stamped on every row
   // the same way endpointAligned/chunkMs/silenceFlushMs are: constant per process, so
   // measurements can be sliced by exactly which config produced them without restarting.
   let keepMicWarm: Bool
@@ -615,7 +615,7 @@ final class HistoryStore {
     return stepped
   }
 
-  // Connection lifecycle telemetry (item D): never shown in UI, so it never raises onError
+  // Connection lifecycle telemetry: never shown in UI, so it never raises onError
   // and never touches PRIVACY_MODE (transcriptions do not gate on it either; there is no
   // transcript text or app/device name in a connection_events row to begin with).
   // Fire-and-forget on the history queue, exactly like record(): the caller (GeminiLiveClient,
