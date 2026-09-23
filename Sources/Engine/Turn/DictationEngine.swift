@@ -160,6 +160,32 @@ public final class DictationEngine {
     turnOnsetDb = audioCapture.onsetDbInTurn
   }
 
+  // Item C: capture finalization diagnostics. sessionQueue-only, like turnPeakDb/turnOnsetDb:
+  // stopRecording now returns a CaptureFinalizeStats alongside its tuple, and both call sites
+  // (discardCapture's cancel path and runTurnPipeline) stamp it here right after the call
+  // returns, before either can produce a TurnRecord. Reset again at key-down (handleKeyDown)
+  // as a second line of defense, matching the fix already shipped for item AB's
+  // turnKeyUpEpoch: a turn that reaches neither stopRecording call between two key-downs
+  // must not have the previous turn's finalize stats show up on its row.
+  private var turnFinalizeExit: String?
+  private var turnFinalizeDrainMs: Double?
+  private var turnTrailWaitMs: Double?
+  private var turnBankedQuietMs: Double?
+  private var turnQuietResets: Int?
+  private var turnTrailPeakDb: Double?
+  private var turnNoiseFloorDb: Double?
+
+  // sessionQueue-only. Call once per stopRecording call, right after it returns.
+  private func stampFinalizeStats(_ finalize: CaptureFinalizeStats) {
+    turnFinalizeExit = finalize.exit
+    turnFinalizeDrainMs = finalize.drainMs
+    turnTrailWaitMs = finalize.trailWaitMs
+    turnBankedQuietMs = finalize.bankedQuietMs
+    turnQuietResets = finalize.quietResets
+    turnTrailPeakDb = finalize.trailPeakDb
+    turnNoiseFloorDb = finalize.noiseFloorDb
+  }
+
   // Serial queue that owns all turn lifecycle state below. Both the WS commit completion and
   // the REST fallback timer used to race directly against a captured `var didFallback` bool
   // with no synchronization, so a slow-arriving WS result and a just-fired fallback timer could
@@ -471,6 +497,14 @@ public final class DictationEngine {
     if stamped.prerollMsUsed == nil { stamped.prerollMsUsed = turnPrerollMsUsed }
     if stamped.startingNoticeShown == nil { stamped.startingNoticeShown = turnStartingNoticeShown }
     if stamped.onsetDb == nil { stamped.onsetDb = turnOnsetDb }
+    // How the capture finished, filled the same way.
+    if stamped.finalizeExit == nil { stamped.finalizeExit = turnFinalizeExit }
+    if stamped.finalizeDrainMs == nil { stamped.finalizeDrainMs = turnFinalizeDrainMs }
+    if stamped.trailWaitMs == nil { stamped.trailWaitMs = turnTrailWaitMs }
+    if stamped.bankedQuietMs == nil { stamped.bankedQuietMs = turnBankedQuietMs }
+    if stamped.quietResets == nil { stamped.quietResets = turnQuietResets }
+    if stamped.trailPeakDb == nil { stamped.trailPeakDb = turnTrailPeakDb }
+    if stamped.noiseFloorDb == nil { stamped.noiseFloorDb = turnNoiseFloorDb }
     // Item 3: a delivered (pasted or copy-only), non-empty transcript gets a fire-and-forget
     // Jev quality judgment once history has assigned it a rowid. Respects PRIVACY_MODE the
     // same way history already does (no extra gating: history keeps recording under privacy
@@ -623,6 +657,17 @@ public final class DictationEngine {
     // handleKeyUp, so without this reset it would inherit the previous turn's key_up_epoch.
     turnKeyUpEpoch = nil
     turnStartingNoticeShown = false
+    // Item C: same reasoning as turnKeyUpEpoch above. Neither stopRecording call site is
+    // guaranteed to run before the next key-down decides to bail out early (offline gate,
+    // capturePending never reaching audio); without this reset such a turn's row (if any)
+    // would otherwise read a previous turn's finalize stats.
+    turnFinalizeExit = nil
+    turnFinalizeDrainMs = nil
+    turnTrailWaitMs = nil
+    turnBankedQuietMs = nil
+    turnQuietResets = nil
+    turnTrailPeakDb = nil
+    turnNoiseFloorDb = nil
     captureTimingLock.lock()
     let previousCaptureEnd = lastCaptureEndUptime
     captureTimingLock.unlock()
@@ -783,9 +828,10 @@ public final class DictationEngine {
       guard let self = self else { return }
       // Zero grace and zero trail: there is nothing in this clip worth waiting for. The
       // buffers still have to be drained, or the next turn would inherit them.
-      let (_, duration, _, _, _, _, _) = self.audioCapture.stopRecording(
+      let (_, duration, _, _, _, _, _, finalize) = self.audioCapture.stopRecording(
         gracePeriodMs: 0, maxTrailMs: 0, silenceThresholdDb: self.config.trailSilenceDb)
       self.noteCaptureFinished()
+      self.stampFinalizeStats(finalize)
       self.liveClient?.abandonTurn()
       if !self.config.keepMicrophoneWarm {
         DispatchQueue.main.async { [weak self] in self?.audioCapture.suspendEngine() }
@@ -1107,11 +1153,12 @@ public final class DictationEngine {
     guard !isStopping else { return }
     let pipelineStartTime = ProcessInfo.processInfo.systemUptime
     turnReleaseTime = keyUpTime
-    let (pcmData, duration, chunks, capturedBytes, peakDb, speechFrames, interrupted) =
+    let (pcmData, duration, chunks, capturedBytes, peakDb, speechFrames, interrupted, finalize) =
       audioCapture.stopRecording(
         gracePeriodMs: config.postRollMs, maxTrailMs: config.postRollMaxMs,
         silenceThresholdDb: config.trailSilenceDb)
     noteCaptureFinished()
+    stampFinalizeStats(finalize)
     if !config.keepMicrophoneWarm {
       DispatchQueue.main.async { [weak self] in self?.audioCapture.suspendEngine() }
     }

@@ -156,7 +156,14 @@ final class HistoryStore {
         ms_since_prev_capture REAL,
         preroll_ms_used REAL,
         starting_notice_shown INTEGER,
-        onset_db REAL
+        onset_db REAL,
+        finalize_exit TEXT,
+        finalize_drain_ms REAL,
+        trail_wait_ms REAL,
+        banked_quiet_ms REAL,
+        quiet_resets INTEGER,
+        trail_peak_db REAL,
+        noise_floor_db REAL
       );
       CREATE INDEX IF NOT EXISTS idx_transcriptions_ts ON transcriptions(ts_epoch);
       CREATE INDEX IF NOT EXISTS idx_transcriptions_session ON transcriptions(session_id);
@@ -228,6 +235,13 @@ final class HistoryStore {
       "ALTER TABLE transcriptions ADD COLUMN preroll_ms_used REAL",
       "ALTER TABLE transcriptions ADD COLUMN starting_notice_shown INTEGER",
       "ALTER TABLE transcriptions ADD COLUMN onset_db REAL",
+      "ALTER TABLE transcriptions ADD COLUMN finalize_exit TEXT",
+      "ALTER TABLE transcriptions ADD COLUMN finalize_drain_ms REAL",
+      "ALTER TABLE transcriptions ADD COLUMN trail_wait_ms REAL",
+      "ALTER TABLE transcriptions ADD COLUMN banked_quiet_ms REAL",
+      "ALTER TABLE transcriptions ADD COLUMN quiet_resets INTEGER",
+      "ALTER TABLE transcriptions ADD COLUMN trail_peak_db REAL",
+      "ALTER TABLE transcriptions ADD COLUMN noise_floor_db REAL",
     ] {
       sqlite3_exec(opened, migration, nil, nil, nil)
     }
@@ -346,8 +360,10 @@ final class HistoryStore {
         capture_start_ms, first_interim_ms,
         key_down_epoch, key_up_epoch, keep_mic_warm, mic_idle_timeout_s, pre_roll_ms,
         post_roll_ms, post_roll_max_ms, trail_silence_db, experiment_tag, mic_state_at_keydown,
-        ms_since_prev_capture, preroll_ms_used, starting_notice_shown, onset_db
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ms_since_prev_capture, preroll_ms_used, starting_notice_shown, onset_db,
+        finalize_exit, finalize_drain_ms, trail_wait_ms, banked_quiet_ms, quiet_resets,
+        trail_peak_db, noise_floor_db
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       """
 
     var stmt: OpaquePointer?
@@ -427,6 +443,13 @@ final class HistoryStore {
     self.bindDouble(stmt, 65, r.prerollMsUsed)
     self.bindBool(stmt, 66, r.startingNoticeShown)
     self.bindDouble(stmt, 67, r.onsetDb)
+    self.bindText(stmt, 68, r.finalizeExit)
+    self.bindDouble(stmt, 69, r.finalizeDrainMs)
+    self.bindDouble(stmt, 70, r.trailWaitMs)
+    self.bindDouble(stmt, 71, r.bankedQuietMs)
+    self.bindInt(stmt, 72, r.quietResets)
+    self.bindDouble(stmt, 73, r.trailPeakDb)
+    self.bindDouble(stmt, 74, r.noiseFloorDb)
 
     let stepped = sqlite3_step(stmt)
     if stepped != SQLITE_DONE {
