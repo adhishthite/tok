@@ -159,6 +159,11 @@ public struct EngineConfiguration: Sendable {
   public var learnCorrections: Bool = false
   // paste-to-read-back delay; the user needs time to notice and fix
   public var learnDelayMs: Int = 8000
+  // Free-text label stored with every history row (item AB) so measurements from a
+  // deliberate A/B session can be grouped later without timestamp archaeology. Hot: no
+  // engine restart needed. nil (not empty string) when unset, so old rows and rows with no
+  // label both read NULL. Trimmed and capped to 64 characters at parse time (SettingCatalog).
+  public var experimentTag: String? = nil
 
   static func parseVocabulary(from text: String) -> [String] {
     var items: [String] = []

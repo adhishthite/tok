@@ -11,6 +11,7 @@ public struct HotSettings: Sendable {
   public var liveOutputPricePer1M: Double
   public var restInputPricePer1M: Double
   public var restOutputPricePer1M: Double
+  public var experimentTag: String?
 
   public init(_ config: EngineConfiguration) {
     soundFeedback = config.soundFeedback
@@ -21,5 +22,6 @@ public struct HotSettings: Sendable {
     liveOutputPricePer1M = config.liveOutputPricePer1M
     restInputPricePer1M = config.restInputPricePer1M
     restOutputPricePer1M = config.restOutputPricePer1M
+    experimentTag = config.experimentTag
   }
 }

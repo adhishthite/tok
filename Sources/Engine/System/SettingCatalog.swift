@@ -489,5 +489,14 @@ public enum SettingCatalog {
     ) { config, value in
       config.logLevel = value.lowercased()
     },
+    SettingDefinition(
+      key: "EXPERIMENT_TAG", title: "Experiment label",
+      help: "Stored with each dictation so measurements can be grouped. Leave empty normally.",
+      group: .advanced, section: "Diagnostics", kind: .text, defaultValue: "",
+      restartsEngine: false
+    ) { config, value in
+      let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+      config.experimentTag = trimmed.isEmpty ? nil : String(trimmed.prefix(64))
+    },
   ]
 }

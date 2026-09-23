@@ -63,6 +63,10 @@ final class AudioCaptureEngine {
   private var preRollRingBuffer = Data()
   private let maxPreRollBytes: Int
   private var preRollBytesInTurn = 0
+  // Count of frameDbValues entries contributed by pre-roll audio at the start of this turn
+  // (item AB's onset_db excludes them). Set once, right after the pre-roll folds into the
+  // stats accumulator in startRecordingOnQueue, under `lock` like preRollBytesInTurn.
+  private var preRollFrameCountInTurn = 0
 
   // Streaming chunk accumulator (CHUNK_MS; default 150ms = 4800 bytes, docs suggest ~100ms
   // for the dedicated transcribe model)
@@ -90,6 +94,36 @@ final class AudioCaptureEngine {
 
   var onAudioChunk: ((Data) -> Void)?
   var onAudioLevel: ((Double) -> Void)?
+
+  // Item AB: milliseconds of pre-roll audio actually prepended to the turn now finishing (0
+  // when pre-roll was off or the mic was cold). Snapshot under `lock`, then compute outside
+  // it - no I/O or callbacks here, just arithmetic on the copy.
+  var preRollMsUsedInTurn: Double {
+    lock.lock()
+    let bytes = preRollBytesInTurn
+    lock.unlock()
+    return Double(bytes) / 32.0
+  }
+
+  // Item AB: first-word-clipping proxy - the loudest of the first five 20ms frames of
+  // NEWLY captured audio after capture start, excluding pre-roll. NULL (nil) if the clip has
+  // no post-pre-roll frames at all. Snapshot under `lock`, compute outside it.
+  var onsetDbInTurn: Double? {
+    lock.lock()
+    let frames = frameDbValues
+    let preRollFrames = preRollFrameCountInTurn
+    lock.unlock()
+    return Self.onsetDb(frames: frames, preRollFrameCount: preRollFrames)
+  }
+
+  /// Pure function backing `onsetDbInTurn`, tested directly: the max of up to the first five
+  /// frames at and after `preRollFrameCount`, or nil if none exist.
+  static func onsetDb(frames: [Double], preRollFrameCount: Int) -> Double? {
+    let start = max(0, preRollFrameCount)
+    guard start < frames.count else { return nil }
+    let end = min(frames.count, start + 5)
+    return frames[start..<end].max()
+  }
 
   // Device metadata is written on the hardware queue and read through a locked snapshot.
   private var inputSnapshot: InputDeviceCatalog.Device?
@@ -607,6 +641,7 @@ final class AudioCaptureEngine {
 
     // Prepend rolling pre-roll buffer to prevent clipped first syllable
     preRollBytesInTurn = 0
+    preRollFrameCountInTurn = 0
     var immediatePreRollChunk: Data? = nil
     if !preRollRingBuffer.isEmpty {
       preRollBytesInTurn = preRollRingBuffer.count
@@ -616,6 +651,8 @@ final class AudioCaptureEngine {
       // idle), so their stats are folded in once here - a ≤400ms scan, off the key-up
       // path entirely.
       accumulateStats(data: preRollRingBuffer)
+      // Frames the pre-roll completed; onset_db (item AB) starts reading after this many.
+      preRollFrameCountInTurn = frameDbValues.count
       preRollRingBuffer.removeAll(keepingCapacity: true)
     }
 

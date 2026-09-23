@@ -34,6 +34,15 @@ final class HistoryStore {
   let chunkMs: Int
   let silenceFlushMs: Int
   private let buildId: String?
+  // Effective capture-timing knobs for this engine instance (item AB), stamped on every row
+  // the same way endpointAligned/chunkMs/silenceFlushMs are: constant per process, so
+  // measurements can be sliced by exactly which config produced them without restarting.
+  let keepMicWarm: Bool
+  let micIdleTimeoutSec: Int
+  let preRollMs: Int
+  let postRollMs: Int
+  let postRollMaxMs: Int
+  let trailSilenceDb: Double
 
   var path: String { dbPath }
 
@@ -46,6 +55,12 @@ final class HistoryStore {
     self.chunkMs = config.chunkMs
     self.silenceFlushMs = config.silenceFlushMs
     self.buildId = config.buildId.isEmpty ? nil : config.buildId
+    self.keepMicWarm = config.keepMicrophoneWarm
+    self.micIdleTimeoutSec = config.micIdleTimeoutSec
+    self.preRollMs = config.preRollMs
+    self.postRollMs = config.postRollMs
+    self.postRollMaxMs = config.postRollMaxMs
+    self.trailSilenceDb = config.trailSilenceDb
   }
 
   // Called on-queue from record(). No-ops once already open or once opening has failed.
@@ -127,7 +142,21 @@ final class HistoryStore {
         ready_ms REAL,
         delivery_outcome TEXT,
         capture_start_ms REAL,
-        first_interim_ms REAL
+        first_interim_ms REAL,
+        key_down_epoch REAL,
+        key_up_epoch REAL,
+        keep_mic_warm INTEGER,
+        mic_idle_timeout_s INTEGER,
+        pre_roll_ms INTEGER,
+        post_roll_ms INTEGER,
+        post_roll_max_ms INTEGER,
+        trail_silence_db REAL,
+        experiment_tag TEXT,
+        mic_state_at_keydown TEXT,
+        ms_since_prev_capture REAL,
+        preroll_ms_used REAL,
+        starting_notice_shown INTEGER,
+        onset_db REAL
       );
       CREATE INDEX IF NOT EXISTS idx_transcriptions_ts ON transcriptions(ts_epoch);
       CREATE INDEX IF NOT EXISTS idx_transcriptions_session ON transcriptions(session_id);
@@ -185,6 +214,20 @@ final class HistoryStore {
       "ALTER TABLE transcriptions ADD COLUMN jev_model TEXT",
       "ALTER TABLE transcriptions ADD COLUMN jev_ms INTEGER",
       "ALTER TABLE transcriptions ADD COLUMN jev_input_tokens INTEGER",
+      "ALTER TABLE transcriptions ADD COLUMN key_down_epoch REAL",
+      "ALTER TABLE transcriptions ADD COLUMN key_up_epoch REAL",
+      "ALTER TABLE transcriptions ADD COLUMN keep_mic_warm INTEGER",
+      "ALTER TABLE transcriptions ADD COLUMN mic_idle_timeout_s INTEGER",
+      "ALTER TABLE transcriptions ADD COLUMN pre_roll_ms INTEGER",
+      "ALTER TABLE transcriptions ADD COLUMN post_roll_ms INTEGER",
+      "ALTER TABLE transcriptions ADD COLUMN post_roll_max_ms INTEGER",
+      "ALTER TABLE transcriptions ADD COLUMN trail_silence_db REAL",
+      "ALTER TABLE transcriptions ADD COLUMN experiment_tag TEXT",
+      "ALTER TABLE transcriptions ADD COLUMN mic_state_at_keydown TEXT",
+      "ALTER TABLE transcriptions ADD COLUMN ms_since_prev_capture REAL",
+      "ALTER TABLE transcriptions ADD COLUMN preroll_ms_used REAL",
+      "ALTER TABLE transcriptions ADD COLUMN starting_notice_shown INTEGER",
+      "ALTER TABLE transcriptions ADD COLUMN onset_db REAL",
     ] {
       sqlite3_exec(opened, migration, nil, nil, nil)
     }
@@ -300,8 +343,11 @@ final class HistoryStore {
         post_process_status, post_process_model, post_process_ms, post_process_input_tokens,
         post_process_output_tokens, post_process_thinking_tokens, post_process_cost_usd,
         post_process_error, post_process_app_context, transcription_cost_usd,
-        capture_start_ms, first_interim_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        capture_start_ms, first_interim_ms,
+        key_down_epoch, key_up_epoch, keep_mic_warm, mic_idle_timeout_s, pre_roll_ms,
+        post_roll_ms, post_roll_max_ms, trail_silence_db, experiment_tag, mic_state_at_keydown,
+        ms_since_prev_capture, preroll_ms_used, starting_notice_shown, onset_db
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       """
 
     var stmt: OpaquePointer?
@@ -367,6 +413,20 @@ final class HistoryStore {
     self.bindDouble(stmt, 51, r.transcriptionCostUSD)
     self.bindDouble(stmt, 52, r.captureStartMs)
     self.bindDouble(stmt, 53, r.firstInterimMs)
+    self.bindDouble(stmt, 54, r.keyDownEpoch)
+    self.bindDouble(stmt, 55, r.keyUpEpoch)
+    self.bindBool(stmt, 56, self.keepMicWarm)
+    self.bindInt(stmt, 57, self.micIdleTimeoutSec)
+    self.bindInt(stmt, 58, self.preRollMs)
+    self.bindInt(stmt, 59, self.postRollMs)
+    self.bindInt(stmt, 60, self.postRollMaxMs)
+    self.bindDouble(stmt, 61, self.trailSilenceDb)
+    self.bindText(stmt, 62, r.experimentTag)
+    self.bindText(stmt, 63, r.micStateAtKeydown)
+    self.bindDouble(stmt, 64, r.msSincePrevCapture)
+    self.bindDouble(stmt, 65, r.prerollMsUsed)
+    self.bindBool(stmt, 66, r.startingNoticeShown)
+    self.bindDouble(stmt, 67, r.onsetDb)
 
     let stepped = sqlite3_step(stmt)
     if stepped != SQLITE_DONE {

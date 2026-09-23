@@ -240,6 +240,7 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | Cleanup output price | <code>POST_PROCESS_OUTPUT_PRICE_PER_1M</code> | <code>2.50</code> | 0.0 to 1000.0 | USD per million output tokens, including reported thinking tokens. Costs remain unknown when usage is not reported. |
 | History database path | <code>HISTORY_DB</code> | (empty) | Text | Empty uses Tok’s Application Support folder. |
 | Diagnostic detail | <code>LOG_LEVEL</code> | <code>normal</code> | <code>normal</code>, <code>verbose</code> | Normal records essential events. Verbose includes additional engineering detail. |
+| Experiment label | <code>EXPERIMENT_TAG</code> | (empty) | Text | Stored with each dictation so measurements can be grouped. Leave empty normally. |
 
 <!-- END GENERATED SETTINGS -->
 

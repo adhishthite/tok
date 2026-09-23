@@ -135,6 +135,31 @@ public final class DictationEngine {
   // the audio it already paid for on the history row (audit F11).
   private var turnAudioSeconds: Double?
 
+  // Item AB: self-describing rows and key-down readiness. Same cross-thread discipline as
+  // the first-word evidence above - written on main, read on sessionQueue via recordTurn's
+  // central fallback-fill, except turnOnsetDb (sessionQueue-only, like turnPeakDb) and
+  // lastCaptureEndUptime (written on sessionQueue right after stopRecording, read on main at
+  // the next key-down; captureTimingLock is the same snapshot-then-release idiom
+  // processingLock already uses for isProcessing across this exact thread boundary).
+  private var turnKeyDownEpoch: Double?
+  private var turnKeyUpEpoch: Double?
+  private var turnMicStateAtKeydown: String?
+  private var turnStartingNoticeShown: Bool = false
+  private var turnPrerollMsUsed: Double?
+  private var turnMsSincePrevCapture: Double?
+  private var turnOnsetDb: Double?
+  private let captureTimingLock = NSLock()
+  private var lastCaptureEndUptime: TimeInterval?
+
+  // sessionQueue-only. Snapshots the instant a capture finished (any outcome) and this
+  // turn's onset_db, right after stopRecording returns. Call once per stopRecording call.
+  private func noteCaptureFinished() {
+    captureTimingLock.lock()
+    lastCaptureEndUptime = ProcessInfo.processInfo.systemUptime
+    captureTimingLock.unlock()
+    turnOnsetDb = audioCapture.onsetDbInTurn
+  }
+
   // Serial queue that owns all turn lifecycle state below. Both the WS commit completion and
   // the REST fallback timer used to race directly against a captured `var didFallback` bool
   // with no synchronization, so a slow-arriving WS result and a just-fired fallback timer could
@@ -437,6 +462,15 @@ public final class DictationEngine {
     var stamped = record
     if stamped.captureStartMs == nil { stamped.captureStartMs = turnCaptureStartMs }
     if stamped.firstInterimMs == nil { stamped.firstInterimMs = turnFirstInterimMs }
+    // Key timing, capture settings, and key-down readiness, filled the same way.
+    if stamped.keyDownEpoch == nil { stamped.keyDownEpoch = turnKeyDownEpoch }
+    if stamped.keyUpEpoch == nil { stamped.keyUpEpoch = turnKeyUpEpoch }
+    if stamped.experimentTag == nil { stamped.experimentTag = hot.experimentTag }
+    if stamped.micStateAtKeydown == nil { stamped.micStateAtKeydown = turnMicStateAtKeydown }
+    if stamped.msSincePrevCapture == nil { stamped.msSincePrevCapture = turnMsSincePrevCapture }
+    if stamped.prerollMsUsed == nil { stamped.prerollMsUsed = turnPrerollMsUsed }
+    if stamped.startingNoticeShown == nil { stamped.startingNoticeShown = turnStartingNoticeShown }
+    if stamped.onsetDb == nil { stamped.onsetDb = turnOnsetDb }
     // Item 3: a delivered (pasted or copy-only), non-empty transcript gets a fire-and-forget
     // Jev quality judgment once history has assigned it a rowid. Respects PRIVACY_MODE the
     // same way history already does (no extra gating: history keeps recording under privacy
@@ -583,7 +617,16 @@ public final class DictationEngine {
     turnInputDevice = audioCapture.currentInput?.name
     turnInputTransport = audioCapture.currentInput?.transport
     turnKeyDownTime = ProcessInfo.processInfo.systemUptime
+    turnKeyDownEpoch = Date().timeIntervalSince1970
     turnCaptureStartMs = nil
+    // A turn cancelled by chord or Escape while capturing (discardCapture) never reaches
+    // handleKeyUp, so without this reset it would inherit the previous turn's key_up_epoch.
+    turnKeyUpEpoch = nil
+    turnStartingNoticeShown = false
+    captureTimingLock.lock()
+    let previousCaptureEnd = lastCaptureEndUptime
+    captureTimingLock.unlock()
+    turnMsSincePrevCapture = previousCaptureEnd.map { (turnKeyDownTime - $0) * 1000 }
 
     micIdleWorkItem?.cancel()
     micIdleWorkItem = nil
@@ -591,7 +634,11 @@ public final class DictationEngine {
     capturePending = true
     captureGeneration &+= 1
     let generation = captureGeneration
-    if !audioCapture.isEngineRunning { scheduleStartingNotice(generation: generation) }
+    // Item AB: "warm" iff the mic was already running when this key-down was decided -
+    // the same instant that decides whether the "Getting ready" pill is even scheduled.
+    let micWasWarm = audioCapture.isEngineRunning
+    turnMicStateAtKeydown = micWasWarm ? "warm" : "cold"
+    if !micWasWarm { scheduleStartingNotice(generation: generation) }
     audioCapture.ensureReady { [weak self] ready in
       guard let self = self, self.capturePending, self.captureGeneration == generation else {
         return
@@ -631,6 +678,7 @@ public final class DictationEngine {
         self.capturePending || self.captureActive
       else { return }
       self.startingNoticeWorkItem = nil
+      self.turnStartingNoticeShown = true
       self.feedback.showStarting()
     }
     startingNoticeWorkItem = item
@@ -737,6 +785,7 @@ public final class DictationEngine {
       // buffers still have to be drained, or the next turn would inherit them.
       let (_, duration, _, _, _, _, _) = self.audioCapture.stopRecording(
         gracePeriodMs: 0, maxTrailMs: 0, silenceThresholdDb: self.config.trailSilenceDb)
+      self.noteCaptureFinished()
       self.liveClient?.abandonTurn()
       if !self.config.keepMicrophoneWarm {
         DispatchQueue.main.async { [weak self] in self?.audioCapture.suspendEngine() }
@@ -863,6 +912,7 @@ public final class DictationEngine {
     turnInputDevice = audioCapture.currentInput?.name
     turnInputTransport = audioCapture.currentInput?.transport
     turnCaptureStartMs = (ProcessInfo.processInfo.systemUptime - turnKeyDownTime) * 1000
+    turnPrerollMsUsed = audioCapture.preRollMsUsedInTurn
     if hot.soundFeedback { SoundManager.playStartSound() }
     feedback.showListening(lockAfter: holdToLockInterval)
     feedback.captureStarted(pid: turnFrontmostPID, followFocus: hot.hudFollowFocus)
@@ -890,6 +940,10 @@ public final class DictationEngine {
     // start of "Total Key-Up -> Paste" latency measurement.
     let handlerTime = ProcessInfo.processInfo.systemUptime
     let keyUpTime = eventTime.flatMap { $0 > 0 && $0 <= handlerTime ? $0 : nil } ?? handlerTime
+    // Item AB: wall-clock equivalent of keyUpTime. When keyUpTime came from an event
+    // timestamp (uptime-based, in the past), shift now's epoch back by the same queueing
+    // delay instead of stamping the moment this handler happened to run.
+    turnKeyUpEpoch = Date().timeIntervalSince1970 - (handlerTime - keyUpTime)
 
     if capturePending {
       capturePending = false
@@ -1057,6 +1111,7 @@ public final class DictationEngine {
       audioCapture.stopRecording(
         gracePeriodMs: config.postRollMs, maxTrailMs: config.postRollMaxMs,
         silenceThresholdDb: config.trailSilenceDb)
+    noteCaptureFinished()
     if !config.keepMicrophoneWarm {
       DispatchQueue.main.async { [weak self] in self?.audioCapture.suspendEngine() }
     }

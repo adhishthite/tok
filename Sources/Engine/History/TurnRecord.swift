@@ -56,4 +56,15 @@ public struct TurnRecord: Sendable {
   // to the first interim text from the live service. Both NULL when not measured.
   public var captureStartMs: Double? = nil
   public var firstInterimMs: Double? = nil
+  // Self-describing rows and key-down readiness (item AB). All NULL when not measured;
+  // recordTurn fills these centrally the same way it fills captureStartMs/firstInterimMs,
+  // so no other TurnRecord construction site needs to pass them.
+  public var keyDownEpoch: Double? = nil
+  public var keyUpEpoch: Double? = nil
+  public var experimentTag: String? = nil
+  public var micStateAtKeydown: String? = nil
+  public var msSincePrevCapture: Double? = nil
+  public var prerollMsUsed: Double? = nil
+  public var startingNoticeShown: Bool? = nil
+  public var onsetDb: Double? = nil
 }
