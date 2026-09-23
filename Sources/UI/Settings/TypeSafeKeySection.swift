@@ -80,6 +80,10 @@ struct TypeSafeKeySection: View {
         if store.settings.hasTypeSafeKey {
           Label("Saved in Keychain", systemImage: "checkmark.shield")
         }
+        if let typesafeKeyError = store.settings.typesafeKeyError {
+          Label(typesafeKeyError, systemImage: "exclamationmark.triangle")
+            .foregroundStyle(.orange)
+        }
         Text(
           "Optional upgrade. When a key is saved and verified, transcript text, typed-correction word pairs with their surrounding sentence, and the destination app name and bundle identifier are sent to api.typesafe.ai for scoring, to catch garbled dictations and confirm genuine corrections. Audio is never sent. Leave this blank and nothing is sent to TypeSafe and nothing else changes."
         )

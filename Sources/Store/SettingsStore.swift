@@ -1,10 +1,12 @@
 import Foundation
 import Observation
 import TokEngine
+import os
 
 @MainActor
 @Observable
 final class SettingsStore {
+  private static let logger = os.Logger(subsystem: "com.adhishthite.tok", category: "settings")
   private(set) var hasAPIKey = false
   var apiKeyProvidedByEnvironment: Bool {
     !(ProcessInfo.processInfo.environment["GEMINI_API_KEY"] ?? "").isEmpty
@@ -15,6 +17,10 @@ final class SettingsStore {
     !(ProcessInfo.processInfo.environment["TYPESAFE_API_KEY"] ?? "").isEmpty
   }
   private(set) var loadError: String?
+  /// Non-fatal: set when the optional TypeSafe Keychain item could not be read (locked
+  /// keychain, denied interaction, corrupt item). Unlike `loadError`, this never blocks
+  /// settings reconstruction or engine creation; Judgment simply stays gated off.
+  private(set) var typesafeKeyError: String?
   private(set) var values: [String: String] = [:]
   private(set) var overrides: [String: String] = [:]
   @ObservationIgnored private(set) var configuration = EngineConfiguration()
@@ -27,6 +33,9 @@ final class SettingsStore {
   static let everySetting = "*"
   @ObservationIgnored var stageVocabularyImport: ((URL, String) -> Bool)?
   @ObservationIgnored private let defaults: UserDefaults
+  /// Seam for tests: defaults to the real Keychain read, so `load()` can be exercised
+  /// against injected failures without touching the actual Keychain.
+  @ObservationIgnored private let readKey: (Keychain.Account) throws -> String?
   let supportDirectory: URL
   var vocabularyURL: URL { supportDirectory.appendingPathComponent("vocabulary.txt") }
   var resolvedVocabularyURL: URL {
@@ -40,8 +49,12 @@ final class SettingsStore {
   /// settings change used to re-read the file each time (audit F30).
   @ObservationIgnored private var vocabularyCache: (url: URL, text: String?)?
 
-  init(defaults: UserDefaults = .standard, supportDirectory: URL? = nil) {
+  init(
+    defaults: UserDefaults = .standard, supportDirectory: URL? = nil,
+    readKey: @escaping (Keychain.Account) throws -> String? = Keychain.readAPIKey
+  ) {
     self.defaults = defaults
+    self.readKey = readKey
     self.supportDirectory =
       supportDirectory
       ?? FileManager.default.urls(
@@ -63,8 +76,20 @@ final class SettingsStore {
           defaults.set(true, forKey: "TokImportedDevelopmentConfig")
         }
       #endif
-      configuration.geminiApiKey = try Keychain.readAPIKey() ?? ""
-      configuration.typesafeApiKey = try Keychain.readAPIKey(.typesafe) ?? ""
+      configuration.geminiApiKey = try readKey(.gemini) ?? ""
+      // The TypeSafe key is optional (Engine/Judgment). A Keychain error reading it (locked
+      // keychain, denied interaction, corrupt item; "not found" already returns nil above the
+      // throw) must not disable core dictation, so it gets its own do/catch and never touches
+      // loadError.
+      do {
+        configuration.typesafeApiKey = try readKey(.typesafe) ?? ""
+        typesafeKeyError = nil
+      } catch {
+        configuration.typesafeApiKey = ""
+        typesafeKeyError = "Could not read the TypeSafe key from Keychain."
+        let account = Keychain.Account.typesafe.rawValue
+        Self.logger.warning("Could not read Keychain item \(account, privacy: .public)")
+      }
       values = [:]
       overrides = [:]
       for setting in SettingCatalog.all {
@@ -144,6 +169,7 @@ final class SettingsStore {
     try await TypeSafeProbe.validate(apiKey: trimmed)
     try Keychain.saveAPIKey(trimmed, account: .typesafe)
     configuration.typesafeApiKey = trimmed
+    typesafeKeyError = nil
     rebuild()
     didChange?([Self.everySetting])
   }
@@ -176,6 +202,7 @@ final class SettingsStore {
     if let key = importedTypeSafeKey, !key.isEmpty {
       try Keychain.saveAPIKey(key, account: .typesafe)
       configuration.typesafeApiKey = key
+      typesafeKeyError = nil
     }
     var result = vocabulary == nil ? ConfigurationImportResult.chooseVocabulary : .settingsOnly
     if let contents {
