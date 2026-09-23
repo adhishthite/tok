@@ -124,6 +124,12 @@ final class DiagnosticsTests: XCTestCase {
     XCTAssertTrue(lines[0].contains("T"), "expected an ISO 8601 timestamp prefix")
   }
 
+  func testDefaultRollThresholdCoversATwoWeekWindow() {
+    // 4 MB active + 4 MB rolled = 8 MB total, sized for roughly a two-week
+    // analysis window rather than the old ~1 MB (~9 day) budget.
+    XCTAssertEqual(DiagnosticsFile.defaultRollThreshold, 4 * 1024 * 1024)
+  }
+
   func testDiagnosticsFileRollsPastTheThresholdAndStaysBounded() {
     let directory = makeTempDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }

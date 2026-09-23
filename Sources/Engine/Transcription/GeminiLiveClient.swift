@@ -44,6 +44,10 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   static let sessionRotationSeconds = 480.0
   private var sessionEstablishedAt: TimeInterval = 0
   private var sessionRotationWorkItem: DispatchWorkItem?
+  /// Why the in-flight connect attempt was started (startup, rotation, reconnect, wake).
+  /// Read back once the handshake completes so the single "session ready" line can name
+  /// it, instead of a separate "connecting" line logged per attempt.
+  var pendingConnectReason = "startup"
   var isConnected: Bool {
     lock.lock()
     defer { lock.unlock() }
@@ -236,7 +240,9 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     self.urlSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
   }
 
-  func connect(onlyWhenIdle: Bool = false, expectedConnection: UInt64? = nil) {
+  func connect(
+    onlyWhenIdle: Bool = false, expectedConnection: UInt64? = nil, reason: String = "reconnect"
+  ) {
     guard !apiKey.isEmpty else { return }
 
     let wsUrlString =
@@ -286,11 +292,15 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       discardPendingWritesLocked()
     }
     rotateWhenIdle = false
+    pendingConnectReason = reason
     lock.unlock()
     old?.cancel(with: .goingAway, reason: nil)
     task.resume()
 
-    Log.info("WS", "Connecting to Gemini Live WebSockets (\(model))...")
+    // No per-attempt "connecting" line: the single "session ready" line logged once the
+    // handshake completes (below) names this attempt's reason, so a planned rotation
+    // costs one persisted line instead of two.
+    Log.debug("WS", "Connecting to Gemini Live WebSockets (\(model), reason=\(reason))...")
     sendSetupMessage(task: task, epoch: epoch)
     listenForMessages(task: task, epoch: epoch)
   }
@@ -509,6 +519,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     // must never run while `lock` is held.
     var serverErrorMessage: String? = nil
     var didCompleteSetup = false
+    var connectReasonForLog = ""
     var shouldScheduleReconnect = false
     var liveTextUpdate: (label: String, elapsedMs: Double, fullText: String, textCopy: String)? =
       nil
@@ -560,6 +571,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       self.readyState = true
       self.reconnectAttempts = 0
       didCompleteSetup = true
+      connectReasonForLog = pendingConnectReason
       self.sessionEstablishedAt = ProcessInfo.processInfo.systemUptime
       scheduleSessionRotationLocked(epoch: epoch)
       scheduleKeepaliveLocked(epoch: epoch)
@@ -699,7 +711,10 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     }
     if didCompleteSetup {
       pumpWrites()
-      Log.success("WS", "Gemini Live session established & ready for streaming.")
+      // One line per connection, covering both the attempt and its outcome, at the same
+      // info level the old two-line (connecting + established) pair used, so a normal
+      // (non-verbose) diagnostics log still shows every connect and which model it used.
+      Log.info("WS", "Live session ready (\(connectReasonForLog), \(model))")
     }
     if shouldScheduleReconnect {
       Log.warn("WS", "Server sent goAway signal. Preemptively scheduling reconnect...")
@@ -1323,8 +1338,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       self.sessionRotationWorkItem = nil
       self.lock.unlock()
       guard current else { return }
-      Log.info("WS", "Live session is 8 minutes old - replacing it when idle.")
-      self.scheduleReconnect(epoch: epoch, onlyWhenIdle: true)
+      self.scheduleReconnect(epoch: epoch, onlyWhenIdle: true, reason: "rotation")
     }
     sessionRotationWorkItem = item
     settleQueue.asyncAfter(deadline: .now() + Self.sessionRotationSeconds, execute: item)
@@ -1348,18 +1362,26 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     // A turn in progress is its own proof of life, and an extra frame on that path buys
     // nothing. The timer is re-armed either way.
     let idle = !turnOpen && !isCommitting
+    // Snapshotted under the lock we already hold, not a new one: this ping only ever
+    // fires while idle (the guard below), so the failure line can say so plainly.
+    let socketAgeSeconds = ProcessInfo.processInfo.systemUptime - sessionEstablishedAt
     scheduleKeepaliveLocked(epoch: epoch)
     lock.unlock()
     guard idle else { return }
     task.sendPing { [weak self] error in
       guard let self, let error else { return }
       // A failed ping means the socket is gone. Take the same path a receive error takes.
-      Log.warn("WS", "Keepalive ping failed; treating the live connection as lost.")
+      Log.warn(
+        "WS",
+        "Keepalive ping failed; treating the live connection as lost (idle, socket age "
+          + "\(String(format: "%.0f", socketAgeSeconds))s).")
       self.connectionFailed(epoch: epoch, error: error)
     }
   }
 
-  private func scheduleReconnect(epoch: UInt64, onlyWhenIdle: Bool = false) {
+  private func scheduleReconnect(
+    epoch: UInt64, onlyWhenIdle: Bool = false, reason: String = "reconnect"
+  ) {
     lock.lock()
     guard epoch == connectionID, reconnectEnabled, reconnectWorkItem == nil else {
       lock.unlock()
@@ -1373,7 +1395,9 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       let current = self.connectionID == epoch && self.reconnectEnabled
       self.reconnectWorkItem = nil
       self.lock.unlock()
-      if current { self.connect(onlyWhenIdle: onlyWhenIdle, expectedConnection: epoch) }
+      if current {
+        self.connect(onlyWhenIdle: onlyWhenIdle, expectedConnection: epoch, reason: reason)
+      }
     }
     reconnectWorkItem = item
     lock.unlock()

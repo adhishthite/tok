@@ -330,7 +330,7 @@ public final class DictationEngine {
           self?.feedback.showError(message: "API key rejected. Check the key in Settings.")
         }
       }
-      liveClient?.connect()
+      liveClient?.connect(reason: "startup")
     }
 
     // Pre-warm the REST fallback route's connection (DNS + TCP + TLS handshake) so that if
@@ -396,7 +396,7 @@ public final class DictationEngine {
         Log.info("POWER", "System woke - refreshing Live WebSocket connection.")
         if self.config.enableLiveWebSocket {
           self.liveClient?.disconnect()
-          self.liveClient?.connect()
+          self.liveClient?.connect(reason: "wake")
         }
       })
 

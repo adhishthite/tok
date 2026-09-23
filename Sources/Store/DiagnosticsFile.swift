@@ -8,8 +8,9 @@ import Foundation
 /// class can be `@unchecked Sendable` without actor-isolation overhead on the
 /// hot diagnostic-append path.
 final class DiagnosticsFile: @unchecked Sendable {
-  /// 512 KB active file, one rolled file kept alongside it: about 1 MB total.
-  static let defaultRollThreshold = 512 * 1024
+  /// 4 MB active file, one rolled file kept alongside it: about 8 MB total,
+  /// which covers roughly a two-week analysis window on the owner's machine.
+  static let defaultRollThreshold = 4 * 1024 * 1024
 
   private let queue = DispatchQueue(label: "com.adhishthite.tok.diagnostics-file", qos: .utility)
   private let fileURL: URL
@@ -113,7 +114,7 @@ final class DiagnosticsFile: @unchecked Sendable {
   }
 
   /// Renames the active file into the rolled slot, replacing any previous
-  /// one, then starts a fresh file, so at most about 1 MB is ever kept.
+  /// one, then starts a fresh file, so at most about 8 MB is ever kept.
   private func roll() {
     try? handle?.close()
     handle = nil
