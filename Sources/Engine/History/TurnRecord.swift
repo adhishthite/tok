@@ -67,8 +67,8 @@ public struct TurnRecord: Sendable {
   public var prerollMsUsed: Double? = nil
   public var startingNoticeShown: Bool? = nil
   public var onsetDb: Double? = nil
-  // Item C: capture finalization diagnostics, from CaptureFinalizeStats. All NULL when not
-  // measured; recordTurn fills these centrally the same way it fills the item AB fields
+  // Capture finalization diagnostics, from CaptureFinalizeStats. All NULL when not
+  // measured; recordTurn fills these centrally the same way it fills the fields
   // above, so no other TurnRecord construction site needs to pass them.
   public var finalizeExit: String? = nil
   public var finalizeDrainMs: Double? = nil

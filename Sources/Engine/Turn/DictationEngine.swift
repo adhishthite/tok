@@ -160,12 +160,12 @@ public final class DictationEngine {
     turnOnsetDb = audioCapture.onsetDbInTurn
   }
 
-  // Item C: capture finalization diagnostics. sessionQueue-only, like turnPeakDb/turnOnsetDb:
+  // Capture finalization diagnostics. sessionQueue-only, like turnPeakDb/turnOnsetDb:
   // stopRecording now returns a CaptureFinalizeStats alongside its tuple, and both call sites
   // (discardCapture's cancel path and runTurnPipeline) stamp it here right after the call
   // returns, before either can produce a TurnRecord. Reset again at key-down (handleKeyDown)
-  // as a second line of defense, matching the fix already shipped for item AB's
-  // turnKeyUpEpoch: a turn that reaches neither stopRecording call between two key-downs
+  // as a second line of defense, matching the fix already shipped for turnKeyUpEpoch's
+  // reset above: a turn that reaches neither stopRecording call between two key-downs
   // must not have the previous turn's finalize stats show up on its row.
   private var turnFinalizeExit: String?
   private var turnFinalizeDrainMs: Double?
@@ -657,7 +657,7 @@ public final class DictationEngine {
     // handleKeyUp, so without this reset it would inherit the previous turn's key_up_epoch.
     turnKeyUpEpoch = nil
     turnStartingNoticeShown = false
-    // Item C: same reasoning as turnKeyUpEpoch above. Neither stopRecording call site is
+    // Same reasoning as turnKeyUpEpoch above. Neither stopRecording call site is
     // guaranteed to run before the next key-down decides to bail out early (offline gate,
     // capturePending never reaching audio); without this reset such a turn's row (if any)
     // would otherwise read a previous turn's finalize stats.
@@ -2091,12 +2091,17 @@ public final class DictationEngine {
         Log.warn("CLEANUP", message)
       }
     }
+    let readyMs = (ProcessInfo.processInfo.systemUptime - totalStartTime) * 1000
+    record.readyMs = readyMs
+    // recordTurn reads the turn* fallback-fill fields (key_up_epoch, the finalize-stats
+    // fields, etc.) while they still belong to this turn. isProcessing must stay true until
+    // that read finishes, or handleKeyDown could see it false, start turn N+1, and reset
+    // those same fields on main while this line is still reading them - every other call
+    // site already clears isProcessing after recordTurn/recordCancelledTurn for this reason.
+    recordTurn(record)
     processingLock.lock()
     isProcessing = false
     processingLock.unlock()
-    let readyMs = (ProcessInfo.processInfo.systemUptime - totalStartTime) * 1000
-    record.readyMs = readyMs
-    recordTurn(record)
     Log.debug("LATENCY", "Key-up to next-turn readiness: \(String(format: "%.1f", readyMs))ms")
     DispatchQueue.main.async { [weak self] in self?.scheduleMicIdleRelease() }
   }

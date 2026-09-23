@@ -4,7 +4,7 @@ import XCTest
 
 @testable import TokEngine
 
-/// Item C: capture finalization diagnostics. Covers the noise-floor percentile pure function,
+/// Capture finalization diagnostics. Covers the noise-floor percentile pure function,
 /// the trail-exit classification pure function, the additive migration, and TurnRecord
 /// round-tripping the new columns through HistoryStore.
 final class CaptureFinalizeStatsTests: XCTestCase {

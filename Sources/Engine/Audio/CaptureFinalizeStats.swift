@@ -1,6 +1,6 @@
 import Foundation
 
-/// Item C: capture finalization diagnostics. Everything here is measured, never estimated,
+/// Capture finalization diagnostics. Everything here is measured, never estimated,
 /// and reading it never changes what stopRecording waits for or when it wakes: this is one
 /// more thing stopRecording reports about a wait it already ran, the same way peakDb and
 /// speechFrames report on a clip it already captured.

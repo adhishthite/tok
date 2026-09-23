@@ -125,7 +125,7 @@ final class AudioCaptureEngine {
     return frames[start..<end].max()
   }
 
-  /// Item C: pure function backing CaptureFinalizeStats.noiseFloorDb, tested directly. 10th
+  /// Pure function backing CaptureFinalizeStats.noiseFloorDb, tested directly. 10th
   /// percentile (linear interpolation between the two closest ranks) of every per-20ms-frame
   /// dB value in the clip. nil if fewer than 10 frames exist - too little signal for a
   /// percentile to mean anything.
@@ -139,7 +139,7 @@ final class AudioCaptureEngine {
     return sorted[lowerIndex] + (sorted[upperIndex] - sorted[lowerIndex]) * fraction
   }
 
-  /// Item C: pure function classifying why the adaptive trailing-capture loop just broke
+  /// Pure function classifying why the adaptive trailing-capture loop just broke
   /// (called only at the instant `postRollWakeDelay` returns <= 0 for the same arguments, so
   /// it mirrors that function's own branching rather than re-deciding anything). `quietIsStale`
   /// is whether the iteration that made quiet win was a stale level reading rather than a
@@ -747,7 +747,7 @@ final class AudioCaptureEngine {
     // grace period pads every tap past the caller's micro-click duration threshold.
     let stopRequestTime = ProcessInfo.processInfo.systemUptime
 
-    // Item C: capture finalization diagnostics for whichever branch below runs. All default
+    // Capture finalization diagnostics for whichever branch below runs. All default
     // to the "no wait happened" values; the adaptive branch is the only one that overwrites
     // drainMs/bankedQuietMs/quietResets/trailPeakDb, matching CaptureFinalizeStats' own
     // "0/nil when that branch never ran" contract.
@@ -791,7 +791,7 @@ final class AudioCaptureEngine {
       bankedQuietMs = Double(quietFrames) * 20.0
       var quietStart: CFAbsoluteTime? =
         quietFrames > 0 ? stopRequestTime - Double(quietFrames) * 0.02 : nil
-      // Item C: whether the iteration that will end up satisfying "quiet" was a stale level
+      // Whether the iteration that will end up satisfying "quiet" was a stale level
       // reading, tracked as the loop runs so the classification below needs no re-derivation.
       var lastIterationStale = false
       while true {
@@ -895,10 +895,14 @@ final class AudioCaptureEngine {
       statSampleCount > 0 ? 20 * log10(max(Double(turnMaxAbsSample), 1.0) / 32768.0) : nil
     var speechFrames = 0
     for db in frameDbValues where db > silenceThresholdDb { speechFrames += 1 }
-    // Item C: whole-clip noise floor, from the same frameDbValues population speechFrames
-    // just counted from - still under `lock`, still pure math on the accumulator.
-    let noiseFloorDb = Self.noiseFloorDb(frames: frameDbValues)
+    // Whole-clip noise floor, from the same frameDbValues population speechFrames just
+    // counted from. Copy the array under lock (cheap: value-type retain, no element copy
+    // until something mutates it) and sort it after unlock - a long clip can carry
+    // thousands of frames, and sorting them is not the kind of pure O(n) pass the rest of
+    // this lock scope does, so it should not add latency to the audio tap's next write.
+    let noiseFloorFrames = frameDbValues
     lock.unlock()
+    let noiseFloorDb = Self.noiseFloorDb(frames: noiseFloorFrames)
 
     let finalize = CaptureFinalizeStats(
       exit: finalizeExit, drainMs: finalizeDrainMs, trailWaitMs: trailWaitMs,
