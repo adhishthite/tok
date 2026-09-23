@@ -179,3 +179,24 @@ Measurements and API-reported usage are in
 The off-path test verifies no cleanup request and inline continuation. No claim
 of zero measured CPU overhead is made. Enabled and disabled dictations must be
 kept separate when assessing the latency target.
+
+## Turn latency report
+
+`Scripts/turn_report.py` aggregates the metadata columns in `history.db`
+(timings, counters, and enum labels only; it never selects transcript text,
+corrections, app identity, or raw error strings) into medians, nearest-rank
+p95s, and group-by tables for repeatable latency review. It opens the
+database read-only and tolerates older databases that are missing a metric
+or grouping column, printing a one-line note instead of failing.
+
+```sh
+make report
+make report ARGS="--build bb2362f --since 2026-09-01"
+make report ARGS="--tag control --json"
+```
+
+Default arguments read `~/Library/Application Support/Tok/history.db`;
+pass `--db <path>` to point at another file. `--all-outcomes` shows outcome
+counts instead of the default success/dispatched/live cohort. Run
+`python3 Scripts/turn_report.py --help` for the full filter and column
+list, and for the exact median and p95 definitions used.
