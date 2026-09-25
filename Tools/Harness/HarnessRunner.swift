@@ -35,6 +35,8 @@ final class HarnessRunner {
   /// threshold, room tone keeps resetting the capture's quiet window, and the tail runs
   /// to POST_ROLL_MAX_MS on most turns.
   private static let ambientMarginDb = 5.0
+  /// Audio kept after the last word by Scripts/harness_clips.py (TRIM_TAIL_S).
+  private static let clipTrailS = 0.12
 
   struct PlannedTurn {
     let clip: HarnessClip
@@ -244,8 +246,9 @@ final class HarnessRunner {
     let keyDown = ClipPlayer.now + 0.25
     let speechStart = keyDown + turn.leadMs / 1000
     let keyUp = speechStart + (clip.speechOffsetS - clip.speechOnsetS) + turn.tailMs / 1000
+    let expectedEnd: TimeInterval
     do {
-      try player.play(
+      expectedEnd = try player.play(
         url: clipDirectory.appendingPathComponent("\(clip.clipId).wav"),
         at: speechStart - clip.speechOnsetS)
     } catch {
@@ -255,6 +258,16 @@ final class HarnessRunner {
     waitUntilHost(keyDown)
     DispatchQueue.main.async { engine.harnessKeyDown() }
     waitUntilHost(keyUp)
+    // Starting a cold microphone can stall the built-in output for a moment, so the clip
+    // may still be playing. Then the release waits for the real end of speech: the clip
+    // ends TRIM_TAIL (0.12 s) after its last word, and the planned tail follows that word.
+    var playbackDelayMs: Double?
+    if let finished = player.playedBack(timeout: 0) {
+      playbackDelayMs = (finished - expectedEnd) * 1000
+    } else if let finished = player.playedBack(timeout: 15) {
+      playbackDelayMs = (finished - expectedEnd) * 1000
+      waitUntilHost(finished - Self.clipTrailS + turn.tailMs / 1000)
+    }
     DispatchQueue.main.async { engine.harnessKeyUp() }
     let record = observer.waitForRecord(timeout: Self.recordTimeout)
     player.stopClip()
@@ -276,6 +289,7 @@ final class HarnessRunner {
       micIdleTimeoutS: configuration.micIdleTimeoutSec,
       endpointAligned: configuration.wsEndpointAligned,
       silenceFlushMs: configuration.silenceFlushMs, ambientDb: ambientDb, reference: clip.text)
+    row.playbackDelayMs = playbackDelayMs
     if let record { row.apply(record) } else { row.outcome = "no_record" }
     write(row)
 
@@ -284,7 +298,8 @@ final class HarnessRunner {
       "[\(turnIndex)] \(arm.name) \(clip.clipId) gap=\(fmt(actualGap))s "
         + "\(row.micStateAtKeydown ?? "-") start=\(fmt(row.captureStartMs)) "
         + "total=\(fmt(row.totalMs)) \(row.outcome ?? "-") "
-        + "wer=\(row.accuracy.map { String(format: "%.2f", $0.wer) } ?? "-")")
+        + "wer=\(row.accuracy.map { String(format: "%.2f", $0.wer) } ?? "-") "
+        + "playback_delay=\(fmt(playbackDelayMs))")
     return row
   }
 

@@ -16,6 +16,8 @@ struct HarnessArm {
     HarnessArm(name: "flush200", overrides: ["SILENCE_FLUSH_MS": "200"]),
     HarnessArm(name: "flush100", overrides: ["SILENCE_FLUSH_MS": "100"]),
     HarnessArm(name: "flush0", overrides: ["SILENCE_FLUSH_MS": "0"]),
+    HarnessArm(name: "chunk100", overrides: ["CHUNK_MS": "100"]),
+    HarnessArm(name: "chunk50", overrides: ["CHUNK_MS": "50"]),
   ]
 
   static func named(_ name: String) -> HarnessArm? { catalog.first { $0.name == name } }

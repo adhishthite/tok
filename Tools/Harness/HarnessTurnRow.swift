@@ -35,6 +35,9 @@ struct HarnessTurnRow: Encodable {
   /// "acoustic": speakers into the microphone through the full engine. "direct": audio
   /// streamed straight into the Live client, so no capture fields and no total_ms.
   var mode = "acoustic"
+  /// How late the clip finished leaving the speaker against its schedule. When it was
+  /// still playing at the planned release, the release waited for the real end of speech.
+  var playbackDelayMs: Double?
   var outcome: String?
   var totalMs: Double?
   var roundtripMs: Double?
