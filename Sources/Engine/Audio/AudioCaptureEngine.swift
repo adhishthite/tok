@@ -82,7 +82,6 @@ final class AudioCaptureEngine {
   // exactly. All under `lock`; per-frame dB values are classified against the caller's
   // threshold at stopRecording time (the threshold is a stopRecording argument).
   private static let speechFrameSamples = 320  // 20ms of 16kHz mono
-  private static let minTrailSec: Double = 0.06
   // Post-roll poll step. 10ms, not 25ms: the old step quantized the exit of an
   // already-banked turn to about 75ms against a 60ms floor (measured minimum 77ms).
   private static let postRollPollSec: Double = 0.010
@@ -739,7 +738,9 @@ final class AudioCaptureEngine {
     return min(floorRemaining, capRemaining)
   }
 
-  func stopRecording(gracePeriodMs: Int, maxTrailMs: Int, silenceThresholdDb: Double) -> (
+  func stopRecording(
+    gracePeriodMs: Int, minTrailMs: Int, maxTrailMs: Int, silenceThresholdDb: Double
+  ) -> (
     pcmData: Data, duration: Double, chunkCount: Int, capturedBytes: Int, peakDb: Double?,
     speechFrames: Int, interrupted: Bool, finalize: CaptureFinalizeStats
   ) {
@@ -770,6 +771,7 @@ final class AudioCaptureEngine {
     } else {
       let graceSec = Double(gracePeriodMs) / 1000.0
       let maxTrailSec = Double(maxTrailMs) / 1000.0
+      let minTrailSec = Double(minTrailMs) / 1000.0
       // Quiet banked BEFORE the release counts toward the window: most releases come
       // after the speaker has already finished, and the old floor of a full window
       // after key-up was ~250ms of pure wait on those turns (history p50 capture
@@ -814,11 +816,11 @@ final class AudioCaptureEngine {
 
         let delay = Self.postRollWakeDelay(
           now: now, entryTime: stopRequestTime, quietStart: quietStart, graceSec: graceSec,
-          minTrailSec: Self.minTrailSec, maxTrailSec: maxTrailSec)
+          minTrailSec: minTrailSec, maxTrailSec: maxTrailSec)
         if delay <= 0 {
           finalizeExit = Self.trailExitReason(
             now: now, entryTime: stopRequestTime, quietStart: quietStart, graceSec: graceSec,
-            minTrailSec: Self.minTrailSec, maxTrailSec: maxTrailSec,
+            minTrailSec: minTrailSec, maxTrailSec: maxTrailSec,
             quietIsStale: lastIterationStale)
           break
         }

@@ -913,7 +913,8 @@ public final class DictationEngine {
       // Zero grace and zero trail: there is nothing in this clip worth waiting for. The
       // buffers still have to be drained, or the next turn would inherit them.
       let (_, duration, _, _, _, _, _, finalize) = self.audioCapture.stopRecording(
-        gracePeriodMs: 0, maxTrailMs: 0, silenceThresholdDb: self.config.trailSilenceDb)
+        gracePeriodMs: 0, minTrailMs: 0, maxTrailMs: 0,
+        silenceThresholdDb: self.config.trailSilenceDb)
       self.noteCaptureFinished()
       self.stampFinalizeStats(finalize)
       self.liveClient?.abandonTurn()
@@ -1241,7 +1242,8 @@ public final class DictationEngine {
     turnReleaseTime = keyUpTime
     let (pcmData, duration, chunks, capturedBytes, peakDb, speechFrames, interrupted, finalize) =
       audioCapture.stopRecording(
-        gracePeriodMs: config.postRollMs, maxTrailMs: config.postRollMaxMs,
+        gracePeriodMs: config.postRollMs, minTrailMs: config.postRollMinMs,
+        maxTrailMs: config.postRollMaxMs,
         silenceThresholdDb: config.trailSilenceDb)
     noteCaptureFinished()
     stampFinalizeStats(finalize)

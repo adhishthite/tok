@@ -18,6 +18,9 @@ struct HarnessArm {
     HarnessArm(name: "flush0", overrides: ["SILENCE_FLUSH_MS": "0"]),
     HarnessArm(name: "chunk100", overrides: ["CHUNK_MS": "100"]),
     HarnessArm(name: "chunk50", overrides: ["CHUNK_MS": "50"]),
+    // Acoustic only: the trailing-capture floor never runs in direct mode.
+    HarnessArm(name: "min30", overrides: ["POST_ROLL_MIN_MS": "30"]),
+    HarnessArm(name: "min15", overrides: ["POST_ROLL_MIN_MS": "15"]),
   ]
 
   static func named(_ name: String) -> HarnessArm? { catalog.first { $0.name == name } }

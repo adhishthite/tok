@@ -23,6 +23,12 @@ final class AlgorithmTests: XCTestCase {
     XCTAssertEqual(EngineConfiguration.load(values: [:]).restFallbackTimeout, 4)
   }
 
+  func testTrailingCaptureFloorDefaultsAndClamps() {
+    XCTAssertEqual(EngineConfiguration.load(values: [:]).postRollMinMs, 60)
+    XCTAssertEqual(EngineConfiguration.load(values: ["POST_ROLL_MIN_MS": "999"]).postRollMinMs, 250)
+    XCTAssertEqual(EngineConfiguration.load(values: ["POST_ROLL_MIN_MS": "-5"]).postRollMinMs, 0)
+  }
+
   func testVocabularyParsingAndCasePreserveCanonicalTerms() {
     let config = EngineConfiguration.load(
       values: [:],

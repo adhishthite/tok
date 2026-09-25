@@ -387,6 +387,14 @@ public enum SettingCatalog {
       if let ms = Int(value) { config.postRollMs = min(500, max(0, ms)) }
     },
     SettingDefinition(
+      key: "POST_ROLL_MIN_MS", title: "Minimum trailing capture",
+      help: "Milliseconds recorded after release even when the room is already quiet.",
+      group: .advanced, section: "Capture timing",
+      kind: .integer(0...250), unit: .milliseconds, defaultValue: "60"
+    ) { config, value in
+      if let ms = Int(value) { config.postRollMinMs = min(250, max(0, ms)) }
+    },
+    SettingDefinition(
       key: "POST_ROLL_MAX_MS", title: "Maximum trailing capture",
       help: "Milliseconds to wait for speech after release, at most.", group: .advanced,
       section: "Capture timing",
