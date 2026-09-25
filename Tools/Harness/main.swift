@@ -33,6 +33,36 @@ guard !apiKey.isEmpty else {
   exit(78)
 }
 
+let owner = HarnessSettings.ownerValues()
+let buildId = ProcessInfo.processInfo.environment["TOK_BUILD_ID"] ?? "harness"
+let vocabulary = HarnessSettings.vocabularyText(owner: owner)
+
+if options.direct {
+  let direct: DirectRunner
+  do {
+    direct = try DirectRunner(
+      options: options, clips: clips, owner: owner, apiKey: apiKey, vocabulary: vocabulary,
+      buildId: buildId)
+  } catch {
+    FileHandle.standardError.write(Data("Cannot start direct mode: \(error)\n".utf8))
+    exit(73)
+  }
+  let directSleep = SleepAssertion(reason: "Tok latency harness direct run")
+  signal(SIGINT, SIG_IGN)
+  let directStop = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+  directStop.setEventHandler {
+    print("Stopping after the turns in flight.")
+    direct.requestStop()
+  }
+  directStop.resume()
+  Thread.detachNewThread {
+    let status = direct.run()
+    directSleep.release()
+    DispatchQueue.main.async { exit(status) }
+  }
+  dispatchMain()
+}
+
 guard let route = AudioRoute.current() else {
   FileHandle.standardError.write(Data("No audio output device.\n".utf8))
   exit(69)
@@ -42,20 +72,18 @@ if let problem = route.problem {
   exit(69)
 }
 
-let owner = HarnessSettings.ownerValues()
 let runner: HarnessRunner
 do {
   runner = try HarnessRunner(
     options: options, clips: clips, owner: owner, apiKey: apiKey,
-    vocabulary: HarnessSettings.vocabularyText(owner: owner),
-    buildId: ProcessInfo.processInfo.environment["TOK_BUILD_ID"] ?? "harness")
+    vocabulary: vocabulary, buildId: buildId)
 } catch {
   FileHandle.standardError.write(
     Data("Cannot create run files: \(error.localizedDescription)\n".utf8))
   exit(73)
 }
 
-let meanGap = 0.40 * 16.5 + 0.17 * 59 + 0.43 * 122.5
+let meanGap = 0.40 * 16.5 + 0.17 * 59 + 0.43 * 102.5
 let meanClip = clips.map { $0.speechOffsetS - $0.speechOnsetS }.reduce(0, +) / Double(clips.count)
 let turns = Double(options.turnsPerArm * options.arms.count)
 let hours = turns * (meanGap * options.gapScale + meanClip + 1.5) / 3600

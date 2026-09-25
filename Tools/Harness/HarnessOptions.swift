@@ -12,6 +12,12 @@ struct HarnessOptions {
   var gapScale = 1.0
   /// Skips the quiet-room gate. Results then include noise-driven tail caps.
   var allowNoisy = false
+  /// Stream clips straight into the Live client, many at once, instead of playing them.
+  var direct = false
+  var workers = 6
+  /// How many times direct mode sends each clip on each arm.
+  var repeats = 1
+  private var armsGiven = false
   var root = URL(
     fileURLWithPath: ProcessInfo.processInfo.environment["TOK_PROJECT_ROOT"]
       ?? FileManager.default.currentDirectoryPath)
@@ -19,8 +25,12 @@ struct HarnessOptions {
   static let usage = """
     Usage: TokHarness [--arms a,b,c] [--turns-per-arm N] [--block N] [--seed N]
                       [--max-minutes M] [--gap-scale X] [--allow-noisy] [--smoke]
+           TokHarness --direct [--arms a,b] [--workers N] [--repeats N] [--seed N]
     Arms: \(HarnessArm.catalog.map(\.name).joined(separator: ", "))
-    --smoke  two turns per arm with short gaps, to check the setup end to end.
+    --smoke   two turns per arm with short gaps, to check the setup end to end.
+    --direct  every clip on every arm, streamed to the Live client in parallel. Measures
+              the end signal, round trip, and accuracy; not capture start or the tail.
+              Default arms: baseline, aligned.
     """
 
   static func parse(_ arguments: [String]) throws -> HarnessOptions {
@@ -34,6 +44,7 @@ struct HarnessOptions {
       switch argument {
       case "--arms":
         options.arms = try value(argument).split(separator: ",").map(String.init)
+        options.armsGiven = true
       case "--turns-per-arm":
         options.turnsPerArm = try Self.positive(value(argument), argument)
       case "--block":
@@ -53,6 +64,12 @@ struct HarnessOptions {
           throw HarnessError.usage("--gap-scale needs a positive number")
         }
         options.gapScale = scale
+      case "--direct":
+        options.direct = true
+      case "--workers":
+        options.workers = try Self.positive(value(argument), argument)
+      case "--repeats":
+        options.repeats = try Self.positive(value(argument), argument)
       case "--allow-noisy":
         options.allowNoisy = true
       case "--smoke":
@@ -65,6 +82,8 @@ struct HarnessOptions {
         throw HarnessError.usage("unknown argument \(argument)")
       }
     }
+    // Warm-microphone arms mean nothing without a microphone.
+    if options.direct, !options.armsGiven { options.arms = ["baseline", "aligned"] }
     for arm in options.arms where HarnessArm.named(arm) == nil {
       throw HarnessError.usage("unknown arm \(arm)")
     }

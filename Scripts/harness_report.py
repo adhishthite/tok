@@ -153,6 +153,7 @@ def build_report(rows: list[dict]) -> dict:
     arms = sorted({r["arm"] for r in rows}, key=lambda a: (a != BASELINE, a))
     report = {
         "runs": sorted({r["run_id"] for r in rows}),
+        "modes": sorted({r.get("mode", "acoustic") for r in rows}),
         "arms": {arm: arm_summary([r for r in rows if r["arm"] == arm]) for arm in arms},
         "capture_start_by_state": {},
         "paired": {},
@@ -195,6 +196,7 @@ def build_report(rows: list[dict]) -> dict:
                 "turns": len(subset),
                 "success": len(done),
                 "total_median": median(numbers(done, "total_ms")),
+                "roundtrip_median": median(numbers(done, "roundtrip_ms")),
                 "pooled_wer": pooled_wer(done, english_only=False),
                 "romanized_share": (
                     sum(romanized(r) for r in done) / len(done) if done else None
@@ -226,7 +228,11 @@ def table(headers: list[str], rows: list[list[str]]) -> str:
 
 
 def render(report: dict) -> str:
-    out = [f"Tok harness report: {len(report['runs'])} run(s)", ""]
+    out = [f"Tok harness report: {len(report['runs'])} run(s), mode {', '.join(report['modes'])}"]
+    if "direct" in report["modes"]:
+        out.append("Direct rows stream audio straight to the Live client: no capture start, "
+                   "no capture tail, no total; compare round trip.")
+    out.append("")
     arms = report["arms"]
     out.append("Latency by arm (settled turns):")
     out.append(table(
@@ -262,8 +268,9 @@ def render(report: dict) -> str:
     if report["by_language"]:
         out.append("By language (all arms; WER in the reference script):")
         out.append(table(
-            ["language", "turns", "ok", "total med", "WER", "romanized"],
+            ["language", "turns", "ok", "total med", "roundtrip", "WER", "romanized"],
             [[k, str(v["turns"]), str(v["success"]), fmt(v["total_median"]),
+              fmt(v["roundtrip_median"]),
               fmt(v["pooled_wer"], percent=True), fmt(v["romanized_share"], percent=True)]
              for k, v in report["by_language"].items()]))
         out.append("")

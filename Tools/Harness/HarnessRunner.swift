@@ -147,8 +147,8 @@ final class HarnessRunner {
   // MARK: - Planning
 
   /// Idle gaps follow the owner's measured mix (about 40% under 30 s, 17% between 30 and
-  /// 90 s, 43% longer). Longer gaps are capped at 150 s: past the 90 s release window every
-  /// gap leaves the microphone in the same cold state.
+  /// 90 s, 43% longer). Longer gaps are drawn from 95 to 110 s: past the 90 s release window
+  /// every gap leaves the microphone in the same cold state, so waiting longer adds nothing.
   private func plan() -> PlannedTurn {
     if deck.isEmpty { deck = clips.shuffled(using: &rng) }
     let clip = deck.removeLast()
@@ -159,7 +159,7 @@ final class HarnessRunner {
     } else if bucket < 0.57 {
       gap = Double.random(in: 30...88, using: &rng)
     } else {
-      gap = Double.random(in: 95...150, using: &rng)
+      gap = Double.random(in: 95...110, using: &rng)
     }
     return PlannedTurn(
       clip: clip, gapS: gap * options.gapScale,

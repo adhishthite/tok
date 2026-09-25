@@ -215,8 +215,20 @@ make harness-clips   # once: 60 phrases x 2 variants from Gemini 3.8 Flash and F
 make harness-smoke   # 2 turns per arm, about 2 minutes, to check the setup
 make harness         # default: baseline, warm90, aligned; 60 turns each, about 4 hours
 make harness ARGS="--arms baseline,flush700 --turns-per-arm 80"
+make harness-direct ARGS="--arms baseline,aligned,flush700 --repeats 2"
 make harness-report  # add ARGS="--min-turns 20" to drop smoke runs
 ```
+
+- **Direct mode.** `--direct` streams each clip straight into `GeminiLiveClient`
+  at real-time pace, over -60 dBFS room tone at a -20 dBFS speech peak, with the
+  engine's pre-roll and digital-zero silence flush. Several workers run at once,
+  each holding one persistent socket per arm and running every clip on every arm
+  back to back, so contention falls on all arms alike. It measures the end signal,
+  the commit-to-result round trip, and accuracy by accent and language. It cannot
+  measure capture start, warm or cold state, or the capture tail; those need the
+  acoustic run. It reaches the internal client through `@testable import`, as
+  `LiveIntegrationTests` does. Each `make harness*` run executes a copy of the
+  binary under `build/harness/bin`, so a rebuild never replaces a running one.
 
 - **Clips.** `Scripts/harness_clips.py` renders `Tools/Harness/phrases.json` with
   weighted accents (mostly Indian English), voices, and pacing styles, alternating
@@ -225,7 +237,8 @@ make harness-report  # add ARGS="--min-turns 20" to drop smoke runs
   engine mistake. The 3.8 TTS models speak plain-text instructions aloud and
   reject `systemInstruction`; direction goes in a leading bracketed tag.
 - **Design.** Each round draws a block of clips with idle gaps drawn from the
-  owner's measured gap mix (40% under 30 s, 17% 30 to 90 s, 43% 95 to 150 s),
+  owner's measured gap mix (40% under 30 s, 17% 30 to 90 s, 43% 95 to 110 s; past the 90 s release
+  window a longer gap leaves the microphone in the same cold state),
   a 150 to 450 ms lead from press to speech, and a 100 to 500 ms tail from
   last word to release. Every arm runs the same block, in an order that rotates
   each round. The report pairs turns on round and position.

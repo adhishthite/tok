@@ -24,7 +24,7 @@ struct HarnessTurnRow: Encodable {
   let leadMs: Double
   let tailMs: Double
   let captureStarted: Bool
-  let failures: [String]
+  var failures: [String]
   let keepMicWarm: Bool
   let micIdleTimeoutS: Int
   let endpointAligned: Bool
@@ -32,6 +32,9 @@ struct HarnessTurnRow: Encodable {
   /// Median room level before this arm block, with nothing playing.
   let ambientDb: Double?
 
+  /// "acoustic": speakers into the microphone through the full engine. "direct": audio
+  /// streamed straight into the Live client, so no capture fields and no total_ms.
+  var mode = "acoustic"
   var outcome: String?
   var totalMs: Double?
   var roundtripMs: Double?

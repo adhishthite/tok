@@ -6,7 +6,7 @@ APP := $(DERIVED)/Build/Products/$(CONFIGURATION)/Tok.app
 ACTIONLINT ?= actionlint
 XCODEBUILD := ./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme Tok -configuration $(CONFIGURATION) -derivedDataPath "$(DERIVED)" -destination 'platform=macOS'
 
-.PHONY: install clean check format lint generate build run test package test-live distribute containers notarize-app notarize-dmg profile-microphone icon check-updates settings-tool settings-reference check-settings test-cleanup-live test-jev-live check-ci report harness-clips harness-build harness harness-smoke harness-report
+.PHONY: install clean check format lint generate build run test package test-live distribute containers notarize-app notarize-dmg profile-microphone icon check-updates settings-tool settings-reference check-settings test-cleanup-live test-jev-live check-ci report harness-clips harness-build harness harness-smoke harness-direct harness-report
 
 install:
 	@command -v xcodegen >/dev/null || brew install xcodegen
@@ -33,11 +33,17 @@ harness-build: generate
 
 # Unattended run: lid open, built-in speakers audible, quiet room. HARNESS_SECONDS bounds it.
 HARNESS_SECONDS ?= 25200
+# Each run executes its own copy, so a rebuild never replaces a running signed binary.
+HARNESS_RUN = bin="build/harness/bin/TokHarness-$$$$"; mkdir -p build/harness/bin && cp "$(DERIVED)/Build/Products/Debug/TokHarness" "$$bin" && TOK_PROJECT_ROOT="$(CURDIR)" TOK_BUILD_ID="$$(git rev-parse --short=12 HEAD)" python3 Scripts/bounded_run.py
+
 harness: harness-build
-	TOK_PROJECT_ROOT="$(CURDIR)" TOK_BUILD_ID="$$(git rev-parse --short=12 HEAD)" python3 Scripts/bounded_run.py --seconds $(HARNESS_SECONDS) --label harness -- "$(DERIVED)/Build/Products/Debug/TokHarness" $(ARGS)
+	@$(HARNESS_RUN) --seconds $(HARNESS_SECONDS) --label harness -- "$$bin" $(ARGS)
 
 harness-smoke: harness-build
-	TOK_PROJECT_ROOT="$(CURDIR)" TOK_BUILD_ID="$$(git rev-parse --short=12 HEAD)" python3 Scripts/bounded_run.py --seconds 300 --label harness-smoke -- "$(DERIVED)/Build/Products/Debug/TokHarness" --smoke $(ARGS)
+	@$(HARNESS_RUN) --seconds 300 --label harness-smoke -- "$$bin" --smoke $(ARGS)
+
+harness-direct: harness-build
+	@$(HARNESS_RUN) --seconds 7200 --label harness-direct -- "$$bin" --direct $(ARGS)
 
 harness-report:
 	python3 Scripts/bounded_run.py --seconds 60 --label harness-report -- python3 Scripts/harness_report.py $(ARGS)
