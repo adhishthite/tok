@@ -68,8 +68,8 @@ final class AudioCaptureEngine {
   // stats accumulator in startRecordingOnQueue, under `lock` like preRollBytesInTurn.
   private var preRollFrameCountInTurn = 0
 
-  // Streaming chunk accumulator (CHUNK_MS; default 150ms = 4800 bytes, docs suggest ~100ms
-  // for the dedicated transcribe model)
+  // Streaming chunk accumulator (CHUNK_MS; default 100ms = 3200 bytes, the size the
+  // dedicated transcribe model's docs suggest)
   private var pendingChunkBuffer = Data()
   private let streamingChunkTargetBytes: Int
 
@@ -173,7 +173,7 @@ final class AudioCaptureEngine {
   private var pendingReselect = false
 
   init(
-    preRollMs: Int = 400, chunkMs: Int = 150, silenceFlushMs: Int = 200, inputDevice: String = ""
+    preRollMs: Int = 400, chunkMs: Int = 100, silenceFlushMs: Int = 200, inputDevice: String = ""
   ) {
     self.preferredInputDevice = inputDevice
     // Standard 16kHz 16-bit Mono Linear PCM for speech AI models
@@ -553,7 +553,7 @@ final class AudioCaptureEngine {
         chunkCountSnapshot = chunkCount
       }
 
-      // Coalesce audio into ~150ms frames before dispatching to WebSocket
+      // Coalesce audio into CHUNK_MS frames (default 100 ms) before dispatching to WebSocket
       var toStream: Data? = nil
       if pendingChunkBuffer.count >= streamingChunkTargetBytes {
         toStream = pendingChunkBuffer

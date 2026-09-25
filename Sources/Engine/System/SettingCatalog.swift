@@ -345,7 +345,9 @@ public enum SettingCatalog {
       key: "CHUNK_MS", title: "Streaming frame size",
       help: "Milliseconds of audio sent in each streaming frame.", group: .advanced,
       section: "Streaming",
-      kind: .integer(20...500), unit: .milliseconds, defaultValue: "150"
+      // Measured 2026-09-26 (PERFORMANCE.md, "Streaming frame size"): 100 ms, the size the
+      // transcribe docs recommend, is 8 ms faster than 150 with no accuracy change.
+      kind: .integer(20...500), unit: .milliseconds, defaultValue: "100"
     ) { config, value in
       if let ms = Int(value) { config.chunkMs = min(500, max(20, ms)) }
     },

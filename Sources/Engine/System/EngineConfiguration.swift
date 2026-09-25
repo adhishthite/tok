@@ -110,7 +110,7 @@ public struct EngineConfiguration: Sendable {
   // audioStreamEnd + activityEnd + clientContent.turnComplete triple.
   public var wsEndpointAligned: Bool = true
   // Streaming chunk size; docs recommend ~100ms for the dedicated model (150 = shipped).
-  public var chunkMs: Int = 150
+  public var chunkMs: Int = 100
   // Synthetic trailing silence appended after key-up so the speech encoder's lookahead
   // window can finalize the last word. 0 disables it entirely.
   public var silenceFlushMs: Int = 200

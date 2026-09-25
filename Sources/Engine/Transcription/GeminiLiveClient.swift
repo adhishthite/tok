@@ -1092,7 +1092,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
 
   // Base64's alphabet (A-Za-z0-9+/=) needs no JSON escaping, so the fixed-shape
   // envelope is built once and the payload is spliced in directly, skipping
-  // JSONSerialization on the hot per-chunk (~150ms) path.
+  // JSONSerialization on the hot per-chunk (CHUNK_MS, ~100ms) path.
   private static let audioChunkJSONPrefix =
     "{\"realtimeInput\":{\"audio\":{\"mimeType\":\"audio/pcm;rate=16000\",\"data\":\""
   private static let audioChunkJSONSuffix = "\"}}}"

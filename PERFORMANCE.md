@@ -228,6 +228,20 @@ Not yet confirmed end to end on the acoustic path (key-up to paste through the
 real microphone); the flush only changes what is sent after key-up, which direct
 mode reproduces.
 
+## Streaming frame size, 2026-09-26
+
+`CHUNK_MS` was 150 by default; the dedicated transcribe docs suggest about 100.
+Same direct-mode design as the silence-flush run, 588 pairs per arm:
+
+| Frame | Round trip vs 150 ms | 95% CI | English WER | Hindi / Marathi romanized |
+| --- | --- | --- | --- | --- |
+| 150 | reference | | 2.1% | 17/46, 0/48 |
+| 100 | -8 ms | -10 to -4 | 2.0% | 17/46, 0/48 |
+| 50 | -12 ms | -16 to -10 | 2.1% | 17/46, 0/48 |
+
+The default is now 100 ms. 50 ms saves 4 ms more at twice the message rate,
+which is not worth it on a lossy network.
+
 ## Latency harness
 
 The harness runs real engine turns without a person. `TokHarness` builds a
