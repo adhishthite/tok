@@ -187,7 +187,8 @@ final class DirectRunner {
       position = end
     }
     // The synthetic silence flush is digital zeros, as AudioCaptureEngine appends.
-    client.sendAudioChunk(Data(count: config.silenceFlushMs * 32))
+    // With a zero flush the capture engine appends nothing, so nothing is sent.
+    if config.silenceFlushMs > 0 { client.sendAudioChunk(Data(count: config.silenceFlushMs * 32)) }
     guard client.canCommitTurn else {
       client.abandonTurn()
       row.outcome = "not_committable"

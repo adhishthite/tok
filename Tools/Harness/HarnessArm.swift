@@ -13,6 +13,9 @@ struct HarnessArm {
     HarnessArm(name: "aligned", overrides: ["WS_ENDPOINT_ALIGNED": "true"]),
     HarnessArm(name: "legacy", overrides: ["WS_ENDPOINT_ALIGNED": "false"]),
     HarnessArm(name: "flush700", overrides: ["SILENCE_FLUSH_MS": "700"]),
+    HarnessArm(name: "flush200", overrides: ["SILENCE_FLUSH_MS": "200"]),
+    HarnessArm(name: "flush100", overrides: ["SILENCE_FLUSH_MS": "100"]),
+    HarnessArm(name: "flush0", overrides: ["SILENCE_FLUSH_MS": "0"]),
   ]
 
   static func named(_ name: String) -> HarnessArm? { catalog.first { $0.name == name } }
