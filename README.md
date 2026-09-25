@@ -224,7 +224,7 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | Stream while speaking | <code>ENABLE_LIVE_WEBSOCKET</code> | <code>true</code> | true, false | Use the live connection for lower settlement latency. |
 | Fallback delay | <code>REST_FALLBACK_TIMEOUT</code> | <code>4.0</code> | 0.1 to 30.0 | Seconds to wait before also trying the fallback route. |
 | Streaming frame size | <code>CHUNK_MS</code> | <code>150</code> | 20 to 500 | Milliseconds of audio sent in each streaming frame. |
-| Trailing silence | <code>SILENCE_FLUSH_MS</code> | <code>700</code> | 0 to 2000 | Milliseconds of synthetic silence sent to help finalize the final word. |
+| Trailing silence | <code>SILENCE_FLUSH_MS</code> | <code>200</code> | 0 to 2000 | Milliseconds of synthetic silence sent to help finalize the final word. |
 | Use aligned end signals | <code>WS_ENDPOINT_ALIGNED</code> | <code>true</code> | true, false | Send only the documented end-of-turn signal. Turn off to compare latency and last-word accuracy with the earlier triple signal. |
 | Pre-roll | <code>PRE_ROLL_MS</code> | <code>400</code> | 0 to 1000 | Milliseconds retained before pressing the shortcut when warm capture is enabled. |
 | Trailing quiet window | <code>POST_ROLL_MS</code> | <code>250</code> | 0 to 500 | Milliseconds of quiet needed before finishing capture. |

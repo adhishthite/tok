@@ -201,6 +201,33 @@ counts instead of the default success/dispatched/live cohort. Run
 `python3 Scripts/turn_report.py --help` for the full filter and column
 list, and for the exact median and p95 definitions used.
 
+## Silence flush, 2026-09-26
+
+`SILENCE_FLUSH_MS` was 700 by default. Harness direct mode (Tools/Harness), 294
+clips in 13 languages, every clip on every arm twice, paired turn by turn against
+350 ms (the owner's setting). Commit-to-result round trip, median of paired
+differences, bootstrap 95% CI:
+
+| Flush | Pairs | Round trip vs 350 ms | 95% CI | English WER | Last word missed |
+| --- | --- | --- | --- | --- | --- |
+| 700 | 588 | +80 ms | +77 to +83 | 2.3% | 3.1% |
+| 350 | 588 | reference | | 2.2% | 3.3% |
+| 200 | 588 | -35 ms | -38 to -32 | 2.0% | 2.4% |
+| 100 | 588 | -58 ms | -63 to -55 | 2.2% | 3.3% |
+| 0 | 588 | -82 ms | -86 to -80 | 2.0% | 3.1% |
+
+Each 100 ms of flush costs about 23 ms of round trip and buys no measured accuracy.
+The capture tail already ends each turn on at least `POST_ROLL_MS` of real quiet.
+At 0 and 100 ms, one short Marathi clip came back romanized in both of its
+variants (2 of 48 Marathi turns); at 200 ms and longer, 0 of 48. The default is
+now 200 ms: about 115 ms faster than 700 per turn, with no measured cost. The
+end-signal A/B in the same runs found no difference: `WS_ENDPOINT_ALIGNED` minus
+legacy was -2 ms (95% CI -4 to 0) over 588 pairs.
+
+Not yet confirmed end to end on the acoustic path (key-up to paste through the
+real microphone); the flush only changes what is sent after key-up, which direct
+mode reproduces.
+
 ## Latency harness
 
 The harness runs real engine turns without a person. `TokHarness` builds a

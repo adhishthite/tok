@@ -113,7 +113,7 @@ public struct EngineConfiguration: Sendable {
   public var chunkMs: Int = 150
   // Synthetic trailing silence appended after key-up so the speech encoder's lookahead
   // window can finalize the last word. 0 disables it entirely.
-  public var silenceFlushMs: Int = 700
+  public var silenceFlushMs: Int = 200
   // Release the mic (status-bar indicator off) after this many seconds without a dictation;
   // the next key-down re-arms it. 0 = keep the mic always on (lowest latency, indicator lit).
   public var keepMicrophoneWarm: Bool = false

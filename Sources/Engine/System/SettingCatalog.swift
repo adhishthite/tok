@@ -353,7 +353,10 @@ public enum SettingCatalog {
       key: "SILENCE_FLUSH_MS", title: "Trailing silence",
       help: "Milliseconds of synthetic silence sent to help finalize the final word.",
       group: .advanced, section: "Streaming", kind: .integer(0...2000), unit: .milliseconds,
-      defaultValue: "700"
+      // Measured 2026-09-26 (PERFORMANCE.md, "Silence flush"): each 100 ms of flush adds
+      // about 23 ms of round trip with no accuracy gain. Below 200 ms, short Marathi clips
+      // sometimes came back romanized.
+      defaultValue: "200"
     ) { config, value in
       if let ms = Int(value) { config.silenceFlushMs = min(2000, max(0, ms)) }
     },

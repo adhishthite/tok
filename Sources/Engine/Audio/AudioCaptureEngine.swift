@@ -173,7 +173,7 @@ final class AudioCaptureEngine {
   private var pendingReselect = false
 
   init(
-    preRollMs: Int = 400, chunkMs: Int = 150, silenceFlushMs: Int = 700, inputDevice: String = ""
+    preRollMs: Int = 400, chunkMs: Int = 150, silenceFlushMs: Int = 200, inputDevice: String = ""
   ) {
     self.preferredInputDevice = inputDevice
     // Standard 16kHz 16-bit Mono Linear PCM for speech AI models
@@ -874,8 +874,8 @@ final class AudioCaptureEngine {
       pendingChunkBuffer.removeAll(keepingCapacity: true)
     }
 
-    // 5. Append the acoustic lookahead silence flush (SILENCE_FLUSH_MS; default 700ms =
-    // 22,400 bytes @ 16kHz 16-bit mono). This satisfies the lookahead window speech
+    // 5. Append the acoustic lookahead silence flush (SILENCE_FLUSH_MS; default 200ms =
+    // 6,400 bytes @ 16kHz 16-bit mono). This satisfies the lookahead window speech
     // encoders need to finalize trailing words; appended AFTER stat accumulation stopped,
     // so the silence gate never sees it regardless of duration.
     let silenceData = Data(count: silenceFlushBytes)
