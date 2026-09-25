@@ -6,7 +6,7 @@ APP := $(DERIVED)/Build/Products/$(CONFIGURATION)/Tok.app
 ACTIONLINT ?= actionlint
 XCODEBUILD := ./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme Tok -configuration $(CONFIGURATION) -derivedDataPath "$(DERIVED)" -destination 'platform=macOS'
 
-.PHONY: install clean check format lint generate build run test package test-live distribute containers notarize-app notarize-dmg profile-microphone icon check-updates settings-tool settings-reference check-settings test-cleanup-live test-jev-live check-ci report
+.PHONY: install clean check format lint generate build run test package test-live distribute containers notarize-app notarize-dmg profile-microphone icon check-updates settings-tool settings-reference check-settings test-cleanup-live test-jev-live check-ci report harness-clips harness-build harness harness-smoke harness-report
 
 install:
 	@command -v xcodegen >/dev/null || brew install xcodegen
@@ -24,6 +24,23 @@ check-updates: build
 
 report:
 	python3 Scripts/bounded_run.py --seconds 30 --label turn-report -- python3 Scripts/turn_report.py $(ARGS)
+
+harness-clips:
+	python3 Scripts/bounded_run.py --seconds 1200 --label harness-clips -- python3 Scripts/harness_clips.py $(ARGS)
+
+harness-build: generate
+	./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme TokHarness -configuration Debug -derivedDataPath "$(DERIVED)" -destination 'platform=macOS' build
+
+# Unattended run: lid open, built-in speakers audible, quiet room. HARNESS_SECONDS bounds it.
+HARNESS_SECONDS ?= 25200
+harness: harness-build
+	TOK_PROJECT_ROOT="$(CURDIR)" TOK_BUILD_ID="$$(git rev-parse --short=12 HEAD)" python3 Scripts/bounded_run.py --seconds $(HARNESS_SECONDS) --label harness -- "$(DERIVED)/Build/Products/Debug/TokHarness" $(ARGS)
+
+harness-smoke: harness-build
+	TOK_PROJECT_ROOT="$(CURDIR)" TOK_BUILD_ID="$$(git rev-parse --short=12 HEAD)" python3 Scripts/bounded_run.py --seconds 300 --label harness-smoke -- "$(DERIVED)/Build/Products/Debug/TokHarness" --smoke $(ARGS)
+
+harness-report:
+	python3 Scripts/bounded_run.py --seconds 60 --label harness-report -- python3 Scripts/harness_report.py $(ARGS)
 
 settings-tool: generate
 	./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme TokSettingsReference -configuration Debug -derivedDataPath "$(DERIVED)" -destination 'platform=macOS' build
@@ -92,4 +109,4 @@ check-ci:
 	python3 Scripts/bounded_run.py --seconds 20 --label workflow-lint -- $(ACTIONLINT)
 	python3 Scripts/bounded_run.py --seconds 30 --label ci-identity-typecheck -- xcrun swiftc -typecheck Scripts/ci/import_identity.swift
 	python3 Scripts/bounded_run.py --seconds 30 --label ci-signature-typecheck -- xcrun swiftc -typecheck Scripts/ci/verify_signature.swift
-	python3 Scripts/bounded_run.py --seconds 60 --label ci-python-lint -- uvx ruff check --isolated --select E4,E7,E9,F,I,SIM,PLW1510 Scripts/ci Tests/ScriptTests/test_ci_release.py Scripts/turn_report.py Tests/ScriptTests/test_turn_report.py
+	python3 Scripts/bounded_run.py --seconds 60 --label ci-python-lint -- uvx ruff check --isolated --select E4,E7,E9,F,I,SIM,PLW1510 Scripts/ci Tests/ScriptTests/test_ci_release.py Scripts/turn_report.py Tests/ScriptTests/test_turn_report.py Scripts/harness_clips.py Scripts/harness_report.py Tests/ScriptTests/test_harness_report.py

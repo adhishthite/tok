@@ -29,6 +29,23 @@ targets:
     dependencies:
       - target: TokEngine
       - sdk: libsqlite3.tbd
+  TokHarness:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Tools/Harness
+        excludes:
+          - "*.json"
+    dependencies:
+      - target: TokEngine
+      - sdk: libsqlite3.tbd
+    settings:
+      base:
+        # Local measurement tool, never distributed. Under the hardened runtime a
+        # process needs the audio-input entitlement to open the microphone.
+        ENABLE_HARDENED_RUNTIME: NO
+        SWIFT_VERSION: '5.0'
+        SWIFT_STRICT_CONCURRENCY: minimal
   TokEngine:
     type: library.static
     platform: macOS
@@ -115,6 +132,10 @@ schemes:
     build:
       targets:
         TokSettingsReference: all
+  TokHarness:
+    build:
+      targets:
+        TokHarness: all
   TokLiveChecks:
     build:
       targets:

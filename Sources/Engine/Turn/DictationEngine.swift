@@ -28,6 +28,12 @@ public final class DictationEngine {
     }
   }
   let config: EngineConfiguration
+  // Fixed at init, so every queue reads it without synchronization.
+  let delivery: Delivery
+  private var isHeadless: Bool {
+    if case .sink = delivery { return true }
+    return false
+  }
   // Settings that DictationStore swaps in without an engine restart (audit F30). The
   // struct is replaced whole under hotLock and read as a snapshot on whichever queue
   // needs it, so a mid-turn change applies from the next read without a data race.
@@ -287,8 +293,9 @@ public final class DictationEngine {
       deadline: .now() + Double(config.micIdleTimeoutSec), execute: item)
   }
 
-  public init(config: EngineConfiguration) {
+  public init(config: EngineConfiguration, delivery: Delivery = .paste) {
     self.config = config
+    self.delivery = delivery
     self.hotSettings = HotSettings(config)
     self.audioCapture = AudioCaptureEngine(
       preRollMs: config.preRollMs, chunkMs: config.chunkMs, silenceFlushMs: config.silenceFlushMs,
@@ -362,6 +369,82 @@ public final class DictationEngine {
       feedback.showError(message: "Add a Gemini API key to start dictating.")
       return
     }
+    startPipeline()
+
+    // 5. Setup Hotkey Listener
+    let binding = HotkeyManager.KeyBinding.from(string: config.hotkey)
+    let hotkey = HotkeyManager(binding: binding, mode: config.hotkeyMode)
+
+    hotkey.onKeyDown = { [weak self] in
+      self?.handleKeyDown()
+    }
+
+    hotkey.onKeyUp = { [weak self, weak hotkey] in
+      self?.handleKeyUp(eventTime: hotkey?.lastEventUptime)
+    }
+
+    // The tap's run loop source is added on the main run loop, so these arrive on main
+    // like onKeyDown and onKeyUp do.
+    hotkey.onChord = { [weak self] in
+      self?.handleChord()
+    }
+
+    hotkey.onCancelKey = { [weak self] in
+      self?.handleCancel(source: "escape")
+    }
+
+    guard hotkey.start() else {
+      Log.error(
+        "HOTKEY",
+        "Could not detect the shortcut. Enable Input Monitoring and Accessibility for Tok."
+      )
+      feedback.showError(message: "Enable Input Monitoring and Accessibility for Tok.")
+      return
+    }
+    self.hotkeyManager = hotkey
+
+    // The judgment probe (kicked off in init) may already have settled before a delegate
+    // existed to hear about it, so push the current snapshot once at startup rather than
+    // relying only on the next transition (otherwise the store shows a stale `.off`).
+    delegate?.engineDidEmit(.judgmentAvailability(judgmentService.availability))
+    feedback.ready()
+  }
+
+  /// Main thread. Starts a `.sink` engine for the latency harness: the same capture,
+  /// socket, and power wiring as `start()`, but no global shortcut, so neither
+  /// Accessibility nor Input Monitoring is required. Returns false when the microphone is
+  /// not authorized or the API key is missing. Turns are driven by `harnessKeyDown()` and
+  /// `harnessKeyUp()`.
+  public func startHeadless() -> Bool {
+    precondition(isHeadless, "startHeadless requires a .sink delivery")
+    NetworkMonitor.shared.start()
+    guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized,
+      !config.geminiApiKey.isEmpty
+    else { return false }
+    startPipeline()
+    feedback.ready()
+    return true
+  }
+
+  /// Main thread. The shortcut press, for a `.sink` engine. Runs the same gates and
+  /// capture start as a physical key-down.
+  public func harnessKeyDown() {
+    precondition(isHeadless, "harnessKeyDown requires a .sink delivery")
+    handleKeyDown()
+  }
+
+  /// Main thread. The shortcut release, for a `.sink` engine.
+  public func harnessKeyUp() {
+    precondition(isHeadless, "harnessKeyUp requires a .sink delivery")
+    handleKeyUp()
+  }
+
+  /// Any thread. True once the Live session is set up, through the client's own lock.
+  public var isLiveReady: Bool { liveClient?.isReady ?? false }
+
+  /// Main thread. Capture, Live socket, REST pre-warm, and sleep/wake wiring shared by
+  /// `start()` and `startHeadless()`.
+  private func startPipeline() {
     // 3. Initialize Audio Capture Engine
     audioCapture.onCaptureInterrupted = { [weak self] _ in
       guard let self = self, self.captureActive else { return }
@@ -434,28 +517,6 @@ public final class DictationEngine {
       }
     }
 
-    // 5. Setup Hotkey Listener
-    let binding = HotkeyManager.KeyBinding.from(string: config.hotkey)
-    let hotkey = HotkeyManager(binding: binding, mode: config.hotkeyMode)
-
-    hotkey.onKeyDown = { [weak self] in
-      self?.handleKeyDown()
-    }
-
-    hotkey.onKeyUp = { [weak self, weak hotkey] in
-      self?.handleKeyUp(eventTime: hotkey?.lastEventUptime)
-    }
-
-    // The tap's run loop source is added on the main run loop, so these arrive on main
-    // like onKeyDown and onKeyUp do.
-    hotkey.onChord = { [weak self] in
-      self?.handleChord()
-    }
-
-    hotkey.onCancelKey = { [weak self] in
-      self?.handleCancel(source: "escape")
-    }
-
     // Sleep/wake hygiene: release the mic before sleep (suspendEngine refuses mid-dictation),
     // and force a fresh WS connection on wake - the socket often survives sleep in a
     // half-dead state where sends succeed but no server responses ever arrive.
@@ -479,22 +540,6 @@ public final class DictationEngine {
           self.liveClient?.connect(reason: "wake")
         }
       })
-
-    guard hotkey.start() else {
-      Log.error(
-        "HOTKEY",
-        "Could not detect the shortcut. Enable Input Monitoring and Accessibility for Tok."
-      )
-      feedback.showError(message: "Enable Input Monitoring and Accessibility for Tok.")
-      return
-    }
-    self.hotkeyManager = hotkey
-
-    // The judgment probe (kicked off in init) may already have settled before a delegate
-    // existed to hear about it, so push the current snapshot once at startup rather than
-    // relying only on the next transition (otherwise the store shows a stale `.off`).
-    delegate?.engineDidEmit(.judgmentAvailability(judgmentService.availability))
-    feedback.ready()
   }
 
   /// Replaces the hot-applied settings from a fresh configuration. Main thread. Keys whose
@@ -979,8 +1024,10 @@ public final class DictationEngine {
       scheduleMicIdleRelease()
       return
     }
-    // A startup wait must not silently change the intended destination.
-    guard NSWorkspace.shared.frontmostApplication?.processIdentifier == turnFrontmostPID else {
+    // A startup wait must not silently change the intended destination. A sink has none.
+    guard
+      isHeadless || NSWorkspace.shared.frontmostApplication?.processIdentifier == turnFrontmostPID
+    else {
       feedback.showError(message: "Focus changed. Press again to dictate.")
       scheduleMicIdleRelease()
       return
@@ -1001,7 +1048,7 @@ public final class DictationEngine {
     if hot.soundFeedback { SoundManager.playStartSound() }
     feedback.showListening(lockAfter: holdToLockInterval)
     feedback.captureStarted(pid: turnFrontmostPID, followFocus: hot.hudFollowFocus)
-    if config.restoreClipboard { TextInjector.prepareClipboard() }
+    if config.restoreClipboard, !isHeadless { TextInjector.prepareClipboard() }
     armHoldToLock()
     armSessionLimit()
 
@@ -1857,7 +1904,7 @@ public final class DictationEngine {
     // row is written and the text is pasted anyway (audit F11).
     let turnId = currentTurnId
     var canPrepareClipboard = false
-    if config.restoreClipboard, !clipboardPrepared, !SecureInputMonitor.isActive,
+    if config.restoreClipboard, !isHeadless, !clipboardPrepared, !SecureInputMonitor.isActive,
       AXIsProcessTrusted()
     {
       DispatchQueue.main.sync {
@@ -1968,6 +2015,12 @@ public final class DictationEngine {
         ? "Vocabulary replacements exceeded safe limits. Original text saved in History."
         : "Vocabulary replacements exceeded safe limits. Nothing pasted. Review Vocabulary."
       Log.warn("VOCAB", "Replacement budget exceeded; no text was pasted.")
+    } else if case .sink(let deliver) = delivery {
+      // Never the clipboard or a synthesized paste: the harness only needs the text.
+      let sinkStart = ProcessInfo.processInfo.systemUptime
+      deliver(config.trailingSpace ? text + " " : text)
+      injectMs = (ProcessInfo.processInfo.systemUptime - sinkStart) * 1000.0
+      injected = true
     } else if SecureInputMonitor.isActive {
       let copyStart = ProcessInfo.processInfo.systemUptime
       if !TextInjector.copyOnly(text: text, appendSpace: config.trailingSpace) {

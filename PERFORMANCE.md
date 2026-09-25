@@ -200,3 +200,47 @@ pass `--db <path>` to point at another file. `--all-outcomes` shows outcome
 counts instead of the default success/dispatched/live cohort. Run
 `python3 Scripts/turn_report.py --help` for the full filter and column
 list, and for the exact median and p95 definitions used.
+
+## Latency harness
+
+The harness runs real engine turns without a person. `TokHarness` builds a
+`DictationEngine` with a `.sink` delivery: real capture on the built-in mic, real
+Live and REST routes, real history rows. It presses and releases the shortcut in
+code, and it never touches the clipboard, pastes, or needs Accessibility. Clips
+play through the built-in speakers, so capture start, warm and cold microphone
+state, and the capture tail are measured on hardware.
+
+```sh
+make harness-clips   # once: 60 phrases x 2 variants from Gemini 3.8 Flash and Flash-Lite TTS
+make harness-smoke   # 2 turns per arm, about 2 minutes, to check the setup
+make harness         # default: baseline, warm90, aligned; 60 turns each, about 4 hours
+make harness ARGS="--arms baseline,flush700 --turns-per-arm 80"
+make harness-report  # add ARGS="--min-turns 20" to drop smoke runs
+```
+
+- **Clips.** `Scripts/harness_clips.py` renders `Tools/Harness/phrases.json` with
+  weighted accents (mostly Indian English), voices, and pacing styles, alternating
+  the two TTS models. Each clip is transcribed once over REST and regenerated when
+  the check misses more than 20% of words, so a TTS mistake is not scored as an
+  engine mistake. The 3.8 TTS models speak plain-text instructions aloud and
+  reject `systemInstruction`; direction goes in a leading bracketed tag.
+- **Design.** Each round draws a block of clips with idle gaps drawn from the
+  owner's measured gap mix (40% under 30 s, 17% 30 to 90 s, 43% 95 to 150 s),
+  a 150 to 450 ms lead from press to speech, and a 100 to 500 ms tail from
+  last word to release. Every arm runs the same block, in an order that rotates
+  each round. The report pairs turns on round and position.
+- **Settings.** Arms start from the installed app's own preferences
+  (`com.adhishthite.tok`), then force sounds, ducking, clipboard restore,
+  correction learning, hold-to-lock, and usage metrics off. Each arm changes one
+  factor. Rows go to `build/harness/history.db`, tagged `harness-<arm>`, and to
+  `build/harness/runs/<run>.jsonl`.
+- **Conditions.** Keep the lid open, the built-in speakers on at a fixed volume,
+  and the room quiet. Before each arm block the harness measures the room with
+  nothing playing. It pauses while the median is above `TRAIL_SILENCE_DB` minus
+  5 dB, because room tone near the threshold keeps resetting the quiet window
+  and runs the tail to `POST_ROLL_MAX_MS`. It also pauses when the output is not
+  the built-in speakers, and it stops after 4 turns in a row without a transcript.
+- **Limits.** Speakers into the laptop mic are not a person at dictation
+  distance, so absolute tail and accuracy numbers are approximate. Paired arm
+  differences are the result. Smart transcription removes fillers, so a phrase
+  that opens with "Okay" can count as a first-word miss in every arm alike.
