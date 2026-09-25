@@ -12,7 +12,9 @@ struct AudioRoute {
   var problem: String? {
     if !builtIn { return "output is \(name), not the built-in speakers" }
     if muted { return "built-in speakers are muted" }
-    if let volume, volume < 0.2 { return "output volume is \(Int(volume * 100))%" }
+    // At 25% the clips reached the microphone about 15 dB down and every turn came back
+    // empty (2026-09-26), so the floor sits well above that.
+    if let volume, volume < 0.4 { return "output volume is \(Int(volume * 100))%, below 40%" }
     return nil
   }
 
