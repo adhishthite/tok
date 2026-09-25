@@ -5,6 +5,8 @@ struct HarnessClip: Decodable {
   let clipId: String
   let phraseId: String
   let text: String
+  /// ISO 639-1 code. Absent in manifests written before languages were added: English.
+  let language: String?
   let codeSwitch: Bool
   let ttsModel: String
   let voice: String

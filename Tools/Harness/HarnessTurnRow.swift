@@ -16,6 +16,7 @@ struct HarnessTurnRow: Encodable {
   let voice: String
   let accent: String
   let style: String
+  let language: String
   let codeSwitch: Bool
   let clipSpeechS: Double
   let plannedGapS: Double

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Summarize latency harness runs (build/harness/runs/*.jsonl) by arm.
 
-Latency uses every turn with a settled result. Word accuracy is pooled (total word
-errors over total reference words) and excludes code-switched clips, whose script
-and spelling vary legitimately. Each non-baseline arm is also compared with baseline
+Latency uses every turn with a settled result. Headline word accuracy is pooled
+(total word errors over total reference words) over English clips only;
+code-switched and other-language clips vary legitimately in script and spelling,
+so they are reported per language, with the share of transcripts that came back
+romanized for a native-script reference. Each non-baseline arm is also compared with baseline
 on paired turns: the same round and block position, so the same clip, gap, lead, and
 tail. The confidence interval is a seeded bootstrap of the median paired difference.
 """
@@ -15,6 +17,7 @@ import json
 import random
 import statistics
 import sys
+import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -51,8 +54,23 @@ def settled(rows: list[dict]) -> list[dict]:
     return [r for r in rows if r.get("outcome") == "success"]
 
 
-def pooled_wer(rows: list[dict]) -> float | None:
-    scored = [r for r in rows if r.get("accuracy") and not r.get("code_switch")]
+def is_english(row: dict) -> bool:
+    return row.get("language", "en") == "en" and not row.get("code_switch")
+
+
+def latin_share(text: str) -> float:
+    letters = [ch for ch in text or "" if ch.isalpha()]
+    if not letters:
+        return 0.0
+    return sum("LATIN" in unicodedata.name(ch, "") for ch in letters) / len(letters)
+
+
+def romanized(row: dict) -> bool:
+    return latin_share(row.get("hypothesis")) > 0.5 > latin_share(row.get("reference"))
+
+
+def pooled_wer(rows: list[dict], english_only: bool = True) -> float | None:
+    scored = [r for r in rows if r.get("accuracy") and (is_english(r) or not english_only)]
     words = sum(r["accuracy"]["reference_words"] for r in scored)
     if not words:
         return None
@@ -61,7 +79,7 @@ def pooled_wer(rows: list[dict]) -> float | None:
 
 
 def miss_rate(rows: list[dict], key: str) -> float | None:
-    scored = [r for r in rows if r.get("accuracy") and not r.get("code_switch")]
+    scored = [r for r in rows if r.get("accuracy") and is_english(r)]
     if not scored:
         return None
     return sum(not r["accuracy"][key] for r in scored) / len(scored)
@@ -140,6 +158,7 @@ def build_report(rows: list[dict]) -> dict:
         "paired": {},
         "wer_by_tts_model": {},
         "wer_by_accent": {},
+        "by_language": {},
     }
     for arm in arms:
         for state in ("warm", "cold"):
@@ -164,6 +183,24 @@ def build_report(rows: list[dict]) -> dict:
                     "ci95": bootstrap_median_ci(deltas),
                 }
     ok = settled(rows)
+    for language in sorted({r.get("language", "en") for r in rows}):
+        for switched in (False, True):
+            subset = [r for r in rows if r.get("language", "en") == language
+                      and bool(r.get("code_switch")) == switched]
+            if not subset:
+                continue
+            done = settled(subset)
+            label = f"{language}+code-switch" if switched else language
+            report["by_language"][label] = {
+                "turns": len(subset),
+                "success": len(done),
+                "total_median": median(numbers(done, "total_ms")),
+                "pooled_wer": pooled_wer(done, english_only=False),
+                "romanized_share": (
+                    sum(romanized(r) for r in done) / len(done) if done else None
+                ),
+            }
+    ok = [r for r in ok if is_english(r)]
     for key, target in (("tts_model", "wer_by_tts_model"), ("accent", "wer_by_accent")):
         for value in sorted({r.get(key) for r in ok if r.get(key)}):
             subset = [r for r in ok if r.get(key) == value]
@@ -201,7 +238,7 @@ def render(report: dict) -> str:
           fmt(s["capture_start_p95"]), fmt(s["warm_share"], percent=True),
           fmt(s["ambient_median"], 1)] for a, s in arms.items()]))
     out.append("")
-    out.append("Word accuracy by arm (pooled, code-switched clips excluded):")
+    out.append("Word accuracy by arm (pooled, English clips only):")
     out.append(table(
         ["arm", "WER", "first word missed", "last word missed", "outcomes"],
         [[a, fmt(s["pooled_wer"], percent=True), fmt(s["first_word_miss"], percent=True),
@@ -222,7 +259,15 @@ def render(report: dict) -> str:
               "-" if not v["ci95"] else f"{v['ci95'][0]:.0f} to {v['ci95'][1]:.0f}"]
              for k, v in report["paired"].items()]))
     out.append("")
-    out.append("Pooled WER by TTS model and accent (all arms):")
+    if report["by_language"]:
+        out.append("By language (all arms; WER in the reference script):")
+        out.append(table(
+            ["language", "turns", "ok", "total med", "WER", "romanized"],
+            [[k, str(v["turns"]), str(v["success"]), fmt(v["total_median"]),
+              fmt(v["pooled_wer"], percent=True), fmt(v["romanized_share"], percent=True)]
+             for k, v in report["by_language"].items()]))
+        out.append("")
+    out.append("Pooled WER by TTS model and accent (English clips, all arms):")
     out.append(table(
         ["group", "turns", "WER"],
         [[k, str(v["turns"]), fmt(v["pooled_wer"], percent=True)]

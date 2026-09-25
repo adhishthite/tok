@@ -29,6 +29,18 @@ class HarnessReportTests(unittest.TestCase):
                 row("baseline", 0, 1, 500, 200, wer=0.0)]
         self.assertEqual(harness_report.pooled_wer(rows), 0.0)
 
+    def test_other_languages_stay_out_of_the_headline_wer(self):
+        rows = [row("baseline", 0, 0, 500, 200, wer=1.0, language="mr"),
+                row("baseline", 0, 1, 500, 200, wer=0.0)]
+        self.assertEqual(harness_report.pooled_wer(rows), 0.0)
+        self.assertEqual(harness_report.pooled_wer(rows, english_only=False), 0.5)
+
+    def test_romanized_transcript_of_devanagari_is_flagged(self):
+        self.assertTrue(harness_report.romanized(
+            {"reference": "मी थोड्या वेळात पोहोचतो.", "hypothesis": "Mi thodya velat pohochto."}))
+        self.assertFalse(harness_report.romanized(
+            {"reference": "मी थोड्या वेळात पोहोचतो.", "hypothesis": "मी थोड्या वेळात पोहोचतो."}))
+
     def test_paired_deltas_match_round_and_position(self):
         rows = [row("baseline", 0, 0, 600, 200), row("baseline", 0, 1, 700, 210),
                 row("warm90", 0, 0, 550, 3), row("warm90", 0, 1, 690, 2),
@@ -66,6 +78,23 @@ class HarnessClipTests(unittest.TestCase):
         clips = harness_clips.plan([{"id": "a", "text": "one two"}], variants=4, seed=1)
         self.assertEqual([c["tts_model"] for c in clips],
                          list(harness_clips.TTS_MODELS) * 2)
+
+    def test_adding_phrases_does_not_change_planned_clips(self):
+        first = harness_clips.plan([{"id": "a", "text": "one two"}], None, 38)
+        more = harness_clips.plan(
+            [{"id": "a", "text": "one two"}, {"id": "b", "text": "x", "language": "hi"}],
+            None, 38)
+        self.assertEqual(first, more[: len(first)])
+
+    def test_devanagari_words_are_not_split_at_vowel_signs(self):
+        self.assertEqual(harness_clips.normalize_words("मी थोड्या वेळात.", "mr"),
+                         ["मी", "थोड्या", "वेळात"])
+
+    def test_romanized_validation_skips_the_wer_gate(self):
+        result = {"language": "mr", "code_switch": False, "words": 3, "speech_s": 1.5,
+                  "text": "मी थोड्या वेळात.", "validation_text": "Mi thodya velat.",
+                  "validation_wer": 1.0}
+        self.assertIsNone(harness_clips.acceptable(result))
 
 
 if __name__ == "__main__":

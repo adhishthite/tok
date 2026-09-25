@@ -25,6 +25,7 @@ import random
 import re
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 import wave
@@ -59,6 +60,39 @@ ACCENTS = (
     ("Singaporean English", 1),
     ("Canadian", 1),
 )
+# Variants 2 and up of English phrases cycle through this list, so every accent is used.
+EXTENDED_ACCENTS = (
+    "Indian English, from Chennai", "Indian English, from Kolkata",
+    "Indian English, from Hyderabad", "Indian English, from Ahmedabad",
+    "Indian English, from Punjab", "Pakistani English", "Sri Lankan English",
+    "Kenyan English", "Ghanaian English", "Jamaican English", "New Zealand",
+    "Welsh", "Yorkshire English", "Southern United States", "Filipino English",
+    "Malaysian English", "Chinese-accented English", "Japanese-accented English",
+    "German-accented English", "French-accented English",
+    "Latin American Spanish-accented English", "Russian-accented English",
+    "Arabic-accented English", "Korean-accented English",
+)
+# Non-English phrases: a native speaker, varied by region where it matters.
+NATIVE_SPEAKERS = {
+    "hi": ("native Hindi speaker from Delhi", "native Hindi speaker from Lucknow",
+           "native Hindi speaker from Mumbai"),
+    "mr": ("native Marathi speaker from Pune", "native Marathi speaker from Nagpur",
+           "native Marathi speaker from Kolhapur"),
+    "es": ("native Spanish speaker from Mexico City", "native Spanish speaker from Madrid"),
+    "fr": ("native French speaker from Paris", "native French speaker from Montreal"),
+    "de": ("native German speaker from Berlin", "native German speaker from Vienna"),
+    "pt": ("native Portuguese speaker from Sao Paulo", "native Portuguese speaker from Lisbon"),
+    "ja": ("native Japanese speaker from Tokyo", "native Japanese speaker from Osaka"),
+    "ta": ("native Tamil speaker from Chennai", "native Tamil speaker from Madurai"),
+    "bn": ("native Bengali speaker from Kolkata", "native Bengali speaker from Dhaka"),
+    "gu": ("native Gujarati speaker from Ahmedabad", "native Gujarati speaker from Surat"),
+    "ar": ("native Arabic speaker from Cairo", "native Arabic speaker from Dubai"),
+    "ko": ("native Korean speaker from Seoul", "native Korean speaker from Busan"),
+}
+# Clips per phrase: English gets the most, for accent coverage.
+VARIANTS = {"en": 4, "code_switch": 2, "hi": 3, "mr": 3}
+DEFAULT_VARIANTS = 2
+UNSPACED_LANGUAGES = {"ja", "zh"}
 CODE_SWITCH_ACCENTS = (
     ("Indian English, from Pune, code-switching with Hindi and Marathi", 1),
 )
@@ -76,6 +110,9 @@ TRIM_LEAD_S = 0.03
 TRIM_TAIL_S = 0.12
 TARGET_PEAK_DBFS = -3.0
 MAX_VALIDATION_WER = 0.2
+# Outside English only gross failures are rejected: the validator may answer in another
+# script or spelling, which is a finding to report, not a broken clip.
+MAX_VALIDATION_WER_OTHER = 0.5
 MIN_WORDS_PER_S, MAX_WORDS_PER_S = 1.0, 5.0
 
 
@@ -164,13 +201,30 @@ def speech_bounds(samples: array.array, rate: int) -> tuple[int, int]:
     return loud[0] * frame, min(len(samples), (loud[-1] + 1) * frame)
 
 
-def normalize_words(text: str) -> list[str]:
-    text = text.lower().replace("-", " ")
-    return re.findall(r"[\w']+", text)
+def normalize_words(text: str, language: str = "en") -> list[str]:
+    """Lowercased tokens with punctuation and symbols removed. Splits on whitespace
+    rather than a word regex, because a regex word class breaks Devanagari and other
+    Indic words at their vowel signs. Unspaced scripts compare character by character."""
+    text = unicodedata.normalize("NFC", text.lower().replace("-", " "))
+    cleaned = "".join(
+        " " if unicodedata.category(ch)[0] in "PS" and ch != "'" else ch for ch in text
+    )
+    if language in UNSPACED_LANGUAGES:
+        return [ch for ch in cleaned if not ch.isspace()]
+    return cleaned.split()
 
 
-def word_error_rate(reference: str, hypothesis: str) -> float:
-    ref, hyp = normalize_words(reference), normalize_words(hypothesis)
+def latin_share(text: str) -> float:
+    """Share of letters in the Latin script, for spotting a romanized transcript."""
+    letters = [ch for ch in text if ch.isalpha()]
+    if not letters:
+        return 0.0
+    return sum("LATIN" in unicodedata.name(ch, "") for ch in letters) / len(letters)
+
+
+def word_error_rate(reference: str, hypothesis: str, language: str = "en") -> float:
+    ref = normalize_words(reference, language)
+    hyp = normalize_words(hypothesis, language)
     if not ref:
         return 0.0 if not hyp else 1.0
     previous = list(range(len(hyp) + 1))
@@ -188,19 +242,37 @@ def weighted(rng: random.Random, options):
     return rng.choices([o[:-1] for o in options], weights=[o[-1] for o in options])[0]
 
 
-def plan(phrases: list[dict], variants: int, seed: int) -> list[dict]:
-    rng = random.Random(seed)
+def plan(phrases: list[dict], variants: int | None, seed: int) -> list[dict]:
+    """Every clip draws from its own seeded generator, keyed by clip id, so adding
+    phrases or variants never changes the clips planned before. English variants 0 and 1
+    use the weighted accent mix; later variants cycle EXTENDED_ACCENTS."""
     clips = []
     index = 0
+    extended = 0
     for phrase in phrases:
-        for variant in range(variants):
-            code_switch = bool(phrase.get("code_switch"))
-            (accent,) = weighted(rng, CODE_SWITCH_ACCENTS if code_switch else ACCENTS)
+        language = phrase.get("language", "en")
+        code_switch = bool(phrase.get("code_switch"))
+        kind = "code_switch" if code_switch else language
+        count = variants or VARIANTS.get(kind, DEFAULT_VARIANTS)
+        for variant in range(count):
+            clip_id = f"{phrase['id']}-{variant}"
+            rng = random.Random(f"{seed}:{clip_id}")
+            if language != "en":
+                speakers = NATIVE_SPEAKERS.get(language, (f"native {language} speaker",))
+                accent = speakers[variant % len(speakers)]
+            elif code_switch:
+                (accent,) = weighted(rng, CODE_SWITCH_ACCENTS)
+            elif variant < 2:
+                (accent,) = weighted(rng, ACCENTS)
+            else:
+                accent = EXTENDED_ACCENTS[extended % len(EXTENDED_ACCENTS)]
+                extended += 1
             style_id, style = weighted(rng, STYLES)
             clips.append({
-                "clip_id": f"{phrase['id']}-{variant}",
+                "clip_id": clip_id,
                 "phrase_id": phrase["id"],
                 "text": phrase["text"],
+                "language": language,
                 "code_switch": code_switch,
                 "tts_model": TTS_MODELS[index % len(TTS_MODELS)],
                 "voice": rng.choice(VOICES),
@@ -215,7 +287,10 @@ def plan(phrases: list[dict], variants: int, seed: int) -> list[dict]:
 def render(clip: dict, key: str, validate_model: str) -> dict:
     # The 3.8 TTS models speak any plain-text instruction aloud and reject
     # systemInstruction, but treat a leading bracketed tag as direction.
-    prompt = f"[{clip['accent']} accent, {clip['style_prompt']}] {clip['text']}"
+    direction = (
+        f"{clip['accent']} accent" if clip["language"] == "en" else clip["accent"]
+    )
+    prompt = f"[{direction}, {clip['style_prompt']}] {clip['text']}"
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
@@ -250,7 +325,8 @@ def render(clip: dict, key: str, validate_model: str) -> dict:
         validate_model,
         {
             "contents": [{"parts": [
-                {"text": "Transcribe this audio verbatim. Output only the transcript."},
+                {"text": "Transcribe this audio verbatim, in its original language and "
+                 "script. Output only the transcript."},
                 {"inlineData": {"mimeType": "audio/wav", "data": base64.b64encode(wav).decode()}},
             ]}],
             "generationConfig": {"temperature": 0},
@@ -269,19 +345,30 @@ def render(clip: dict, key: str, validate_model: str) -> dict:
         "speech_onset_s": round((onset - start) / rate, 3),
         "speech_offset_s": round((offset - start) / rate, 3),
         "speech_s": round(speech_s, 3),
-        "words": len(normalize_words(clip["text"])),
+        "words": len(normalize_words(clip["text"], clip["language"])),
         "tts_request_s": round(tts_s, 2),
         "validation_model": validate_model,
         "validation_text": heard,
-        "validation_wer": round(word_error_rate(clip["text"], heard), 3),
+        "validation_wer": round(word_error_rate(clip["text"], heard, clip["language"]), 3),
+        "validation_romanized": latin_share(heard) > 0.5 > latin_share(clip["text"]),
     }
 
 
 def acceptable(result: dict) -> str | None:
-    rate = result["words"] / max(0.1, result["speech_s"])
-    if not MIN_WORDS_PER_S <= rate <= MAX_WORDS_PER_S:
-        return f"speech rate {rate:.1f} words/s"
-    if not result["code_switch"] and result["validation_wer"] > MAX_VALIDATION_WER:
+    if result["language"] not in UNSPACED_LANGUAGES:
+        rate = result["words"] / max(0.1, result["speech_s"])
+        if not MIN_WORDS_PER_S <= rate <= MAX_WORDS_PER_S:
+            return f"speech rate {rate:.1f} words/s"
+    elif result["speech_s"] > 0.35 * result["words"]:
+        # Characters, not words: a read-aloud direction tag shows as a long clip.
+        return f"clip too long for {result['words']} characters"
+    if result["code_switch"]:
+        return None
+    if latin_share(result["validation_text"]) > 0.5 > latin_share(result["text"]):
+        # Romanized answer to a native-script clip: the words cannot be compared.
+        return None
+    limit = MAX_VALIDATION_WER if result["language"] == "en" else MAX_VALIDATION_WER_OTHER
+    if result["validation_wer"] > limit:
         return f"validation WER {result['validation_wer']:.2f}"
     return None
 
@@ -300,7 +387,8 @@ def build_clip(clip: dict, key: str, validate_model: str, attempts: int) -> dict
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--variants", type=int, default=2, help="clips per phrase")
+    parser.add_argument("--variants", type=int,
+                        help="clips per phrase (default: per language, see VARIANTS)")
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--attempts", type=int, default=3)
     parser.add_argument("--seed", type=int, default=38)
