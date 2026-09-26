@@ -231,6 +231,7 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | Minimum trailing capture | <code>POST_ROLL_MIN_MS</code> | <code>30</code> | 0 to 250 | Milliseconds recorded after release even when the room is already quiet. |
 | Maximum trailing capture | <code>POST_ROLL_MAX_MS</code> | <code>1500</code> | 0 to 5000 | Milliseconds to wait for speech after release, at most. |
 | Quiet threshold | <code>TRAIL_SILENCE_DB</code> | <code>-40.0</code> | -80.0 to -10.0 | Audio below this level in dBFS counts as quiet. |
+| Noisy-room margin | <code>QUIET_MARGIN_DB</code> | <code>8</code> | 0.0 to 20.0 | In a noisy room, audio this many dB above the room's own level still counts as quiet. 0 uses the quiet threshold alone. |
 | Speech boundary detection | <code>VAD_MODE</code> | <code>manual</code> | <code>manual</code>, <code>tuned</code>, <code>auto</code> | Manual uses the shortcut. Tuned and automatic use server speech detection. |
 | Server quiet window | <code>VAD_SILENCE_MS</code> | <code>1500</code> | 200 to 5000 | Milliseconds of silence before the tuned server mode finishes speech. |
 | Live input price | <code>LIVE_INPUT_PRICE_PER_1M</code> | <code>3.50</code> | 0.0 to 1000.0 | US dollars per million tokens, used for cost estimates. |

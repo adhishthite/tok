@@ -203,6 +203,7 @@ public final class DictationEngine {
   private var turnQuietResets: Int?
   private var turnTrailPeakDb: Double?
   private var turnNoiseFloorDb: Double?
+  private var turnQuietThresholdDb: Double?
 
   // sessionQueue-only. Call once per stopRecording call, right after it returns.
   private func stampFinalizeStats(_ finalize: CaptureFinalizeStats) {
@@ -213,6 +214,7 @@ public final class DictationEngine {
     turnQuietResets = finalize.quietResets
     turnTrailPeakDb = finalize.trailPeakDb
     turnNoiseFloorDb = finalize.noiseFloorDb
+    turnQuietThresholdDb = finalize.quietThresholdDb
   }
 
   // Serial queue that owns all turn lifecycle state below. Both the WS commit completion and
@@ -579,6 +581,7 @@ public final class DictationEngine {
     if stamped.quietResets == nil { stamped.quietResets = turnQuietResets }
     if stamped.trailPeakDb == nil { stamped.trailPeakDb = turnTrailPeakDb }
     if stamped.noiseFloorDb == nil { stamped.noiseFloorDb = turnNoiseFloorDb }
+    if stamped.quietThresholdDb == nil { stamped.quietThresholdDb = turnQuietThresholdDb }
     // Connection readiness at key-down, filled the same way.
     if stamped.socketStateAtKeydown == nil {
       stamped.socketStateAtKeydown = turnSocketStateAtKeydown
@@ -747,6 +750,7 @@ public final class DictationEngine {
     turnQuietResets = nil
     turnTrailPeakDb = nil
     turnNoiseFloorDb = nil
+    turnQuietThresholdDb = nil
     captureTimingLock.lock()
     let previousCaptureEnd = lastCaptureEndUptime
     captureTimingLock.unlock()
@@ -1243,8 +1247,8 @@ public final class DictationEngine {
     let (pcmData, duration, chunks, capturedBytes, peakDb, speechFrames, interrupted, finalize) =
       audioCapture.stopRecording(
         gracePeriodMs: config.postRollMs, minTrailMs: config.postRollMinMs,
-        maxTrailMs: config.postRollMaxMs,
-        silenceThresholdDb: config.trailSilenceDb)
+        maxTrailMs: config.postRollMaxMs, silenceThresholdDb: config.trailSilenceDb,
+        quietMarginDb: config.quietMarginDb)
     noteCaptureFinished()
     stampFinalizeStats(finalize)
     if !config.keepMicrophoneWarm {

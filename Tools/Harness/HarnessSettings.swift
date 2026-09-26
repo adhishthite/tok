@@ -90,7 +90,8 @@ enum HarnessSettings {
   /// The settings that differ between arms or matter for reading results, for the run log.
   static let reportedKeys = [
     "KEEP_MICROPHONE_WARM", "MIC_IDLE_TIMEOUT", "WS_ENDPOINT_ALIGNED", "SILENCE_FLUSH_MS",
-    "PRE_ROLL_MS", "POST_ROLL_MS", "POST_ROLL_MIN_MS", "POST_ROLL_MAX_MS", "TRAIL_SILENCE_DB",
+    "PRE_ROLL_MS", "POST_ROLL_MS", "POST_ROLL_MIN_MS", "POST_ROLL_MAX_MS", "QUIET_MARGIN_DB",
+    "TRAIL_SILENCE_DB",
     "CHUNK_MS",
     "VAD_MODE", "VAD_SILENCE_MS", "REST_FALLBACK_TIMEOUT", "GEMINI_LIVE_MODEL", "GEMINI_MODEL",
     "LANGUAGE_CODES", "SMART_TRANSCRIPTION", "POST_PROCESS_ENABLED", "INPUT_DEVICE",

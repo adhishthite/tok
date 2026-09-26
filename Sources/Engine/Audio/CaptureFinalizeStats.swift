@@ -39,4 +39,7 @@ struct CaptureFinalizeStats: Sendable {
   /// pre-roll frames included, same population speechFrames counts from). nil if fewer than
   /// 10 frames exist.
   let noiseFloorDb: Double?
+  /// The level the adaptive loop treated as quiet: TRAIL_SILENCE_DB, or higher in a noisy
+  /// room (see AudioCaptureEngine.quietThresholdDb). nil when the loop did not run.
+  let quietThresholdDb: Double?
 }

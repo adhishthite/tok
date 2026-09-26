@@ -22,6 +22,8 @@ struct HarnessArm {
     HarnessArm(name: "min30", overrides: ["POST_ROLL_MIN_MS": "30"]),
     HarnessArm(name: "min15", overrides: ["POST_ROLL_MIN_MS": "15"]),
     HarnessArm(name: "verbatim", overrides: ["SMART_TRANSCRIPTION": "false"]),
+    // Acoustic only: the fixed quiet line, as before QUIET_MARGIN_DB existed.
+    HarnessArm(name: "fixedquiet", overrides: ["QUIET_MARGIN_DB": "0"]),
   ]
 
   static func named(_ name: String) -> HarnessArm? { catalog.first { $0.name == name } }

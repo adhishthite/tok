@@ -172,7 +172,8 @@ final class HistoryStore {
         commit_to_last_send_ms REAL,
         commit_to_first_msg_ms REAL,
         commit_to_final_ms REAL,
-        commit_to_turn_complete_ms REAL
+        commit_to_turn_complete_ms REAL,
+        quiet_threshold_db REAL
       );
       CREATE INDEX IF NOT EXISTS idx_transcriptions_ts ON transcriptions(ts_epoch);
       CREATE INDEX IF NOT EXISTS idx_transcriptions_session ON transcriptions(session_id);
@@ -272,6 +273,7 @@ final class HistoryStore {
       "ALTER TABLE transcriptions ADD COLUMN commit_to_first_msg_ms REAL",
       "ALTER TABLE transcriptions ADD COLUMN commit_to_final_ms REAL",
       "ALTER TABLE transcriptions ADD COLUMN commit_to_turn_complete_ms REAL",
+      "ALTER TABLE transcriptions ADD COLUMN quiet_threshold_db REAL",
     ] {
       sqlite3_exec(opened, migration, nil, nil, nil)
     }
@@ -395,8 +397,8 @@ final class HistoryStore {
         trail_peak_db, noise_floor_db,
         socket_state_at_keydown, socket_age_ms, reconnected_during_turn, hedge_fired,
         hedge_winner, commit_to_last_send_ms, commit_to_first_msg_ms, commit_to_final_ms,
-        commit_to_turn_complete_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        commit_to_turn_complete_ms, quiet_threshold_db
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       """
 
     var stmt: OpaquePointer?
@@ -492,6 +494,7 @@ final class HistoryStore {
     self.bindDouble(stmt, 81, r.commitToFirstMsgMs)
     self.bindDouble(stmt, 82, r.commitToFinalMs)
     self.bindDouble(stmt, 83, r.commitToTurnCompleteMs)
+    self.bindDouble(stmt, 84, r.quietThresholdDb)
 
     let stepped = sqlite3_step(stmt)
     if stepped != SQLITE_DONE {

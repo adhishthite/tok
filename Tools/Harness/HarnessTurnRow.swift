@@ -51,6 +51,8 @@ struct HarnessTurnRow: Encodable {
   var finalizeExit: String?
   var quietResets: Int?
   var trailWaitMs: Double?
+  var quietThresholdDb: Double?
+  var noiseFloorDb: Double?
   var hedgeFired: Bool?
   var hedgeWinner: String?
   var commitToFinalMs: Double?
@@ -73,6 +75,8 @@ struct HarnessTurnRow: Encodable {
     finalizeExit = record.finalizeExit
     quietResets = record.quietResets
     trailWaitMs = record.trailWaitMs
+    quietThresholdDb = record.quietThresholdDb
+    noiseFloorDb = record.noiseFloorDb
     hedgeFired = record.hedgeFired
     hedgeWinner = record.hedgeWinner
     commitToFinalMs = record.commitToFinalMs

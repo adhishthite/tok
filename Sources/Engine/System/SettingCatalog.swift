@@ -414,6 +414,15 @@ public enum SettingCatalog {
       if let db = Double(value) { config.trailSilenceDb = min(-10.0, max(-80.0, db)) }
     },
     SettingDefinition(
+      key: "QUIET_MARGIN_DB", title: "Noisy-room margin",
+      help:
+        "In a noisy room, audio this many dB above the room's own level still counts as quiet. 0 uses the quiet threshold alone.",
+      group: .advanced, section: "Capture timing",
+      kind: .decimal(0...20), unit: .decibels, defaultValue: "8"
+    ) { config, value in
+      if let db = Double(value) { config.quietMarginDb = min(20.0, max(0.0, db)) }
+    },
+    SettingDefinition(
       key: "VAD_MODE", title: "Speech boundary detection",
       help: "Manual uses the shortcut. Tuned and automatic use server speech detection.",
       group: .advanced, section: "Speech detection", kind: .choice(["manual", "tuned", "auto"]),

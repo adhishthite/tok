@@ -99,6 +99,10 @@ public struct EngineConfiguration: Sendable {
   // a soft final sound can sit under the threshold, and a hardware buffer may still be in
   // flight at key-up. Every turn pays it, so it is a per-turn latency floor.
   public var postRollMinMs: Int = 30
+  // Adaptive quiet line for the trailing-capture wait: in a room louder than
+  // trailSilenceDb, audio up to this many dB above the turn's measured room floor still
+  // counts as quiet, so room tone cannot hold every turn to postRollMaxMs. 0 disables it.
+  public var quietMarginDb: Double = 8
   // RMS dBFS below which the mic is considered quiet (speech typically -30 to -15, room
   // noise -50 to -60 on this meter).
   public var trailSilenceDb: Double = -40.0

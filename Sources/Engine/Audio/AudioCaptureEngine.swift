@@ -128,6 +128,35 @@ final class AudioCaptureEngine {
   /// percentile (linear interpolation between the two closest ranks) of every per-20ms-frame
   /// dB value in the clip. nil if fewer than 10 frames exist - too little signal for a
   /// percentile to mean anything.
+  /// Speech keeps at least this much headroom above the adaptive quiet line.
+  static let quietSpeechHeadroomDb = 12.0
+
+  /// The level below which the trailing-capture wait counts audio as quiet. In a quiet room
+  /// it is the configured threshold. In a room whose own level reaches that threshold, the
+  /// fixed line would read room tone as speech and hold every turn to the cap, so the line
+  /// rises to the turn's room floor (10th percentile of its 20 ms frames: pauses between
+  /// words fall to room level) plus `marginDb`, but never closer than
+  /// `quietSpeechHeadroomDb` to the turn's speech level (90th percentile), so words are never
+  /// read as quiet. Too few frames to estimate either, or a zero margin, keeps the
+  /// configured threshold.
+  static func quietThresholdDb(frames: [Double], configuredDb: Double, marginDb: Double)
+    -> Double
+  {
+    guard marginDb > 0, frames.count >= 10 else { return configuredDb }
+    let sorted = frames.sorted()
+    let floor = percentile(sorted: sorted, 0.10)
+    let speech = percentile(sorted: sorted, 0.90)
+    return max(configuredDb, min(floor + marginDb, speech - quietSpeechHeadroomDb))
+  }
+
+  private static func percentile(sorted: [Double], _ fraction: Double) -> Double {
+    let rank = fraction * Double(sorted.count - 1)
+    let lowerIndex = Int(rank)
+    let upperIndex = min(lowerIndex + 1, sorted.count - 1)
+    return sorted[lowerIndex] + (sorted[upperIndex] - sorted[lowerIndex])
+      * (rank - Double(lowerIndex))
+  }
+
   static func noiseFloorDb(frames: [Double]) -> Double? {
     guard frames.count >= 10 else { return nil }
     let sorted = frames.sorted()
@@ -739,7 +768,8 @@ final class AudioCaptureEngine {
   }
 
   func stopRecording(
-    gracePeriodMs: Int, minTrailMs: Int, maxTrailMs: Int, silenceThresholdDb: Double
+    gracePeriodMs: Int, minTrailMs: Int, maxTrailMs: Int, silenceThresholdDb: Double,
+    quietMarginDb: Double = 0
   ) -> (
     pcmData: Data, duration: Double, chunkCount: Int, capturedBytes: Int, peakDb: Double?,
     speechFrames: Int, interrupted: Bool, finalize: CaptureFinalizeStats
@@ -757,6 +787,7 @@ final class AudioCaptureEngine {
     var bankedQuietMs = 0.0
     var quietResets = 0
     var trailPeakDb: Double? = nil
+    var quietThresholdDb: Double? = nil
 
     // 1. Trailing capture: keep streaming while speech energy persists. gracePeriodMs is the
     // required continuous-quiet window; maxTrailMs the hard cap. maxTrailMs <= gracePeriodMs
@@ -783,13 +814,18 @@ final class AudioCaptureEngine {
       let drainStart = ProcessInfo.processInfo.systemUptime
       audioProcessingQueue.sync {}
       finalizeDrainMs = (ProcessInfo.processInfo.systemUptime - drainStart) * 1000.0
+      // Copy under the lock, sort after it (see finishRecording's noise floor).
       lock.lock()
+      let turnFrames = frameDbValues
+      lock.unlock()
+      let quietDb = Self.quietThresholdDb(
+        frames: turnFrames, configuredDb: silenceThresholdDb, marginDb: quietMarginDb)
+      quietThresholdDb = quietDb
       var quietFrames = 0
-      for db in frameDbValues.reversed() {
-        if db > silenceThresholdDb { break }
+      for db in turnFrames.reversed() {
+        if db > quietDb { break }
         quietFrames += 1
       }
-      lock.unlock()
       bankedQuietMs = Double(quietFrames) * 20.0
       var quietStart: CFAbsoluteTime? =
         quietFrames > 0 ? stopRequestTime - Double(quietFrames) * 0.02 : nil
@@ -806,7 +842,7 @@ final class AudioCaptureEngine {
         trailPeakDb = trailPeakDb.map { max($0, levelDb) } ?? levelDb
         let stale = (now - levelTime) > 0.30
         lastIterationStale = stale
-        let speaking = !stale && levelDb >= silenceThresholdDb
+        let speaking = !stale && levelDb >= quietDb
         if speaking {
           if quietStart != nil { quietResets += 1 }
           quietStart = nil
@@ -847,14 +883,15 @@ final class AudioCaptureEngine {
       finishRecording(
         stopRequestTime: stopRequestTime, silenceThresholdDb: silenceThresholdDb,
         finalizeExit: finalizeExit, finalizeDrainMs: finalizeDrainMs, trailWaitMs: trailWaitMs,
-        bankedQuietMs: bankedQuietMs, quietResets: quietResets, trailPeakDb: trailPeakDb)
+        bankedQuietMs: bankedQuietMs, quietResets: quietResets, trailPeakDb: trailPeakDb,
+        quietThresholdDb: quietThresholdDb)
     }
   }
 
   private func finishRecording(
     stopRequestTime: CFAbsoluteTime, silenceThresholdDb: Double, finalizeExit: String,
     finalizeDrainMs: Double, trailWaitMs: Double, bankedQuietMs: Double, quietResets: Int,
-    trailPeakDb: Double?
+    trailPeakDb: Double?, quietThresholdDb: Double?
   ) -> (
     pcmData: Data, duration: Double, chunkCount: Int, capturedBytes: Int, peakDb: Double?,
     speechFrames: Int, interrupted: Bool, finalize: CaptureFinalizeStats
@@ -909,7 +946,7 @@ final class AudioCaptureEngine {
     let finalize = CaptureFinalizeStats(
       exit: finalizeExit, drainMs: finalizeDrainMs, trailWaitMs: trailWaitMs,
       bankedQuietMs: bankedQuietMs, quietResets: quietResets, trailPeakDb: trailPeakDb,
-      noiseFloorDb: noiseFloorDb)
+      noiseFloorDb: noiseFloorDb, quietThresholdDb: quietThresholdDb)
 
     // 7. Fire chunk callbacks outside the lock. Ordering preserved: trailing real audio first, then silence.
 

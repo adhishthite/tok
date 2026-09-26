@@ -77,6 +77,9 @@ public struct TurnRecord: Sendable {
   public var quietResets: Int? = nil
   public var trailPeakDb: Double? = nil
   public var noiseFloorDb: Double? = nil
+  // The quiet line the trailing-capture wait used: TRAIL_SILENCE_DB, or higher in a noisy
+  // room. Filled the same way as the finalize stats above.
+  public var quietThresholdDb: Double? = nil
   // Connection state, hedge, and round-trip split. socketStateAtKeydown/
   // socketAgeMs are filled centrally in recordTurn, the same as micStateAtKeydown above.
   // The rest are stamped explicitly at each settle-time construction site, the same way
