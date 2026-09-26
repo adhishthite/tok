@@ -1,8 +1,7 @@
 name: Lint
 
-# The pull-request check. Linux minutes bill at 1x and none of this needs Xcode, so it
-# runs on every push to a pull request. The full build and XCTest run (CI) is manual:
-#   gh workflow run CI --ref <branch>
+# The fast pull-request check. None of this needs Xcode, so it runs on Linux on every
+# push to a pull request, including Markdown-only changes the macOS CI skips.
 on:
   push:
     branches: [main]

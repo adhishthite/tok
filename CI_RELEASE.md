@@ -7,24 +7,21 @@ release tags or assets are published. Publication needs approval of exact assets
 
 ## Continuous integration
 
-`.github/workflows/lint.yml` is the pull-request check. It runs on Linux (1x
-minutes) on every pull-request push and every push to main: swift-format lint
-with the Swift 6.4 image, the license file and header checks, shell syntax, Ruff,
-the Python regression tests, and actionlint. It needs no Xcode and takes a few
-minutes.
+`.github/workflows/lint.yml` is the fast pull-request check. It runs on Linux on
+every pull-request push and every push to main: swift-format lint with the Swift
+6.4 image, the license file and header checks, shell syntax, Ruff, the Python
+regression tests, and actionlint. It needs no Xcode and takes a few minutes.
 
 `.github/workflows/ci.yml` is the full build and XCTest run, using macOS 26 and
-Xcode 26.6. It runs on pushes to main that change a build input (`Sources`,
-`Tests`, `Resources`, `Scripts`, `Tools`, `Config`, `project.yml`, `Makefile`, or
-the workflows) and on manual requests. Pull requests do not trigger it; run it
-once before a merge with `gh workflow run CI --ref <branch>`. Every run validates
-tooling and runs `make check` under the documented 300-second hosted deadline.
-The Sparkle package checkout is cached between runs, keyed on `project.yml`. Only
-manual runs also package a development ZIP, bounded at 240 seconds and retained
-for 14 days. These are development artifacts, not signed public releases. Test
-results are uploaded only when a run fails, and kept for three days. macOS
-minutes count 10x against the plan's included minutes, which is why pull
-requests, the package step, and Markdown-only pushes are off the automatic path.
+Xcode 26.6. It runs on pull requests and pushes to main that change a build input
+(`Sources`, `Tests`, `Resources`, `Scripts`, `Tools`, `Config`, `project.yml`,
+`Makefile`, or the workflows), and on manual requests. The repository is public,
+so hosted runner minutes are free. Every run validates tooling and runs `make
+check` under the documented 300-second hosted deadline. The Sparkle package
+checkout is cached between runs, keyed on `project.yml`. Only manual runs also
+package a development ZIP, bounded at 240 seconds and retained for 14 days. These
+are development artifacts, not signed public releases. Test results are uploaded
+only when a run fails, and kept for three days.
 
 ## Approved release route
 
