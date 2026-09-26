@@ -33,6 +33,13 @@ enum Keychain {
       throw KeychainError(status: status)
     }
   }
+  /// Removes a stored key. A key that was never saved counts as removed.
+  static func deleteAPIKey(_ account: Account) throws {
+    let status = SecItemDelete(baseQuery(account) as CFDictionary)
+    guard status == errSecSuccess || status == errSecItemNotFound else {
+      throw KeychainError(status: status)
+    }
+  }
   private static func baseQuery(_ account: Account) -> [String: Any] {
     [
       kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,

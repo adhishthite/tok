@@ -49,6 +49,19 @@ struct TypeSafeKeySection: View {
             }
           }
         }.disabled(testing || (key.isEmpty && !store.settings.hasTypeSafeKey))
+        if store.settings.hasTypeSafeKey && !store.settings.typesafeApiKeyProvidedByEnvironment {
+          Button("Remove key", role: .destructive) {
+            invalidateCheck()
+            do {
+              try store.settings.removeTypeSafeKey()
+            } catch {
+              result = "Could not remove the key from Keychain."
+              checkStatus = .failed
+            }
+          }
+          .disabled(testing)
+          .help("Delete the saved key. Judgments turn off and nothing more is sent to TypeSafe.")
+        }
         Spacer()
         if checkStatus != .unchecked {
           HStack(spacing: 6) {
@@ -85,7 +98,7 @@ struct TypeSafeKeySection: View {
             .foregroundStyle(.orange)
         }
         Text(
-          "Optional upgrade. When a key is saved and verified, transcript text, typed-correction word pairs with their surrounding sentence, and the destination app name and bundle identifier are sent to api.typesafe.ai for scoring, to catch garbled dictations and confirm genuine corrections. Audio is never sent. Leave this blank and nothing is sent to TypeSafe and nothing else changes."
+          "Optional upgrade. When a key is saved and verified, transcript text, typed-correction word pairs with their surrounding sentence, and the destination app name and bundle identifier are sent to api.typesafe.ai for scoring, to catch garbled dictations and confirm genuine corrections. Audio is never sent. Without a saved key, nothing is sent to TypeSafe and nothing else changes. Remove key deletes it from Keychain."
         )
       }
     }

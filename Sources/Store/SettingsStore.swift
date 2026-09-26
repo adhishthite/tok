@@ -36,6 +36,7 @@ final class SettingsStore {
   /// Seam for tests: defaults to the real Keychain read, so `load()` can be exercised
   /// against injected failures without touching the actual Keychain.
   @ObservationIgnored private let readKey: (Keychain.Account) throws -> String?
+  @ObservationIgnored private let deleteKey: (Keychain.Account) throws -> Void
   let supportDirectory: URL
   var vocabularyURL: URL { supportDirectory.appendingPathComponent("vocabulary.txt") }
   var resolvedVocabularyURL: URL {
@@ -51,10 +52,12 @@ final class SettingsStore {
 
   init(
     defaults: UserDefaults = .standard, supportDirectory: URL? = nil,
-    readKey: @escaping (Keychain.Account) throws -> String? = Keychain.readAPIKey
+    readKey: @escaping (Keychain.Account) throws -> String? = Keychain.readAPIKey,
+    deleteKey: @escaping (Keychain.Account) throws -> Void = Keychain.deleteAPIKey
   ) {
     self.defaults = defaults
     self.readKey = readKey
+    self.deleteKey = deleteKey
     self.supportDirectory =
       supportDirectory
       ?? FileManager.default.urls(
@@ -169,6 +172,16 @@ final class SettingsStore {
     try await TypeSafeProbe.validate(apiKey: trimmed)
     try Keychain.saveAPIKey(trimmed, account: .typesafe)
     configuration.typesafeApiKey = trimmed
+    typesafeKeyError = nil
+    rebuild()
+    didChange?([Self.everySetting])
+  }
+  /// Deletes the saved TypeSafe key and turns judgments off: the change notice reaches the
+  /// engine, whose JudgmentService drops its client for an empty key, so nothing more is
+  /// sent to TypeSafe. A key supplied by the environment is outside Tok's control.
+  func removeTypeSafeKey() throws {
+    try deleteKey(.typesafe)
+    configuration.typesafeApiKey = ""
     typesafeKeyError = nil
     rebuild()
     didChange?([Self.everySetting])
