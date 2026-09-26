@@ -228,7 +228,7 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | Use aligned end signals | <code>WS_ENDPOINT_ALIGNED</code> | <code>true</code> | true, false | Send only the documented end-of-turn signal. Turn off to compare latency and last-word accuracy with the earlier triple signal. |
 | Pre-roll | <code>PRE_ROLL_MS</code> | <code>400</code> | 0 to 1000 | Milliseconds retained before pressing the shortcut when warm capture is enabled. |
 | Trailing quiet window | <code>POST_ROLL_MS</code> | <code>250</code> | 0 to 500 | Milliseconds of quiet needed before finishing capture. |
-| Minimum trailing capture | <code>POST_ROLL_MIN_MS</code> | <code>60</code> | 0 to 250 | Milliseconds recorded after release even when the room is already quiet. |
+| Minimum trailing capture | <code>POST_ROLL_MIN_MS</code> | <code>30</code> | 0 to 250 | Milliseconds recorded after release even when the room is already quiet. |
 | Maximum trailing capture | <code>POST_ROLL_MAX_MS</code> | <code>1500</code> | 0 to 5000 | Milliseconds to wait for speech after release, at most. |
 | Quiet threshold | <code>TRAIL_SILENCE_DB</code> | <code>-40.0</code> | -80.0 to -10.0 | Audio below this level in dBFS counts as quiet. |
 | Speech boundary detection | <code>VAD_MODE</code> | <code>manual</code> | <code>manual</code>, <code>tuned</code>, <code>auto</code> | Manual uses the shortcut. Tuned and automatic use server speech detection. |

@@ -21,6 +21,7 @@ struct HarnessArm {
     // Acoustic only: the trailing-capture floor never runs in direct mode.
     HarnessArm(name: "min30", overrides: ["POST_ROLL_MIN_MS": "30"]),
     HarnessArm(name: "min15", overrides: ["POST_ROLL_MIN_MS": "15"]),
+    HarnessArm(name: "verbatim", overrides: ["SMART_TRANSCRIPTION": "false"]),
   ]
 
   static func named(_ name: String) -> HarnessArm? { catalog.first { $0.name == name } }

@@ -242,6 +242,27 @@ Same direct-mode design as the silence-flush run, 588 pairs per arm:
 The default is now 100 ms. 50 ms saves 4 ms more at twice the message rate,
 which is not worth it on a lossy network.
 
+## Trailing-capture floor, 2026-09-26
+
+Every turn records at least `POST_ROLL_MIN_MS` after release. On turns where the
+speaker was already quiet for `POST_ROLL_MS` (250 ms) before release, the floor is
+the whole wait, and that is the usual case: real-use capture finalize has a 78 ms
+median. Acoustic harness, 24 turns per arm, finalize time on the turns where the
+floor bound (banked quiet of 250 ms or more):
+
+| Floor | Turns | Finalize |
+| --- | --- | --- |
+| 60 ms | 9 | 61 to 67 ms |
+| 30 ms | 6 | 35 to 42 ms |
+| 15 ms | 7 | 19 to 21 ms |
+
+Last-word misses did not change (1 of 17 English turns in every arm, the same
+clip). On a floor-bound turn all speech ended at least 250 ms before release, so
+the only post-release audio that matters is the hardware buffer in flight at
+key-up: 1024 frames, about 21 ms at 48 kHz. The default is now 30 ms, which keeps
+that buffer with margin and saves about 25 ms on floor-bound turns. 15 ms would
+save about 20 ms more but cuts below one buffer.
+
 ## Latency harness
 
 The harness runs real engine turns without a person. `TokHarness` builds a

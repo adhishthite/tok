@@ -390,7 +390,10 @@ public enum SettingCatalog {
       key: "POST_ROLL_MIN_MS", title: "Minimum trailing capture",
       help: "Milliseconds recorded after release even when the room is already quiet.",
       group: .advanced, section: "Capture timing",
-      kind: .integer(0...250), unit: .milliseconds, defaultValue: "60"
+      // Measured 2026-09-26 (PERFORMANCE.md, "Trailing-capture floor"): the floor binds on
+      // turns that were already quiet before release; there it is the whole wait. 30 ms
+      // still covers the one hardware buffer in flight at key-up (1024 frames, about 21 ms).
+      kind: .integer(0...250), unit: .milliseconds, defaultValue: "30"
     ) { config, value in
       if let ms = Int(value) { config.postRollMinMs = min(250, max(0, ms)) }
     },

@@ -24,7 +24,7 @@ final class AlgorithmTests: XCTestCase {
   }
 
   func testTrailingCaptureFloorDefaultsAndClamps() {
-    XCTAssertEqual(EngineConfiguration.load(values: [:]).postRollMinMs, 60)
+    XCTAssertEqual(EngineConfiguration.load(values: [:]).postRollMinMs, 30)
     XCTAssertEqual(EngineConfiguration.load(values: ["POST_ROLL_MIN_MS": "999"]).postRollMinMs, 250)
     XCTAssertEqual(EngineConfiguration.load(values: ["POST_ROLL_MIN_MS": "-5"]).postRollMinMs, 0)
   }
