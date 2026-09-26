@@ -17,15 +17,21 @@ struct SettingsReference {
 
   static func run() throws {
     let arguments = CommandLine.arguments
-    guard [3, 4].contains(arguments.count), ["--check", "--write"].contains(arguments[1]) else {
-      throw failure("Usage: TokSettingsReference --check|--write README.md [PRIVACY.md]")
+    guard (3...5).contains(arguments.count), ["--check", "--write"].contains(arguments[1]) else {
+      throw failure(
+        "Usage: TokSettingsReference --check|--write README.md [PRIVACY.md [.env.example]]")
     }
     for setting in SettingCatalog.all { try validateDefault(setting) }
     let write = arguments[1] == "--write"
     try update(
       URL(fileURLWithPath: arguments[2]), between: start, and: end, content: reference(),
       write: write, name: "Settings reference", count: "\(SettingCatalog.all.count) settings")
-    if arguments.count == 4 {
+    if arguments.count == 5 {
+      try updateWhole(
+        URL(fileURLWithPath: arguments[4]), content: envTemplate(), write: write,
+        name: "Environment template", count: "\(SettingCatalog.all.count) settings")
+    }
+    if arguments.count >= 4 {
       try update(
         URL(fileURLWithPath: arguments[3]), between: schemaStart, and: schemaEnd,
         content: MetricsSchema.markdown(), write: write, name: "Metrics schema",
@@ -53,6 +59,67 @@ struct SettingsReference {
         throw failure("\(name) is outdated. Run make settings-reference.")
       }
       print("PASS: \(url.lastPathComponent) matches all \(count).")
+    }
+  }
+
+  /// Replaces or verifies a file that is generated whole.
+  static func updateWhole(_ url: URL, content: String, write: Bool, name: String, count: String)
+    throws
+  {
+    if write {
+      try content.write(to: url, atomically: true, encoding: .utf8)
+      print("Generated \(name.lowercased()) for \(count).")
+    } else {
+      guard (try? String(contentsOf: url, encoding: .utf8)) == content else {
+        throw failure("\(name) is outdated. Run make settings-reference.")
+      }
+      print("PASS: \(url.lastPathComponent) matches all \(count).")
+    }
+  }
+
+  /// The .env template: the two API keys, then every catalog setting at its built-in
+  /// default, grouped as in Settings. `make run` imports it once.
+  static func envTemplate() -> String {
+    var lines = [
+      "# Tok configuration template",
+      "#",
+      "# Copy this file to .env (ignored by git). `make run` imports .env once into Settings and",
+      "# Keychain. Delete any line to leave that setting untouched. Import skips HISTORY_DB and",
+      "# HISTORY_RETENTION_DAYS; change those in Settings. Values below are the built-in",
+      "# defaults; README.md has the full reference.",
+      "",
+      "# Gemini API key (required). Create one at https://aistudio.google.com/",
+      "# Saved to Keychain on import; never stored in preferences.",
+      "GEMINI_API_KEY=",
+      "",
+      "# TypeSafe API key (optional). Create one at https://typesafe.ai/",
+      "# Enables Jev judgments (correction scoring, analyzer confidence, per-turn quality",
+      "# signals). Everything works without it; nothing is sent to TypeSafe when it is empty.",
+      "TYPESAFE_API_KEY=",
+    ]
+    for group in SettingGroup.allCases {
+      let settings = SettingCatalog.all.filter { $0.group == group }
+      guard !settings.isEmpty else { continue }
+      lines += ["", "# ---- \(group.rawValue) ----"]
+      for setting in settings {
+        lines += [
+          "", "# \(setting.title): \(setting.help)", "# Values: \(envValues(setting.kind))",
+          "\(setting.key)=\(setting.defaultValue)",
+        ]
+      }
+    }
+    return lines.joined(separator: "\n") + "\n"
+  }
+
+  static func envValues(_ kind: SettingKind) -> String {
+    switch kind {
+    case .toggle: "true or false"
+    case .text: "text"
+    case .microphone: "empty for system default, auto, or a device name"
+    case .integer(let range): "\(range.lowerBound) to \(range.upperBound)"
+    case .decimal(let range):
+      "\(String(format: "%g", range.lowerBound)) to \(String(format: "%g", range.upperBound))"
+    case .choice(let options): "one of " + options.joined(separator: ", ")
     }
   }
 

@@ -52,10 +52,10 @@ settings-tool: generate
 	./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme TokSettingsReference -configuration Debug -derivedDataPath "$(DERIVED)" -destination 'platform=macOS' build
 
 settings-reference: settings-tool
-	"$(DERIVED)/Build/Products/Debug/TokSettingsReference" --write README.md PRIVACY.md
+	"$(DERIVED)/Build/Products/Debug/TokSettingsReference" --write README.md PRIVACY.md .env.example
 
 check-settings: settings-tool
-	"$(DERIVED)/Build/Products/Debug/TokSettingsReference" --check README.md PRIVACY.md
+	"$(DERIVED)/Build/Products/Debug/TokSettingsReference" --check README.md PRIVACY.md .env.example
 
 build: generate
 	$(XCODEBUILD) build
