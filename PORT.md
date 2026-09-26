@@ -1,7 +1,7 @@
 # Engine port
 
 Reference: JustSpeak commit `06f1e09137be9569f877322257b05b88c7f6da6a`.
-The source wins when HANDOFF.md disagrees. JustSpeak remains read-only.
+The reference source is the spec. JustSpeak remains read-only.
 
 The engine is a static Swift module, compiled in Swift 5 language mode during
 the port. The app and store use Swift 6. The serial turn arbiter, audio queue,

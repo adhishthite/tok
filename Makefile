@@ -86,6 +86,7 @@ format:
 	xcrun swift format format --in-place --recursive Sources Tests Scripts Tools
 
 check: lint test check-settings
+	cmp LICENSE Resources/Tok-LICENSE.txt
 	git diff --check
 	@for script in Scripts/*.sh; do bash -n "$$script" || exit; done
 	python3 -m unittest discover -s Tests/ScriptTests -p 'test_*.py'
