@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 
 /// One question sent to TypeSafe's `/v1/systemone` endpoint. Question ids are the caller's

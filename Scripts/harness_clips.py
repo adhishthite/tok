@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright 2026 Adhish Thite
+# SPDX-License-Identifier: Apache-2.0
+
 """Generate the latency harness clip bank with Gemini TTS.
 
 Reads Tools/Harness/phrases.json, renders each phrase in several accent, voice, and

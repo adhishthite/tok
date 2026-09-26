@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 /// One documented usage metric event and the fields it may carry.
 public struct MetricEventDefinition: Sendable {
   public let name: String

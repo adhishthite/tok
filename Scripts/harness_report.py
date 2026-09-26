@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright 2026 Adhish Thite
+# SPDX-License-Identifier: Apache-2.0
+
 """Summarize latency harness runs (build/harness/runs/*.jsonl) by arm.
 
 Latency uses every turn with a settled result. Headline word accuracy is pooled

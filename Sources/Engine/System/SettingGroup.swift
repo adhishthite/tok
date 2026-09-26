@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 public enum SettingGroup: String, CaseIterable, Identifiable, Sendable {
   case general = "General"
   case transcription = "Transcription"

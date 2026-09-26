@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2026 Adhish Thite
+# SPDX-License-Identifier: Apache-2.0
+
 set -euo pipefail
 cd "$(dirname "$0")/.."
 case "${1:-}" in

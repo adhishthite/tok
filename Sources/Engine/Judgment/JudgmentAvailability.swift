@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 
 /// Store-facing snapshot of the TypeSafe judgments gate (`JudgmentService`). Distinct from

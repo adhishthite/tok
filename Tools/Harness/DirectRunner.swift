@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 
 // The Live client is internal to TokEngine. This Debug-only tool reaches it the same way

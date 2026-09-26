@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright 2026 Adhish Thite
+# SPDX-License-Identifier: Apache-2.0
+
 """Turn latency report over Tok's history.db.
 
 Reads dictation turns from the local SQLite history database and prints

@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 /// Plain-language names for the delivery and outcome codes stored with a dictation.
 /// History and the menu showed the raw database strings (audit F08, F04).
 enum DeliveryLabel {

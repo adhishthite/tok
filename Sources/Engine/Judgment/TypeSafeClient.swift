@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 
 /// Talks to TypeSafe's Jev API: one judgment request (`ask`) and one availability probe

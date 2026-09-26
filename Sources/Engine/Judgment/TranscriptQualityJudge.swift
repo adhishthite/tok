@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 
 /// Item 3: a per-turn quality signal. After a turn's transcript has been delivered (pasted or

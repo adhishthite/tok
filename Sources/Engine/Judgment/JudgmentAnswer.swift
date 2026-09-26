@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 
 /// One answer from TypeSafe's `/v1/systemone` endpoint, decoded by its `type` discriminator.

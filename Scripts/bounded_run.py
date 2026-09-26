@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright 2026 Adhish Thite
+# SPDX-License-Identifier: Apache-2.0
+
 """Run a command with an explicit, incrementally extendable deadline."""
 
 import argparse

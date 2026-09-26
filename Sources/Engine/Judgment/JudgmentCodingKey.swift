@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 
 /// A dynamic `CodingKey` for `JudgmentValue.object`, whose keys are runtime strings (state

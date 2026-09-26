@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import SwiftUI
 
 /// One privacy fact: a small emoji for a visual anchor, a short claim, a

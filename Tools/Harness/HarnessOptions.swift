@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 
 /// Command-line options. Defaults run three arms, 60 turns each, in interleaved blocks.

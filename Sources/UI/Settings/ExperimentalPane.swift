@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import SwiftUI
 
 /// Home for optional, off-by-default features. Nothing here runs until it is configured. The

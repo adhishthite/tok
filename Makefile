@@ -87,6 +87,7 @@ format:
 
 check: lint test check-settings
 	cmp LICENSE Resources/Tok-LICENSE.txt
+	python3 Scripts/license_headers.py --check
 	git diff --check
 	@for script in Scripts/*.sh; do bash -n "$$script" || exit; done
 	python3 -m unittest discover -s Tests/ScriptTests -p 'test_*.py'
@@ -116,4 +117,4 @@ check-ci:
 	python3 Scripts/bounded_run.py --seconds 20 --label workflow-lint -- $(ACTIONLINT)
 	python3 Scripts/bounded_run.py --seconds 30 --label ci-identity-typecheck -- xcrun swiftc -typecheck Scripts/ci/import_identity.swift
 	python3 Scripts/bounded_run.py --seconds 30 --label ci-signature-typecheck -- xcrun swiftc -typecheck Scripts/ci/verify_signature.swift
-	python3 Scripts/bounded_run.py --seconds 60 --label ci-python-lint -- uvx ruff check --isolated --select E4,E7,E9,F,I,SIM,PLW1510 Scripts/ci Tests/ScriptTests/test_ci_release.py Scripts/turn_report.py Tests/ScriptTests/test_turn_report.py Scripts/harness_clips.py Scripts/harness_report.py Tests/ScriptTests/test_harness_report.py
+	python3 Scripts/bounded_run.py --seconds 60 --label ci-python-lint -- uvx ruff check --isolated --select E4,E7,E9,F,I,SIM,PLW1510 Scripts/ci Tests/ScriptTests/test_ci_release.py Scripts/turn_report.py Tests/ScriptTests/test_turn_report.py Scripts/harness_clips.py Scripts/harness_report.py Tests/ScriptTests/test_harness_report.py Scripts/license_headers.py Tests/ScriptTests/test_license_headers.py

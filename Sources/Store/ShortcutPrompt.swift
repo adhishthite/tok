@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 /// Prompts that name the dictation shortcut. Toggle mode has no release, so the
 /// push-to-talk wording was wrong there, and the raw key id leaked into two of the
 /// messages (audit F05).

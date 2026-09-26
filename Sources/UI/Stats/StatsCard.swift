@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import SwiftUI
 
 /// A rounded surface for one dashboard section, with an optional title row.
