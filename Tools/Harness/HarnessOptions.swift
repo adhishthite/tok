@@ -23,7 +23,7 @@ struct HarnessOptions {
   var repeats = 1
   /// Phrase-id prefixes to keep, for example ["p"] for the paragraph clips. Empty keeps all.
   var only: [String] = []
-  private var armsGiven = false
+  private(set) var armsGiven = false
   var root = URL(
     fileURLWithPath: ProcessInfo.processInfo.environment["TOK_PROJECT_ROOT"]
       ?? FileManager.default.currentDirectoryPath)
@@ -37,6 +37,8 @@ struct HarnessOptions {
     --direct  every clip on every arm, streamed to the Live client in parallel. Measures
               the end signal, round trip, and accuracy; not capture start or the tail.
               Default arms: baseline, aligned.
+    The default end-signal arm (aligned) becomes legacy when aligned is already this Mac's
+    setting. Any arm whose settings match baseline on this Mac is skipped.
     """
 
   static func parse(_ arguments: [String]) throws -> HarnessOptions {

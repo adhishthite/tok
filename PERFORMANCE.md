@@ -335,7 +335,7 @@ state, and the capture tail are measured on hardware.
 ```sh
 make harness-clips   # once: 60 phrases x 2 variants from Gemini 3.8 Flash and Flash-Lite TTS
 make harness-smoke   # 2 turns per arm, about 2 minutes, to check the setup
-make harness         # default: baseline, warm90, aligned; 60 turns each, about 4 hours
+make harness         # default: baseline, warm90, and the end signal this Mac does not use; 60 turns each, about 4 hours
 make harness ARGS="--arms baseline,flush700 --turns-per-arm 80"
 make harness-direct ARGS="--arms baseline,aligned,flush700 --repeats 2"
 make harness-report  # add ARGS="--min-turns 20" to drop smoke runs

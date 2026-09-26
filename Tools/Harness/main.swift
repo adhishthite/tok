@@ -8,7 +8,7 @@ import TokEngine
 // TTS clips played through the built-in speakers. No hotkey, clipboard, or paste.
 // Results: build/harness/runs/<run>.jsonl and build/harness/history.db.
 
-let options: HarnessOptions
+var options: HarnessOptions
 do {
   options = try HarnessOptions.parse(Array(CommandLine.arguments.dropFirst()))
 } catch {
@@ -42,6 +42,19 @@ guard !apiKey.isEmpty else {
 let owner = HarnessSettings.ownerValues()
 let buildId = ProcessInfo.processInfo.environment["TOK_BUILD_ID"] ?? "harness"
 let vocabulary = HarnessSettings.vocabularyText(owner: owner)
+
+// The default end-signal arm contrasts with the baseline whichever way this Mac is set.
+if !options.armsGiven,
+  HarnessSettings.duplicatesOfBaseline(["aligned"], owner: owner) == ["aligned"]
+{
+  options.arms = options.arms.map { $0 == "aligned" ? "legacy" : $0 }
+}
+let duplicates = HarnessSettings.duplicatesOfBaseline(options.arms, owner: owner)
+if !duplicates.isEmpty {
+  print(
+    "Skipping arms that match baseline on this Mac: \(duplicates.sorted().joined(separator: ", "))")
+  options.arms.removeAll { duplicates.contains($0) }
+}
 
 if options.direct {
   let direct: DirectRunner

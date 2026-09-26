@@ -1080,10 +1080,6 @@ public final class DictationEngine {
     // start of "Total Key-Up -> Paste" latency measurement.
     let handlerTime = ProcessInfo.processInfo.systemUptime
     let keyUpTime = eventTime.flatMap { $0 > 0 && $0 <= handlerTime ? $0 : nil } ?? handlerTime
-    // Wall-clock equivalent of keyUpTime. When keyUpTime came from an event
-    // timestamp (uptime-based, in the past), shift now's epoch back by the same queueing
-    // delay instead of stamping the moment this handler happened to run.
-    turnKeyUpEpoch = Date().timeIntervalSince1970 - (handlerTime - keyUpTime)
 
     if capturePending {
       capturePending = false
@@ -1102,6 +1098,11 @@ public final class DictationEngine {
     if turnLocked { return }
     captureActive = false
     turnFinishMode = finish
+    // Wall-clock equivalent of keyUpTime. When keyUpTime came from an event
+    // timestamp (uptime-based, in the past), shift now's epoch back by the same queueing
+    // delay instead of stamping the moment this handler happened to run. Stamped only
+    // here: a refused press's release must not overwrite a settling turn's key-up.
+    turnKeyUpEpoch = Date().timeIntervalSince1970 - (handlerTime - keyUpTime)
     // Stamped on main with the other per-turn fields; sessionQueue compares against this
     // instead of reading captureGeneration off its own thread (audit F33).
     turnFeedbackGeneration = captureGeneration

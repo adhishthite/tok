@@ -78,6 +78,27 @@ enum HarnessSettings {
     return values
   }
 
+  /// The arm's full settings on this Mac, catalog defaults included, without its tag.
+  static func effective(arm: HarnessArm, owner: [String: String]) -> [String: String] {
+    var resolved = Dictionary(
+      uniqueKeysWithValues: SettingCatalog.all.map { ($0.key, $0.defaultValue) })
+    resolved.merge(values(arm: arm, owner: owner)) { _, set in set }
+    resolved["EXPERIMENT_TAG"] = nil
+    return resolved
+  }
+
+  /// Arm names that resolve to the same settings as `baseline` on this Mac, for example
+  /// `aligned` when the owner keeps the default. Such an arm only measures the baseline twice.
+  static func duplicatesOfBaseline(_ names: [String], owner: [String: String]) -> Set<String> {
+    guard let baseline = HarnessArm.named("baseline") else { return [] }
+    let reference = effective(arm: baseline, owner: owner)
+    return Set(
+      names.filter { name in
+        guard name != baseline.name, let arm = HarnessArm.named(name) else { return false }
+        return effective(arm: arm, owner: owner) == reference
+      })
+  }
+
   static func configuration(
     arm: HarnessArm, owner: [String: String], apiKey: String, historyPath: String,
     buildId: String, vocabulary: String?

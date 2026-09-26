@@ -205,6 +205,17 @@ def build_report(rows: list[dict]) -> dict:
                     "median_delta": median(deltas),
                     "ci95": bootstrap_median_ci(deltas),
                 }
+    modes = report["modes"]
+    for mode in modes:
+        in_mode = [r for r in rows if r.get("mode", "acoustic") == mode]
+        prefix = f"[{mode}] " if len(modes) > 1 else ""
+        add_aggregates(report, in_mode, prefix)
+    return report
+
+
+def add_aggregates(report: dict, rows: list[dict], prefix: str) -> None:
+    """Language, length, TTS-model, and accent tables for one harness mode. Direct and
+    acoustic rows are never pooled: their round trips and WER measure different setups."""
     ok = settled(rows)
     for language in sorted({r.get("language", "en") for r in rows}):
         for switched in (False, True):
@@ -214,7 +225,7 @@ def build_report(rows: list[dict]) -> dict:
                 continue
             done = settled(subset)
             label = f"{language}+code-switch" if switched else language
-            report["by_language"][label] = {
+            report["by_language"][prefix + label] = {
                 "turns": len(subset),
                 "success": len(done),
                 "total_median": median(numbers(done, "total_ms")),
@@ -227,7 +238,7 @@ def build_report(rows: list[dict]) -> dict:
     for label, low, high in LENGTH_BUCKETS:
         subset = [r for r in ok if low <= (r.get("clip_speech_s") or 0) < high]
         if subset:
-            report["by_length"][label] = {
+            report["by_length"][prefix + label] = {
                 "turns": len(subset),
                 "total_median": median(numbers(subset, "total_ms")),
                 "total_p95": percentile(numbers(subset, "total_ms"), 0.95),
@@ -239,8 +250,9 @@ def build_report(rows: list[dict]) -> dict:
     for key, target in (("tts_model", "wer_by_tts_model"), ("accent", "wer_by_accent")):
         for value in sorted({r.get(key) for r in ok if r.get(key)}):
             subset = [r for r in ok if r.get(key) == value]
-            report[target][value] = {"turns": len(subset), "pooled_wer": pooled_wer(subset)}
-    return report
+            report[target][prefix + value] = {
+                "turns": len(subset), "pooled_wer": pooled_wer(subset)
+            }
 
 
 LENGTH_BUCKETS = (("<5s", 0, 5), ("5-15s", 5, 15), ("15-30s", 15, 30), ("30s+", 30, 1e9))

@@ -61,6 +61,7 @@ class HarnessReportTests(unittest.TestCase):
         self.assertEqual(set(report["arms"]),
                          {"baseline [acoustic]", "baseline [direct]", "flush0 [direct]"})
         self.assertEqual(report["paired"]["flush0 [direct]/roundtrip_ms"]["median_delta"], -80)
+        self.assertEqual(set(report["by_language"]), {"[acoustic] en", "[direct] en"})
 
     def test_unsettled_turns_are_not_paired(self):
         rows = [row("baseline", 0, 0, 600, 200), {**row("aligned", 0, 0, 400, 200),
