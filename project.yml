@@ -17,8 +17,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     ENABLE_APP_SANDBOX: NO
     ENABLE_DEBUG_DYLIB: NO
-    MARKETING_VERSION: '0.1.7'
-    CURRENT_PROJECT_VERSION: '14'
+    MARKETING_VERSION: '0.1.8'
+    CURRENT_PROJECT_VERSION: '15'
     TOK_UPDATE_FEED_URL: 'https://github.com/adhishthite/tok-releases/releases/latest/download/appcast.xml'
     TOK_SOURCE_REVISION: unversioned
 targets:

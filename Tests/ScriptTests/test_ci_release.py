@@ -134,23 +134,44 @@ class CIReleaseTests(unittest.TestCase):
         ):
             release.require_draft_authorization()
 
-    def test_source_must_remain_private(self):
+    def test_binary_hosting_must_be_public(self):
         state = {
             "source_repository": "owner/source",
             "hosting_repository": "owner/releases",
         }
+        responses = [
+            {"private": False, "full_name": "owner/source"},
+            {"private": True, "full_name": "owner/releases"},
+        ]
         with (
             patch.object(
                 release,
                 "run",
-                return_value=subprocess.CompletedProcess(
-                    [],
-                    0,
-                    json.dumps({"private": False, "full_name": "owner/source"}),
-                    "",
-                ),
+                side_effect=[
+                    subprocess.CompletedProcess([], 0, json.dumps(r), "") for r in responses
+                ],
             ),
-            self.assertRaisesRegex(RuntimeError, "remain private"),
+            self.assertRaisesRegex(RuntimeError, "must be public"),
+        ):
+            release.verify_destinations(state)
+
+    def test_public_source_is_accepted(self):
+        state = {
+            "source_repository": "owner/source",
+            "hosting_repository": "owner/releases",
+            "hosting_commit": "a" * 40,
+        }
+        responses = [
+            {"private": False, "full_name": "owner/source"},
+            {"private": False, "full_name": "owner/releases"},
+        ]
+        with patch.object(
+            release,
+            "run",
+            side_effect=[
+                subprocess.CompletedProcess([], 0, json.dumps(r), "") for r in responses
+            ]
+            + [subprocess.CompletedProcess([], 0, json.dumps({"sha": "a" * 40}), "")],
         ):
             release.verify_destinations(state)
 

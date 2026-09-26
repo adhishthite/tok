@@ -106,15 +106,13 @@ def require_draft_authorization():
 
 
 def verify_destinations(state):
-    for field, private in [("source_repository", True), ("hosting_repository", False)]:
+    # The source repository is public too; only its identity is checked.
+    for field in ["source_repository", "hosting_repository"]:
         info = json.loads(run(["gh", "api", "repos/" + state[field]], 30).stdout)
-        if (
-            info.get("private") is not private
-            or info.get("full_name", "").lower() != state[field].lower()
-        ):
-            raise RuntimeError(
-                "Source must remain private and approved binary hosting must be public."
-            )
+        if info.get("full_name", "").lower() != state[field].lower():
+            raise RuntimeError("Release repositories do not match the request.")
+        if field == "hosting_repository" and info.get("private"):
+            raise RuntimeError("Approved binary hosting must be public.")
     target = json.loads(
         run(
             [

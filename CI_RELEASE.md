@@ -32,9 +32,9 @@ now performs readiness checks only. It has no signing secrets or publication ste
 
 The helper separates `source_repository`/`source_commit` from
 `hosting_repository`/`hosting_commit`. Source must be a clean main checkout at
-fetched origin/main. Public tags must resolve to the public hosting commit,
-never to a private source commit. The source repo must stay private and the
-binary host must be public. Feed URLs use credential-free HTTPS on that host.
+fetched origin/main. Public tags must resolve to the hosting commit, never to a
+source commit. Both repositories are public; the binary host must stay public for
+anonymous Sparkle downloads. Feed URLs use credential-free HTTPS on that host.
 
 Before local staging, set these nonsecret inputs:
 
