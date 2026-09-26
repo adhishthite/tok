@@ -74,6 +74,42 @@ final class CaptureFinalizeStatsTests: XCTestCase {
         maxTrailSec: 2.0, quietIsStale: false), "cap")
   }
 
+  // MARK: - isTrailSpeaking (pure function)
+
+  func testSoftFinalWordAfterBankedQuietResetsTheWindow() {
+    // Room at -44 dBFS, speech at -22: the adaptive line rises to -36.
+    let frames = Array(repeating: -44.0, count: 20) + Array(repeating: -22.0, count: 20)
+    let adaptive = AudioCaptureEngine.quietThresholdDb(
+      frames: frames, configuredDb: -40, marginDb: 8)
+    XCTAssertEqual(adaptive, -36, accuracy: 0.001)
+    // 300 ms of quiet banked before release, then a soft word at -38 in the next buffer.
+    var quietStart: TimeInterval? = -0.30
+    var banked = true
+    let speaking = AudioCaptureEngine.isTrailSpeaking(
+      levelDb: -38, stale: false, bankedWindow: banked, configuredDb: -40, adaptiveDb: adaptive)
+    XCTAssertTrue(speaking)
+    if speaking {
+      quietStart = nil
+      banked = false
+    }
+    // Capture keeps going instead of ending at the 30 ms floor.
+    XCTAssertGreaterThan(
+      AudioCaptureEngine.postRollWakeDelay(
+        now: 0.03, entryTime: 0, quietStart: quietStart, graceSec: 0.25, minTrailSec: 0.03,
+        maxTrailSec: 2.0), 0)
+    // The fresh post-release window is judged on the adaptive line.
+    XCTAssertFalse(
+      AudioCaptureEngine.isTrailSpeaking(
+        levelDb: -38, stale: false, bankedWindow: banked, configuredDb: -40,
+        adaptiveDb: adaptive))
+  }
+
+  func testStaleReadingIsNeverSpeech() {
+    XCTAssertFalse(
+      AudioCaptureEngine.isTrailSpeaking(
+        levelDb: -10, stale: true, bankedWindow: true, configuredDb: -40, adaptiveDb: -36))
+  }
+
   // MARK: - Migration
 
   func testMigrationAddsItemCColumns() throws {

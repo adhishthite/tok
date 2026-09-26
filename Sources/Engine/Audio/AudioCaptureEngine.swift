@@ -771,6 +771,18 @@ final class AudioCaptureEngine {
     return min(floorRemaining, capRemaining)
   }
 
+  /// Whether a post-release level reading is speech. A stale reading is quiet. While the
+  /// quiet window banked before release is unbroken, the configured line decides: that bank
+  /// was judged on it, and a soft final word under the raised adaptive line must reset it
+  /// rather than end capture at the floor. After the first reset, the adaptive line applies
+  /// to the fresh post-release window.
+  static func isTrailSpeaking(
+    levelDb: Double, stale: Bool, bankedWindow: Bool, configuredDb: Double, adaptiveDb: Double
+  ) -> Bool {
+    guard !stale else { return false }
+    return levelDb >= (bankedWindow ? configuredDb : adaptiveDb)
+  }
+
   func stopRecording(
     gracePeriodMs: Int, minTrailMs: Int, maxTrailMs: Int, silenceThresholdDb: Double,
     quietMarginDb: Double = 0
@@ -838,6 +850,9 @@ final class AudioCaptureEngine {
       bankedQuietMs = Double(quietFrames) * 20.0
       var quietStart: CFAbsoluteTime? =
         quietFrames > 0 ? stopRequestTime - Double(quietFrames) * 0.02 : nil
+      // True until the first post-release speaking reading. While it holds, the quiet window
+      // started before release and fresh audio is judged on the same configured line.
+      var bankedWindow = quietFrames > 0
       // Whether the iteration that will end up satisfying "quiet" was a stale level
       // reading, tracked as the loop runs so the classification below needs no re-derivation.
       var lastIterationStale = false
@@ -851,10 +866,13 @@ final class AudioCaptureEngine {
         trailPeakDb = trailPeakDb.map { max($0, levelDb) } ?? levelDb
         let stale = (now - levelTime) > 0.30
         lastIterationStale = stale
-        let speaking = !stale && levelDb >= quietDb
+        let speaking = Self.isTrailSpeaking(
+          levelDb: levelDb, stale: stale, bankedWindow: bankedWindow,
+          configuredDb: silenceThresholdDb, adaptiveDb: quietDb)
         if speaking {
           if quietStart != nil { quietResets += 1 }
           quietStart = nil
+          bankedWindow = false
         } else if quietStart == nil {
           quietStart = now
         }

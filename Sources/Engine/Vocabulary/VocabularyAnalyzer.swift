@@ -23,11 +23,13 @@ public enum VocabularyAnalyzer {
     _ = await judgment.awaitAvailability()
     let (retryPairs, jevConfirmedPairs) = await filterRetryPairs(
       findRetryPairs(rows), judgment: judgment)
+    try Task.checkCancellation()
     let prompt = buildPrompt(
       rows: rows, pairs: retryPairs, observed: observed, config: config,
       confirmedRetryPairs: jevConfirmedPairs)
     let model = config.analyzeModel.isEmpty ? config.geminiModel : config.analyzeModel
     let raw = try await requestAnalysis(prompt: prompt, model: model, config: config)
+    try Task.checkCancellation()
     var known = Set(config.customVocabulary.map { $0.lowercased() })
     for rule in config.replacementRules {
       known.insert(rule.wrong.lowercased())
@@ -383,6 +385,8 @@ public enum VocabularyAnalyzer {
     }
     var confidenceById: [String: Double] = [:]
     for chunk in chunkedByEstimatedTokens(items) {
+      // Cancel stops at the next chunk: no further excerpts leave after the user stops.
+      if Task.isCancelled { break }
       let state = JudgmentValue.object(
         Dictionary(uniqueKeysWithValues: chunk.map { ($0.id, $0.state) }))
       let questions = Dictionary(uniqueKeysWithValues: chunk.map { ($0.id, $0.question) })

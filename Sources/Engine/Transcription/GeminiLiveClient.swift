@@ -325,7 +325,9 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     if expectedConnection == nil { authRejectionCount = 0 }
     reconnectEnabled = true
     connectionID &+= 1
-    turnConnectionChanged = true
+    // Only a connect during an open turn counts. A heuristic finish closes its turn, then
+    // retires the socket here before the engine reads the flag in settle().
+    if turnOpen { turnConnectionChanged = true }
     let epoch = connectionID
     let old = webSocketTask
     self.webSocketTask = task
