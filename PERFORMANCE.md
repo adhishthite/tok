@@ -304,7 +304,23 @@ Acoustic harness, adaptive (default) vs the fixed line (`QUIET_MARGIN_DB=0`), pa
 In the -40 dBFS room the fixed line was 341 ms slower per turn (median paired
 difference, 95% CI +97 to +1,001) and less accurate: waiting on room tone adds noise to
 the clip. In the quieter room the line barely moved (median -38.7 dBFS) and nothing
-regressed. Loud transient sounds at speech level (a notification, a voice) still hold
+regressed.
+
+Review follow-up: in that first version the raised line also decided how much quiet was
+banked before release, so a soft final syllable under the raised line could count as
+quiet and a release during it could end capture at the 30 ms floor. Banked quiet is now
+judged against the configured threshold, and the adaptive line applies only to the wait
+after release, so a noisy-room turn always waits out the full 250 ms quiet window. Re-run
+in the fan-noise room (it ran louder, -34 to -38 dBFS), 12 pairs:
+
+| Arm | Median total | p95 total | Finalize | Tail caps | WER |
+| --- | --- | --- | --- | --- | --- |
+| adaptive | 748 ms | 1,132 ms | 258 ms | 0% | 5.6% |
+| fixed | 1,982 ms | 2,146 ms | 1,502 ms | 83% | 5.6% |
+
+The fixed line was 1,246 ms slower per turn (95% CI +893 to +1,346). The safer version
+gives up the 41 ms finalize of the first version for the full quiet window, and still
+removes the cap. Loud transient sounds at speech level (a notification, a voice) still hold
 the tail; no level-based rule can separate those from words.
 
 ## Latency harness

@@ -138,7 +138,8 @@ final class AudioCaptureEngine {
   /// words fall to room level) plus `marginDb`, but never closer than
   /// `quietSpeechHeadroomDb` to the turn's speech level (90th percentile), so words are never
   /// read as quiet. Too few frames to estimate either, or a zero margin, keeps the
-  /// configured threshold.
+  /// configured threshold. It governs only the wait after release; quiet banked before
+  /// release is always judged against the configured threshold.
   static func quietThresholdDb(frames: [Double], configuredDb: Double, marginDb: Double)
     -> Double
   {
@@ -821,9 +822,14 @@ final class AudioCaptureEngine {
       let quietDb = Self.quietThresholdDb(
         frames: turnFrames, configuredDb: silenceThresholdDb, marginDb: quietMarginDb)
       quietThresholdDb = quietDb
+      // Quiet banked before release is judged against the configured threshold, not the
+      // adaptive line: a soft final syllable under the raised line must not count as banked
+      // quiet, or a release during it could end capture at the floor. A noisy room then
+      // banks little and waits out the full quiet window after release, under the adaptive
+      // line, which still ends it well before the cap.
       var quietFrames = 0
       for db in turnFrames.reversed() {
-        if db > quietDb { break }
+        if db > silenceThresholdDb { break }
         quietFrames += 1
       }
       bankedQuietMs = Double(quietFrames) * 20.0
