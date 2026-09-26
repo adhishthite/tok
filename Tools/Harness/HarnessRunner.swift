@@ -31,6 +31,9 @@ final class HarnessRunner {
   /// probably not hearing the speakers.
   private static let maxConsecutiveBad = 4
   private static let recordTimeout: TimeInterval = 25
+  /// Shortest idle gap after scaling. A press that lands while the previous turn's
+  /// microphone is still shutting down is not something a person does.
+  private static let minGapS: TimeInterval = 1.0
   /// The room must sit this far below TRAIL_SILENCE_DB before a block starts. Nearer the
   /// threshold, room tone keeps resetting the capture's quiet window, and the tail runs
   /// to POST_ROLL_MAX_MS on most turns.
@@ -164,7 +167,7 @@ final class HarnessRunner {
       gap = Double.random(in: 95...110, using: &rng)
     }
     return PlannedTurn(
-      clip: clip, gapS: gap * options.gapScale,
+      clip: clip, gapS: max(Self.minGapS, gap * options.gapScale),
       leadMs: Double.random(in: 150...450, using: &rng),
       tailMs: Double.random(in: 100...500, using: &rng))
   }

@@ -7,8 +7,9 @@ struct HarnessOptions {
   var blockSize = 6
   var seed: UInt64 = 38
   var maxMinutes = 360.0
-  /// Multiplies every sampled idle gap. Below 1 only for smoke runs: it shifts turns out
-  /// of the cold regime, so warm-versus-cold results no longer match real use.
+  /// Multiplies every sampled idle gap (never below 1 s). Below 1 it shifts warm90 turns
+  /// out of the cold regime, so use it only for arms that keep the microphone warm-off,
+  /// where every turn is cold whatever the gap.
   var gapScale = 1.0
   /// Skips the quiet-room gate. Results then include noise-driven tail caps.
   var allowNoisy = false
