@@ -283,6 +283,30 @@ on long turns, and accuracy did not change with the flush (English WER 2.5 to
 paragraph batch ran alongside the 10-session direct run and is too contended to
 read.
 
+## Adaptive quiet line, 2026-09-26
+
+The capture tail ends after `POST_ROLL_MS` below `TRAIL_SILENCE_DB` (-40 dBFS). In a
+room whose own level reaches that line, room tone reads as speech, and turns wait up
+to `POST_ROLL_MAX_MS` (1.5 s). The quiet line now rises to the turn's room floor (10th
+percentile of its 20 ms frames) plus `QUIET_MARGIN_DB` (8), never closer than 12 dB to
+the turn's speech level (90th percentile), never below the configured threshold.
+`quiet_threshold_db` records the line used on every turn.
+
+Acoustic harness, adaptive (default) vs the fixed line (`QUIET_MARGIN_DB=0`), paired:
+
+| Room | Pairs | Arm | Median total | p95 total | Finalize | Tail caps | WER |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| About -47 dBFS (natural) | 24 | adaptive | 659 ms | 911 ms | 78 ms | 0% | 2.9% |
+| | | fixed | 738 ms | 1,151 ms | 105 ms | 0% | 3.2% |
+| About -40 dBFS (steady fan-like noise) | 12 | adaptive | 670 ms | 765 ms | 41 ms | 0% | 0.8% |
+| | | fixed | 984 ms | 2,142 ms | 305 ms | 25% | 5.6% |
+
+In the -40 dBFS room the fixed line was 341 ms slower per turn (median paired
+difference, 95% CI +97 to +1,001) and less accurate: waiting on room tone adds noise to
+the clip. In the quieter room the line barely moved (median -38.7 dBFS) and nothing
+regressed. Loud transient sounds at speech level (a notification, a voice) still hold
+the tail; no level-based rule can separate those from words.
+
 ## Latency harness
 
 The harness runs real engine turns without a person. `TokHarness` builds a
