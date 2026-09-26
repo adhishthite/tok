@@ -18,6 +18,8 @@ struct HarnessOptions {
   var workers = 6
   /// How many times direct mode sends each clip on each arm.
   var repeats = 1
+  /// Phrase-id prefixes to keep, for example ["p"] for the paragraph clips. Empty keeps all.
+  var only: [String] = []
   private var armsGiven = false
   var root = URL(
     fileURLWithPath: ProcessInfo.processInfo.environment["TOK_PROJECT_ROOT"]
@@ -25,7 +27,7 @@ struct HarnessOptions {
 
   static let usage = """
     Usage: TokHarness [--arms a,b,c] [--turns-per-arm N] [--block N] [--seed N]
-                      [--max-minutes M] [--gap-scale X] [--allow-noisy] [--smoke]
+                      [--max-minutes M] [--gap-scale X] [--allow-noisy] [--only p1,p2] [--smoke]
            TokHarness --direct [--arms a,b] [--workers N] [--repeats N] [--seed N]
     Arms: \(HarnessArm.catalog.map(\.name).joined(separator: ", "))
     --smoke   two turns per arm with short gaps, to check the setup end to end.
@@ -71,6 +73,8 @@ struct HarnessOptions {
         options.workers = try Self.positive(value(argument), argument)
       case "--repeats":
         options.repeats = try Self.positive(value(argument), argument)
+      case "--only":
+        options.only = try value(argument).split(separator: ",").map(String.init)
       case "--allow-noisy":
         options.allowNoisy = true
       case "--smoke":

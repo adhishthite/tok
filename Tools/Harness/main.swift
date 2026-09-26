@@ -13,13 +13,16 @@ do {
   exit(64)
 }
 
-let clips: [HarnessClip]
+var clips: [HarnessClip]
 do {
   clips = try HarnessClip.load(
     directory: options.root.appendingPathComponent("build/harness/clips"))
 } catch {
   FileHandle.standardError.write(Data("No clip bank. Run `make harness-clips` first.\n".utf8))
   exit(66)
+}
+if !options.only.isEmpty {
+  clips = clips.filter { clip in options.only.contains { clip.phraseId.hasPrefix($0) } }
 }
 guard !clips.isEmpty else {
   FileHandle.standardError.write(Data("The clip bank is empty. Run `make harness-clips`.\n".utf8))

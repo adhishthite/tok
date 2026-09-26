@@ -160,6 +160,7 @@ def build_report(rows: list[dict]) -> dict:
         "wer_by_tts_model": {},
         "wer_by_accent": {},
         "by_language": {},
+        "by_length": {},
     }
     for arm in arms:
         for state in ("warm", "cold"):
@@ -202,12 +203,26 @@ def build_report(rows: list[dict]) -> dict:
                     sum(romanized(r) for r in done) / len(done) if done else None
                 ),
             }
+    for label, low, high in LENGTH_BUCKETS:
+        subset = [r for r in ok if low <= (r.get("clip_speech_s") or 0) < high]
+        if subset:
+            report["by_length"][label] = {
+                "turns": len(subset),
+                "total_median": median(numbers(subset, "total_ms")),
+                "total_p95": percentile(numbers(subset, "total_ms"), 0.95),
+                "roundtrip_median": median(numbers(subset, "roundtrip_ms")),
+                "finalize_median": median(numbers(subset, "capture_finalize_ms")),
+                "pooled_wer": pooled_wer(subset),
+            }
     ok = [r for r in ok if is_english(r)]
     for key, target in (("tts_model", "wer_by_tts_model"), ("accent", "wer_by_accent")):
         for value in sorted({r.get(key) for r in ok if r.get(key)}):
             subset = [r for r in ok if r.get(key) == value]
             report[target][value] = {"turns": len(subset), "pooled_wer": pooled_wer(subset)}
     return report
+
+
+LENGTH_BUCKETS = (("<5s", 0, 5), ("5-15s", 5, 15), ("15-30s", 15, 30), ("30s+", 30, 1e9))
 
 
 def fmt(value, digits: int = 0, percent: bool = False) -> str:
@@ -273,6 +288,14 @@ def render(report: dict) -> str:
               fmt(v["roundtrip_median"]),
               fmt(v["pooled_wer"], percent=True), fmt(v["romanized_share"], percent=True)]
              for k, v in report["by_language"].items()]))
+        out.append("")
+    if report["by_length"]:
+        out.append("By speech length (all arms, settled turns):")
+        out.append(table(
+            ["length", "turns", "total med", "total p95", "roundtrip", "finalize", "WER"],
+            [[k, str(v["turns"]), fmt(v["total_median"]), fmt(v["total_p95"]),
+              fmt(v["roundtrip_median"]), fmt(v["finalize_median"]),
+              fmt(v["pooled_wer"], percent=True)] for k, v in report["by_length"].items()]))
         out.append("")
     out.append("Pooled WER by TTS model and accent (English clips, all arms):")
     out.append(table(

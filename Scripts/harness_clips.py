@@ -90,7 +90,7 @@ NATIVE_SPEAKERS = {
     "ko": ("native Korean speaker from Seoul", "native Korean speaker from Busan"),
 }
 # Clips per phrase: English gets the most, for accent coverage.
-VARIANTS = {"en": 4, "code_switch": 2, "hi": 3, "mr": 3}
+VARIANTS = {"en": 4, "code_switch": 2, "hi": 3, "mr": 3, "paragraph": 2}
 DEFAULT_VARIANTS = 2
 UNSPACED_LANGUAGES = {"ja", "zh"}
 CODE_SWITCH_ACCENTS = (
@@ -252,7 +252,10 @@ def plan(phrases: list[dict], variants: int | None, seed: int) -> list[dict]:
     for phrase in phrases:
         language = phrase.get("language", "en")
         code_switch = bool(phrase.get("code_switch"))
-        kind = "code_switch" if code_switch else language
+        kind = (
+            "paragraph" if phrase.get("paragraph")
+            else "code_switch" if code_switch else language
+        )
         count = variants or VARIANTS.get(kind, DEFAULT_VARIANTS)
         for variant in range(count):
             clip_id = f"{phrase['id']}-{variant}"
