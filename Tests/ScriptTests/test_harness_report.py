@@ -48,6 +48,17 @@ class HarnessReportTests(unittest.TestCase):
         self.assertEqual(sorted(harness_report.paired_deltas(rows, "warm90", "total_ms")),
                          [-50, -10])
 
+    def test_direct_and_acoustic_rows_are_not_pooled(self):
+        rows = [row("baseline", 0, i, 600, 200, run_id="a", mode="acoustic") for i in range(6)]
+        rows += [row("baseline", 0, i, None, None, run_id="d", mode="direct",
+                     roundtrip_ms=400) for i in range(6)]
+        rows += [row("flush0", 0, i, None, None, run_id="d", mode="direct",
+                     roundtrip_ms=320) for i in range(6)]
+        report = harness_report.build_report(rows)
+        self.assertEqual(set(report["arms"]),
+                         {"baseline [acoustic]", "baseline [direct]", "flush0 [direct]"})
+        self.assertEqual(report["paired"]["flush0 [direct]/roundtrip_ms"]["median_delta"], -80)
+
     def test_unsettled_turns_are_not_paired(self):
         rows = [row("baseline", 0, 0, 600, 200), {**row("aligned", 0, 0, 400, 200),
                                                    "outcome": "empty"}]

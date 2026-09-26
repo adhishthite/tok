@@ -125,8 +125,16 @@ def pair_key(row: dict) -> tuple:
     return (row["run_id"], row["round"], row["turn_in_block"])
 
 
+def baseline_for(arm: str) -> str:
+    """The baseline arm in the same mode: 'x [direct]' pairs with 'baseline [direct]'."""
+    return BASELINE + arm[arm.index(" ["):] if " [" in arm else BASELINE
+
+
 def paired_deltas(rows: list[dict], arm: str, metric: str) -> list[float]:
-    base = {pair_key(r): r for r in rows if r["arm"] == BASELINE and r.get("outcome") == "success"}
+    reference = baseline_for(arm)
+    base = {
+        pair_key(r): r for r in rows if r["arm"] == reference and r.get("outcome") == "success"
+    }
     deltas = []
     for row in rows:
         if row["arm"] != arm or row.get("outcome") != "success":
@@ -149,8 +157,18 @@ def bootstrap_median_ci(values: list[float], resamples: int = 2000, seed: int = 
     return medians[int(0.025 * resamples)], medians[int(0.975 * resamples) - 1]
 
 
+def split_modes(rows: list[dict]) -> list[dict]:
+    """Direct rows (parallel sockets, no capture) and acoustic rows (serial, real
+    microphone) measure different things, so a report spanning both labels each arm
+    with its mode instead of pooling them."""
+    if len({r.get("mode", "acoustic") for r in rows}) < 2:
+        return rows
+    return [{**r, "arm": f"{r['arm']} [{r.get('mode', 'acoustic')}]"} for r in rows]
+
+
 def build_report(rows: list[dict]) -> dict:
-    arms = sorted({r["arm"] for r in rows}, key=lambda a: (a != BASELINE, a))
+    rows = split_modes(rows)
+    arms = sorted({r["arm"] for r in rows}, key=lambda a: (not a.startswith(BASELINE), a))
     report = {
         "runs": sorted({r["run_id"] for r in rows}),
         "modes": sorted({r.get("mode", "acoustic") for r in rows}),
@@ -174,7 +192,7 @@ def build_report(rows: list[dict]) -> dict:
                     "median": median(values),
                     "p95": percentile(values, 0.95),
                 }
-        if arm == BASELINE:
+        if arm == baseline_for(arm):
             continue
         for metric in ("total_ms", "capture_start_ms", "capture_finalize_ms", "roundtrip_ms"):
             deltas = paired_deltas(rows, arm, metric)
