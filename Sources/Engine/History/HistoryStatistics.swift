@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 public struct HistoryStatistics: Sendable {
   public let count: Int
   public let words: Int

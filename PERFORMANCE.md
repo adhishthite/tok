@@ -179,3 +179,203 @@ Measurements and API-reported usage are in
 The off-path test verifies no cleanup request and inline continuation. No claim
 of zero measured CPU overhead is made. Enabled and disabled dictations must be
 kept separate when assessing the latency target.
+
+## Turn latency report
+
+`Scripts/turn_report.py` aggregates the metadata columns in `history.db`
+(timings, counters, and enum labels only; it never selects transcript text,
+corrections, app identity, or raw error strings) into medians, nearest-rank
+p95s, and group-by tables for repeatable latency review. It opens the
+database read-only and tolerates older databases that are missing a metric
+or grouping column, printing a one-line note instead of failing.
+
+```sh
+make report
+make report ARGS="--build bb2362f --since 2026-09-01"
+make report ARGS="--tag control --json"
+```
+
+Default arguments read `~/Library/Application Support/Tok/history.db`;
+pass `--db <path>` to point at another file. `--all-outcomes` shows outcome
+counts instead of the default success/dispatched/live cohort. Run
+`python3 Scripts/turn_report.py --help` for the full filter and column
+list, and for the exact median and p95 definitions used.
+
+## Silence flush, 2026-09-26
+
+`SILENCE_FLUSH_MS` was 700 by default. Harness direct mode (Tools/Harness), 294
+clips in 13 languages, every clip on every arm twice, paired turn by turn against
+350 ms (the owner's setting). Commit-to-result round trip, median of paired
+differences, bootstrap 95% CI:
+
+| Flush | Pairs | Round trip vs 350 ms | 95% CI | English WER | Last word missed |
+| --- | --- | --- | --- | --- | --- |
+| 700 | 588 | +80 ms | +77 to +83 | 2.3% | 3.1% |
+| 350 | 588 | reference | | 2.2% | 3.3% |
+| 200 | 588 | -35 ms | -38 to -32 | 2.0% | 2.4% |
+| 100 | 588 | -58 ms | -63 to -55 | 2.2% | 3.3% |
+| 0 | 588 | -82 ms | -86 to -80 | 2.0% | 3.1% |
+
+Each 100 ms of flush costs about 23 ms of round trip and buys no measured accuracy.
+The capture tail already ends each turn on at least `POST_ROLL_MS` of real quiet.
+At 0 and 100 ms, one short Marathi clip came back romanized in both of its
+variants (2 of 48 Marathi turns); at 200 ms and longer, 0 of 48. The default is
+now 200 ms: about 115 ms faster than 700 per turn, with no measured cost. The
+end-signal A/B in the same runs found no difference: `WS_ENDPOINT_ALIGNED` minus
+legacy was -2 ms (95% CI -4 to 0) over 588 pairs.
+
+Not yet confirmed end to end on the acoustic path (key-up to paste through the
+real microphone); the flush only changes what is sent after key-up, which direct
+mode reproduces.
+
+## Streaming frame size, 2026-09-26
+
+`CHUNK_MS` was 150 by default; the dedicated transcribe docs suggest about 100.
+Same direct-mode design as the silence-flush run, 588 pairs per arm:
+
+| Frame | Round trip vs 150 ms | 95% CI | English WER | Hindi / Marathi romanized |
+| --- | --- | --- | --- | --- |
+| 150 | reference | | 2.1% | 17/46, 0/48 |
+| 100 | -8 ms | -10 to -4 | 2.0% | 17/46, 0/48 |
+| 50 | -12 ms | -16 to -10 | 2.1% | 17/46, 0/48 |
+
+The default is now 100 ms. 50 ms saves 4 ms more at twice the message rate,
+which is not worth it on a lossy network.
+
+## Trailing-capture floor, 2026-09-26
+
+Every turn records at least `POST_ROLL_MIN_MS` after release. On turns where the
+speaker was already quiet for `POST_ROLL_MS` (250 ms) before release, the floor is
+the whole wait, and that is the usual case: real-use capture finalize has a 78 ms
+median. Acoustic harness, 24 turns per arm, finalize time on the turns where the
+floor bound (banked quiet of 250 ms or more):
+
+| Floor | Turns | Finalize |
+| --- | --- | --- |
+| 60 ms | 9 | 61 to 67 ms |
+| 30 ms | 6 | 35 to 42 ms |
+| 15 ms | 7 | 19 to 21 ms |
+
+Last-word misses did not change (1 of 17 English turns in every arm, the same
+clip). On a floor-bound turn all speech ended at least 250 ms before release, so
+the only post-release audio that matters is the hardware buffer in flight at
+key-up: 1024 frames, about 21 ms at 48 kHz. The default is now 30 ms, which keeps
+that buffer with margin and saves about 25 ms on floor-bound turns. 15 ms would
+save about 20 ms more but cuts below one buffer.
+
+## Long dictations, 2026-09-26
+
+Forty paragraph clips (16 to 34 s of speech, median 24 s): English prompts,
+Hinglish and Marathi-English code-switching, and full Hindi and Marathi
+paragraphs. Direct mode, 80 pairs per arm unless noted:
+
+| Comparison | Round trip | 95% CI |
+| --- | --- | --- |
+| Paragraph vs short-clip baseline | 718 vs 440 ms median | |
+| Flush 200 vs 350 ms | -45 ms | -86 to +3 |
+| Flush 0 vs 350 ms | -88 ms | -109 to -55 |
+| Verbatim vs Smart transcription (40 pairs) | -17 ms | -41 to +10 |
+
+Commit-to-result time grows with the length of the turn, about 280 ms more for a
+24 s dictation, and Smart transcription is not the cause. The flush savings hold
+on long turns, and accuracy did not change with the flush (English WER 2.5 to
+2.7%, the same 4 of 48 last-word misses in every arm). A 12-pair acoustic
+paragraph batch ran alongside the 10-session direct run and is too contended to
+read.
+
+## Adaptive quiet line, 2026-09-26
+
+The capture tail ends after `POST_ROLL_MS` below `TRAIL_SILENCE_DB` (-40 dBFS). In a
+room whose own level reaches that line, room tone reads as speech, and turns wait up
+to `POST_ROLL_MAX_MS` (1.5 s). The quiet line now rises to the turn's room floor (10th
+percentile of its 20 ms frames) plus `QUIET_MARGIN_DB` (8), never closer than 12 dB to
+the turn's speech level (90th percentile), never below the configured threshold.
+`quiet_threshold_db` records the line used on every turn.
+
+Acoustic harness, adaptive (default) vs the fixed line (`QUIET_MARGIN_DB=0`), paired:
+
+| Room | Pairs | Arm | Median total | p95 total | Finalize | Tail caps | WER |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| About -47 dBFS (natural) | 24 | adaptive | 659 ms | 911 ms | 78 ms | 0% | 2.9% |
+| | | fixed | 738 ms | 1,151 ms | 105 ms | 0% | 3.2% |
+| About -40 dBFS (steady fan-like noise) | 12 | adaptive | 670 ms | 765 ms | 41 ms | 0% | 0.8% |
+| | | fixed | 984 ms | 2,142 ms | 305 ms | 25% | 5.6% |
+
+In the -40 dBFS room the fixed line was 341 ms slower per turn (median paired
+difference, 95% CI +97 to +1,001) and less accurate: waiting on room tone adds noise to
+the clip. In the quieter room the line barely moved (median -38.7 dBFS) and nothing
+regressed.
+
+Review follow-up: in that first version the raised line also decided how much quiet was
+banked before release, so a soft final syllable under the raised line could count as
+quiet and a release during it could end capture at the 30 ms floor. Banked quiet is now
+judged against the configured threshold, and the adaptive line applies only to the wait
+after release, so a noisy-room turn always waits out the full 250 ms quiet window. Re-run
+in the fan-noise room (it ran louder, -34 to -38 dBFS), 12 pairs:
+
+| Arm | Median total | p95 total | Finalize | Tail caps | WER |
+| --- | --- | --- | --- | --- | --- |
+| adaptive | 748 ms | 1,132 ms | 258 ms | 0% | 5.6% |
+| fixed | 1,982 ms | 2,146 ms | 1,502 ms | 83% | 5.6% |
+
+The fixed line was 1,246 ms slower per turn (95% CI +893 to +1,346). The safer version
+gives up the 41 ms finalize of the first version for the full quiet window, and still
+removes the cap. Loud transient sounds at speech level (a notification, a voice) still hold
+the tail; no level-based rule can separate those from words.
+
+## Latency harness
+
+The harness runs real engine turns without a person. `TokHarness` builds a
+`DictationEngine` with a `.sink` delivery: real capture on the built-in mic, real
+Live and REST routes, real history rows. It presses and releases the shortcut in
+code, and it never touches the clipboard, pastes, or needs Accessibility. Clips
+play through the built-in speakers, so capture start, warm and cold microphone
+state, and the capture tail are measured on hardware.
+
+```sh
+make harness-clips   # once: 60 phrases x 2 variants from Gemini 3.8 Flash and Flash-Lite TTS
+make harness-smoke   # 2 turns per arm, about 2 minutes, to check the setup
+make harness         # default: baseline, warm90, and the end signal this Mac does not use; 60 turns each, about 4 hours
+make harness ARGS="--arms baseline,flush700 --turns-per-arm 80"
+make harness-direct ARGS="--arms baseline,aligned,flush700 --repeats 2"
+make harness-report  # add ARGS="--min-turns 20" to drop smoke runs
+```
+
+- **Direct mode.** `--direct` streams each clip straight into `GeminiLiveClient`
+  at real-time pace, over -60 dBFS room tone at a -20 dBFS speech peak, with the
+  engine's pre-roll and digital-zero silence flush. Several workers run at once,
+  each holding one persistent socket per arm and running every clip on every arm
+  back to back, so contention falls on all arms alike. It measures the end signal,
+  the commit-to-result round trip, and accuracy by accent and language. It cannot
+  measure capture start, warm or cold state, or the capture tail; those need the
+  acoustic run. It reaches the internal client through `@testable import`, as
+  `LiveIntegrationTests` does. Each `make harness*` run executes a copy of the
+  binary under `build/harness/bin`, so a rebuild never replaces a running one.
+
+- **Clips.** `Scripts/harness_clips.py` renders `Tools/Harness/phrases.json` with
+  weighted accents (mostly Indian English), voices, and pacing styles, alternating
+  the two TTS models. Each clip is transcribed once over REST and regenerated when
+  the check misses more than 20% of words, so a TTS mistake is not scored as an
+  engine mistake. The 3.8 TTS models speak plain-text instructions aloud and
+  reject `systemInstruction`; direction goes in a leading bracketed tag.
+- **Design.** Each round draws a block of clips with idle gaps drawn from the
+  owner's measured gap mix (40% under 30 s, 17% 30 to 90 s, 43% 95 to 110 s; past the 90 s release
+  window a longer gap leaves the microphone in the same cold state),
+  a 150 to 450 ms lead from press to speech, and a 100 to 500 ms tail from
+  last word to release. Every arm runs the same block, in an order that rotates
+  each round. The report pairs turns on round and position.
+- **Settings.** Arms start from the installed app's own preferences
+  (`com.adhishthite.tok`), then force sounds, ducking, clipboard restore,
+  correction learning, hold-to-lock, and usage metrics off. Each arm changes one
+  factor. Rows go to `build/harness/history.db`, tagged `harness-<arm>`, and to
+  `build/harness/runs/<run>.jsonl`.
+- **Conditions.** Keep the lid open, the built-in speakers on at a fixed volume,
+  and the room quiet. Before each arm block the harness measures the room with
+  nothing playing. It pauses while the median is above `TRAIL_SILENCE_DB` minus
+  5 dB, because room tone near the threshold keeps resetting the quiet window
+  and runs the tail to `POST_ROLL_MAX_MS`. It also pauses when the output is not
+  the built-in speakers, and it stops after 4 turns in a row without a transcript.
+- **Limits.** Speakers into the laptop mic are not a person at dictation
+  distance, so absolute tail and accuracy numbers are approximate. Paired arm
+  differences are the result. Smart transcription removes fillers, so a phrase
+  that opens with "Okay" can count as a first-word miss in every arm alike.

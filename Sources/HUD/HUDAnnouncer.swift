@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import AppKit
 
 // The HUD is a borderless, non-activating panel that never takes focus, so VoiceOver

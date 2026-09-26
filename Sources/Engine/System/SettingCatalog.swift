@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 
 public enum SettingCatalog {
@@ -345,7 +348,9 @@ public enum SettingCatalog {
       key: "CHUNK_MS", title: "Streaming frame size",
       help: "Milliseconds of audio sent in each streaming frame.", group: .advanced,
       section: "Streaming",
-      kind: .integer(20...500), unit: .milliseconds, defaultValue: "150"
+      // Measured 2026-09-26 (PERFORMANCE.md, "Streaming frame size"): 100 ms, the size the
+      // transcribe docs recommend, is 8 ms faster than 150 with no accuracy change.
+      kind: .integer(20...500), unit: .milliseconds, defaultValue: "100"
     ) { config, value in
       if let ms = Int(value) { config.chunkMs = min(500, max(20, ms)) }
     },
@@ -353,7 +358,10 @@ public enum SettingCatalog {
       key: "SILENCE_FLUSH_MS", title: "Trailing silence",
       help: "Milliseconds of synthetic silence sent to help finalize the final word.",
       group: .advanced, section: "Streaming", kind: .integer(0...2000), unit: .milliseconds,
-      defaultValue: "700"
+      // Measured 2026-09-26 (PERFORMANCE.md, "Silence flush"): each 100 ms of flush adds
+      // about 23 ms of round trip with no accuracy gain. Below 200 ms, short Marathi clips
+      // sometimes came back romanized.
+      defaultValue: "200"
     ) { config, value in
       if let ms = Int(value) { config.silenceFlushMs = min(2000, max(0, ms)) }
     },
@@ -382,6 +390,17 @@ public enum SettingCatalog {
       if let ms = Int(value) { config.postRollMs = min(500, max(0, ms)) }
     },
     SettingDefinition(
+      key: "POST_ROLL_MIN_MS", title: "Minimum trailing capture",
+      help: "Milliseconds recorded after release even when the room is already quiet.",
+      group: .advanced, section: "Capture timing",
+      // Measured 2026-09-26 (PERFORMANCE.md, "Trailing-capture floor"): the floor binds on
+      // turns that were already quiet before release; there it is the whole wait. 30 ms
+      // still covers the one hardware buffer in flight at key-up (1024 frames, about 21 ms).
+      kind: .integer(0...250), unit: .milliseconds, defaultValue: "30"
+    ) { config, value in
+      if let ms = Int(value) { config.postRollMinMs = min(250, max(0, ms)) }
+    },
+    SettingDefinition(
       key: "POST_ROLL_MAX_MS", title: "Maximum trailing capture",
       help: "Milliseconds to wait for speech after release, at most.", group: .advanced,
       section: "Capture timing",
@@ -396,6 +415,15 @@ public enum SettingCatalog {
       kind: .decimal((-80)...(-10)), unit: .decibels, defaultValue: "-40.0"
     ) { config, value in
       if let db = Double(value) { config.trailSilenceDb = min(-10.0, max(-80.0, db)) }
+    },
+    SettingDefinition(
+      key: "QUIET_MARGIN_DB", title: "Noisy-room margin",
+      help:
+        "In a noisy room, audio this many dB above the room's own level still counts as quiet. 0 uses the quiet threshold alone.",
+      group: .advanced, section: "Capture timing",
+      kind: .decimal(0...20), unit: .decibels, defaultValue: "8"
+    ) { config, value in
+      if let db = Double(value) { config.quietMarginDb = min(20.0, max(0.0, db)) }
     },
     SettingDefinition(
       key: "VAD_MODE", title: "Speech boundary detection",
@@ -488,6 +516,15 @@ public enum SettingCatalog {
       defaultValue: "normal", restartsEngine: false
     ) { config, value in
       config.logLevel = value.lowercased()
+    },
+    SettingDefinition(
+      key: "EXPERIMENT_TAG", title: "Experiment label",
+      help: "Stored with each dictation so measurements can be grouped. Leave empty normally.",
+      group: .advanced, section: "Diagnostics", kind: .text, defaultValue: "",
+      restartsEngine: false
+    ) { config, value in
+      let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+      config.experimentTag = trimmed.isEmpty ? nil : String(trimmed.prefix(64))
     },
   ]
 }

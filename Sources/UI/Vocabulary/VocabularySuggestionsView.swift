@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import SwiftUI
 
 struct VocabularySuggestionsView: View {
@@ -20,9 +23,18 @@ struct VocabularySuggestionsView: View {
               }
             })
         ) {
-          VStack(alignment: .leading, spacing: 4) {
-            Text(suggestion.line).font(.system(.body, design: .monospaced))
-            Text(suggestion.reason).font(.caption).foregroundStyle(.secondary)
+          HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 4) {
+              Text(suggestion.line).font(.system(.body, design: .monospaced))
+              Text(suggestion.reason).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let confidence = suggestion.confidence {
+              Text("\(Int((confidence * 100).rounded()))%")
+                .font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                .help(
+                  "Jev's rating: how distinctive a term is, or how safe a replacement rule is.")
+            }
           }.padding(.vertical, 4)
         }.toggleStyle(.checkbox)
       }

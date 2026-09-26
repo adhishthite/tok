@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import XCTest
 
 @testable import Tok
@@ -34,6 +37,17 @@ final class StoreTests: XCTestCase {
     XCTAssertEqual(store.status, .microphoneReleased)
     store.engineDidEmit(.failure("Test failure"))
     XCTAssertEqual(store.message, "Test failure")
+  }
+
+  func testStateTracksJudgmentAvailabilityEvents() {
+    let store = DictationStore()
+    XCTAssertEqual(store.judgmentAvailability, .off)
+    store.engineDidEmit(.judgmentAvailability(.checking))
+    XCTAssertEqual(store.judgmentAvailability, .checking)
+    store.engineDidEmit(.judgmentAvailability(.available))
+    XCTAssertEqual(store.judgmentAvailability, .available)
+    store.engineDidEmit(.judgmentAvailability(.unavailable(reason: "HTTP 401 (key rejected)")))
+    XCTAssertEqual(store.judgmentAvailability, .unavailable(reason: "HTTP 401 (key rejected)"))
   }
 
   func testDiagnosticsRemainBounded() {

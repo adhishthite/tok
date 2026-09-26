@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 
 /// The only value shapes a usage metric may carry. Free text is not one of them.

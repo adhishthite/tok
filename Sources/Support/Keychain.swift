@@ -1,11 +1,17 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 import Security
 
 enum Keychain {
+  enum Account: String {
+    case gemini = "gemini-api-key"
+    case typesafe = "typesafe-api-key"
+  }
   private static let service = "com.adhishthite.tok"
-  private static let account = "gemini-api-key"
-  static func readAPIKey() throws -> String? {
-    var query = baseQuery
+  static func readAPIKey(_ account: Account = .gemini) throws -> String? {
+    var query = baseQuery(account)
     query[kSecReturnData as String] = true
     query[kSecMatchLimit as String] = kSecMatchLimitOne
     var result: CFTypeRef?
@@ -16,12 +22,12 @@ enum Keychain {
     }
     return String(data: data, encoding: .utf8)
   }
-  static func saveAPIKey(_ value: String) throws {
+  static func saveAPIKey(_ value: String, account: Account = .gemini) throws {
     let data = Data(value.utf8)
     let status = SecItemUpdate(
-      baseQuery as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+      baseQuery(account) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
     if status == errSecItemNotFound {
-      var query = baseQuery
+      var query = baseQuery(account)
       query[kSecValueData as String] = data
       query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
       let addStatus = SecItemAdd(query as CFDictionary, nil)
@@ -30,10 +36,17 @@ enum Keychain {
       throw KeychainError(status: status)
     }
   }
-  private static var baseQuery: [String: Any] {
+  /// Removes a stored key. A key that was never saved counts as removed.
+  static func deleteAPIKey(_ account: Account) throws {
+    let status = SecItemDelete(baseQuery(account) as CFDictionary)
+    guard status == errSecSuccess || status == errSecItemNotFound else {
+      throw KeychainError(status: status)
+    }
+  }
+  private static func baseQuery(_ account: Account) -> [String: Any] {
     [
       kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-      kSecAttrAccount as String: account,
+      kSecAttrAccount as String: account.rawValue,
     ]
   }
 }

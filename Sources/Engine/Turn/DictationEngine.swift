@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import AVFoundation
 import AppKit
 import AudioToolbox
@@ -28,6 +31,12 @@ public final class DictationEngine {
     }
   }
   let config: EngineConfiguration
+  // Fixed at init, so every queue reads it without synchronization.
+  let delivery: Delivery
+  private var isHeadless: Bool {
+    if case .sink = delivery { return true }
+    return false
+  }
   // Settings that DictationStore swaps in without an engine restart (audit F30). The
   // struct is replaced whole under hotLock and read as a snapshot on whichever queue
   // needs it, so a mid-turn change applies from the next read without a data race.
@@ -43,6 +52,9 @@ public final class DictationEngine {
   private var hotkeyManager: HotkeyManager?
   let history: HistoryStore?
   private var correctionWatcher: CorrectionWatcher?
+  // Optional upgrade (see Engine/Judgment). Always present; a no-op gate until a TypeSafe
+  // key is configured and its models probe succeeds.
+  let judgmentService: JudgmentService
 
   // Cross-thread "is a turn active" flag - read synchronously from the event-tap thread in
   // handleKeyDown (must stay fast/non-blocking), written only from sessionQueue-executed code.
@@ -132,6 +144,82 @@ public final class DictationEngine {
   // the audio it already paid for on the history row (audit F11).
   private var turnAudioSeconds: Double?
 
+  // Connection state, hedge, and round-trip split. Unlike the fields below,
+  // these are not read through recordTurn's central fallback-fill: a reviewer flagged that
+  // pattern as racy for main-thread state (handleKeyDown can reset a turn* var before the
+  // previous turn's row is fully built off-thread), so these are sessionQueue-only and
+  // stamped directly into the TurnRecord at each settle-time construction site, exactly
+  // where turnSettlePath already is. Reset in runTurnPipeline alongside turnSettlePath;
+  // turnHedgeFired/turnHedgeWinner are also touched from executeRestFallback and settle(),
+  // both sessionQueue-only.
+  private var turnReconnectedDuringTurn: Bool?
+  // Not private: the audit F21 hedge-race fixture (Tests/EngineTests/Fixtures) sets this
+  // directly, the same way it already reaches wsCommitInFlight/restTerminal below.
+  var turnHedgeFired = false
+  private var turnHedgeWinner: String?
+  private var turnCommitToLastSendMs: Double?
+  private var turnCommitToFirstMsgMs: Double?
+  private var turnCommitToFinalMs: Double?
+  private var turnCommitToTurnCompleteMs: Double?
+
+  // Self-describing rows and key-down readiness. Same cross-thread discipline as
+  // the first-word evidence above - written on main, read on sessionQueue via recordTurn's
+  // central fallback-fill, except turnOnsetDb (sessionQueue-only, like turnPeakDb) and
+  // lastCaptureEndUptime (written on sessionQueue right after stopRecording, read on main at
+  // the next key-down; captureTimingLock is the same snapshot-then-release idiom
+  // processingLock already uses for isProcessing across this exact thread boundary).
+  private var turnKeyDownEpoch: Double?
+  private var turnKeyUpEpoch: Double?
+  private var turnMicStateAtKeydown: String?
+  private var turnStartingNoticeShown: Bool = false
+  private var turnPrerollMsUsed: Double?
+  private var turnMsSincePrevCapture: Double?
+  private var turnOnsetDb: Double?
+  // The Live socket's readiness and session age at this same key-down instant,
+  // read through GeminiLiveClient's lock-guarded accessor. Same cross-thread discipline
+  // (and the same accepted race window) as turnMicStateAtKeydown above.
+  private var turnSocketStateAtKeydown: String?
+  private var turnSocketAgeMs: Double?
+  private let captureTimingLock = NSLock()
+  private var lastCaptureEndUptime: TimeInterval?
+
+  // sessionQueue-only. Snapshots the instant a capture finished (any outcome) and this
+  // turn's onset_db, right after stopRecording returns. Call once per stopRecording call.
+  private func noteCaptureFinished() {
+    captureTimingLock.lock()
+    lastCaptureEndUptime = ProcessInfo.processInfo.systemUptime
+    captureTimingLock.unlock()
+    turnOnsetDb = audioCapture.onsetDbInTurn
+  }
+
+  // Capture finalization diagnostics. sessionQueue-only, like turnPeakDb/turnOnsetDb:
+  // stopRecording now returns a CaptureFinalizeStats alongside its tuple, and both call sites
+  // (discardCapture's cancel path and runTurnPipeline) stamp it here right after the call
+  // returns, before either can produce a TurnRecord. Reset again at key-down (handleKeyDown)
+  // as a second line of defense, matching the fix already shipped for turnKeyUpEpoch's
+  // reset above: a turn that reaches neither stopRecording call between two key-downs
+  // must not have the previous turn's finalize stats show up on its row.
+  private var turnFinalizeExit: String?
+  private var turnFinalizeDrainMs: Double?
+  private var turnTrailWaitMs: Double?
+  private var turnBankedQuietMs: Double?
+  private var turnQuietResets: Int?
+  private var turnTrailPeakDb: Double?
+  private var turnNoiseFloorDb: Double?
+  private var turnQuietThresholdDb: Double?
+
+  // sessionQueue-only. Call once per stopRecording call, right after it returns.
+  private func stampFinalizeStats(_ finalize: CaptureFinalizeStats) {
+    turnFinalizeExit = finalize.exit
+    turnFinalizeDrainMs = finalize.drainMs
+    turnTrailWaitMs = finalize.trailWaitMs
+    turnBankedQuietMs = finalize.bankedQuietMs
+    turnQuietResets = finalize.quietResets
+    turnTrailPeakDb = finalize.trailPeakDb
+    turnNoiseFloorDb = finalize.noiseFloorDb
+    turnQuietThresholdDb = finalize.quietThresholdDb
+  }
+
   // Serial queue that owns all turn lifecycle state below. Both the WS commit completion and
   // the REST fallback timer used to race directly against a captured `var didFallback` bool
   // with no synchronization, so a slow-arriving WS result and a just-fired fallback timer could
@@ -210,8 +298,9 @@ public final class DictationEngine {
       deadline: .now() + Double(config.micIdleTimeoutSec), execute: item)
   }
 
-  public init(config: EngineConfiguration) {
+  public init(config: EngineConfiguration, delivery: Delivery = .paste) {
     self.config = config
+    self.delivery = delivery
     self.hotSettings = HotSettings(config)
     self.audioCapture = AudioCaptureEngine(
       preRollMs: config.preRollMs, chunkMs: config.chunkMs, silenceFlushMs: config.silenceFlushMs,
@@ -229,14 +318,24 @@ public final class DictationEngine {
       )
     }
     self.history = config.historyEnabled ? HistoryStore(config: config) : nil
+    self.judgmentService = JudgmentService(apiKey: config.typesafeApiKey)
     // A failed history write is otherwise only a log line; Settings shows this (audit F29).
     // onError arrives on the history queue, so the hop to main is this wiring's job.
+    // (judgmentService must be assigned before this point: every stored property needs a
+    // value before `self` can be captured, even weakly, in a closure.)
     history?.onError = { [weak self] message in
       DispatchQueue.main.async { self?.delegate?.engineDidEmit(.historyError(message)) }
     }
+    // Forwards every availability transition through the same delegate every other engine
+    // event uses; engineDidEmit hops to main itself, so no extra dispatch is needed here.
+    // The callback fires on judgmentService.queue, never while its lock is held.
+    self.judgmentService.onAvailabilityChange = { [weak self] availability in
+      self?.delegate?.engineDidEmit(.judgmentAvailability(availability))
+    }
     if config.learnCorrections {
       if config.historyEnabled {
-        self.correctionWatcher = CorrectionWatcher(config: config, history: self.history)
+        self.correctionWatcher = CorrectionWatcher(
+          config: config, history: self.history, judgment: self.judgmentService)
       } else {
         // Without history there is nowhere to store a correction, so the watcher would
         // read the destination window over Accessibility for nothing (audit F33).
@@ -275,6 +374,82 @@ public final class DictationEngine {
       feedback.showError(message: "Add a Gemini API key to start dictating.")
       return
     }
+    startPipeline()
+
+    // 5. Setup Hotkey Listener
+    let binding = HotkeyManager.KeyBinding.from(string: config.hotkey)
+    let hotkey = HotkeyManager(binding: binding, mode: config.hotkeyMode)
+
+    hotkey.onKeyDown = { [weak self] in
+      self?.handleKeyDown()
+    }
+
+    hotkey.onKeyUp = { [weak self, weak hotkey] in
+      self?.handleKeyUp(eventTime: hotkey?.lastEventUptime)
+    }
+
+    // The tap's run loop source is added on the main run loop, so these arrive on main
+    // like onKeyDown and onKeyUp do.
+    hotkey.onChord = { [weak self] in
+      self?.handleChord()
+    }
+
+    hotkey.onCancelKey = { [weak self] in
+      self?.handleCancel(source: "escape")
+    }
+
+    guard hotkey.start() else {
+      Log.error(
+        "HOTKEY",
+        "Could not detect the shortcut. Enable Input Monitoring and Accessibility for Tok."
+      )
+      feedback.showError(message: "Enable Input Monitoring and Accessibility for Tok.")
+      return
+    }
+    self.hotkeyManager = hotkey
+
+    // The judgment probe (kicked off in init) may already have settled before a delegate
+    // existed to hear about it, so push the current snapshot once at startup rather than
+    // relying only on the next transition (otherwise the store shows a stale `.off`).
+    delegate?.engineDidEmit(.judgmentAvailability(judgmentService.availability))
+    feedback.ready()
+  }
+
+  /// Main thread. Starts a `.sink` engine for the latency harness: the same capture,
+  /// socket, and power wiring as `start()`, but no global shortcut, so neither
+  /// Accessibility nor Input Monitoring is required. Returns false when the microphone is
+  /// not authorized or the API key is missing. Turns are driven by `harnessKeyDown()` and
+  /// `harnessKeyUp()`.
+  public func startHeadless() -> Bool {
+    precondition(isHeadless, "startHeadless requires a .sink delivery")
+    NetworkMonitor.shared.start()
+    guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized,
+      !config.geminiApiKey.isEmpty
+    else { return false }
+    startPipeline()
+    feedback.ready()
+    return true
+  }
+
+  /// Main thread. The shortcut press, for a `.sink` engine. Runs the same gates and
+  /// capture start as a physical key-down.
+  public func harnessKeyDown() {
+    precondition(isHeadless, "harnessKeyDown requires a .sink delivery")
+    handleKeyDown()
+  }
+
+  /// Main thread. The shortcut release, for a `.sink` engine.
+  public func harnessKeyUp() {
+    precondition(isHeadless, "harnessKeyUp requires a .sink delivery")
+    handleKeyUp()
+  }
+
+  /// Any thread. True once the Live session is set up, through the client's own lock.
+  public var isLiveReady: Bool { liveClient?.isReady ?? false }
+
+  /// Main thread. Capture, Live socket, REST pre-warm, and sleep/wake wiring shared by
+  /// `start()` and `startHeadless()`.
+  private func startPipeline() {
     // 3. Initialize Audio Capture Engine
     audioCapture.onCaptureInterrupted = { [weak self] _ in
       guard let self = self, self.captureActive else { return }
@@ -317,7 +492,13 @@ public final class DictationEngine {
           self?.feedback.showError(message: "API key rejected. Check the key in Settings.")
         }
       }
-      liveClient?.connect()
+      // Connection lifecycle telemetry: async on the history queue, never shown in
+      // UI. May fire from main, sendQueue, or settleQueue; recordConnectionEvent only ever
+      // does queue.async, so this never blocks whichever thread the event happened on.
+      liveClient?.onConnectionEvent = { [weak self] kind, turnOpen, socketAgeS in
+        self?.history?.recordConnectionEvent(kind: kind, turnOpen: turnOpen, socketAgeS: socketAgeS)
+      }
+      liveClient?.connect(reason: "startup")
     }
 
     // Pre-warm the REST fallback route's connection (DNS + TCP + TLS handshake) so that if
@@ -341,28 +522,6 @@ public final class DictationEngine {
       }
     }
 
-    // 5. Setup Hotkey Listener
-    let binding = HotkeyManager.KeyBinding.from(string: config.hotkey)
-    let hotkey = HotkeyManager(binding: binding, mode: config.hotkeyMode)
-
-    hotkey.onKeyDown = { [weak self] in
-      self?.handleKeyDown()
-    }
-
-    hotkey.onKeyUp = { [weak self, weak hotkey] in
-      self?.handleKeyUp(eventTime: hotkey?.lastEventUptime)
-    }
-
-    // The tap's run loop source is added on the main run loop, so these arrive on main
-    // like onKeyDown and onKeyUp do.
-    hotkey.onChord = { [weak self] in
-      self?.handleChord()
-    }
-
-    hotkey.onCancelKey = { [weak self] in
-      self?.handleCancel(source: "escape")
-    }
-
     // Sleep/wake hygiene: release the mic before sleep (suspendEngine refuses mid-dictation),
     // and force a fresh WS connection on wake - the socket often survives sleep in a
     // half-dead state where sends succeed but no server responses ever arrive.
@@ -383,21 +542,9 @@ public final class DictationEngine {
         Log.info("POWER", "System woke - refreshing Live WebSocket connection.")
         if self.config.enableLiveWebSocket {
           self.liveClient?.disconnect()
-          self.liveClient?.connect()
+          self.liveClient?.connect(reason: "wake")
         }
       })
-
-    guard hotkey.start() else {
-      Log.error(
-        "HOTKEY",
-        "Could not detect the shortcut. Enable Input Monitoring and Accessibility for Tok."
-      )
-      feedback.showError(message: "Enable Input Monitoring and Accessibility for Tok.")
-      return
-    }
-    self.hotkeyManager = hotkey
-
-    feedback.ready()
   }
 
   /// Replaces the hot-applied settings from a fresh configuration. Main thread. Keys whose
@@ -407,6 +554,10 @@ public final class DictationEngine {
     hotLock.lock()
     hotSettings = HotSettings(configuration)
     hotLock.unlock()
+    // Rebuilds the TypeSafe client and reruns its probe immediately when the key differs,
+    // without waiting for a full engine restart (a key edit while a turn is active is
+    // debounced and may not restart the engine right away).
+    judgmentService.configure(apiKey: configuration.typesafeApiKey)
     Log.configure(
       delegate: delegate, apiKey: config.geminiApiKey, privacyMode: configuration.privacyMode)
   }
@@ -416,7 +567,48 @@ public final class DictationEngine {
     var stamped = record
     if stamped.captureStartMs == nil { stamped.captureStartMs = turnCaptureStartMs }
     if stamped.firstInterimMs == nil { stamped.firstInterimMs = turnFirstInterimMs }
-    history?.record(stamped)
+    // Key timing, capture settings, and key-down readiness, filled the same way.
+    if stamped.keyDownEpoch == nil { stamped.keyDownEpoch = turnKeyDownEpoch }
+    if stamped.keyUpEpoch == nil { stamped.keyUpEpoch = turnKeyUpEpoch }
+    if stamped.experimentTag == nil { stamped.experimentTag = hot.experimentTag }
+    if stamped.micStateAtKeydown == nil { stamped.micStateAtKeydown = turnMicStateAtKeydown }
+    if stamped.msSincePrevCapture == nil { stamped.msSincePrevCapture = turnMsSincePrevCapture }
+    if stamped.prerollMsUsed == nil { stamped.prerollMsUsed = turnPrerollMsUsed }
+    if stamped.startingNoticeShown == nil { stamped.startingNoticeShown = turnStartingNoticeShown }
+    if stamped.onsetDb == nil { stamped.onsetDb = turnOnsetDb }
+    // How the capture finished, filled the same way.
+    if stamped.finalizeExit == nil { stamped.finalizeExit = turnFinalizeExit }
+    if stamped.finalizeDrainMs == nil { stamped.finalizeDrainMs = turnFinalizeDrainMs }
+    if stamped.trailWaitMs == nil { stamped.trailWaitMs = turnTrailWaitMs }
+    if stamped.bankedQuietMs == nil { stamped.bankedQuietMs = turnBankedQuietMs }
+    if stamped.quietResets == nil { stamped.quietResets = turnQuietResets }
+    if stamped.trailPeakDb == nil { stamped.trailPeakDb = turnTrailPeakDb }
+    if stamped.noiseFloorDb == nil { stamped.noiseFloorDb = turnNoiseFloorDb }
+    if stamped.quietThresholdDb == nil { stamped.quietThresholdDb = turnQuietThresholdDb }
+    // Connection readiness at key-down, filled the same way.
+    if stamped.socketStateAtKeydown == nil {
+      stamped.socketStateAtKeydown = turnSocketStateAtKeydown
+    }
+    if stamped.socketAgeMs == nil { stamped.socketAgeMs = turnSocketAgeMs }
+    // Item 3: a delivered (pasted or copy-only), non-empty transcript gets a fire-and-forget
+    // Jev quality judgment once history has assigned it a rowid. Respects PRIVACY_MODE the
+    // same way history already does (no extra gating: history keeps recording under privacy
+    // mode today, so this does too); with history disabled there is nothing to key the
+    // judgment to, so it is skipped entirely.
+    if let history, judgmentService.isAvailable, stamped.outcome == "success",
+      let text = stamped.text, !text.isEmpty
+    {
+      let appName = stamped.appName
+      let appBundleId = stamped.appBundleId
+      history.record(stamped) { [weak judgmentService] rowid in
+        guard let judgmentService else { return }
+        TranscriptQualityJudge.assess(
+          rowid: rowid, transcript: text, appName: appName, appBundleId: appBundleId,
+          judgment: judgmentService, history: history)
+      }
+    } else {
+      history?.record(stamped)
+    }
     delegate?.engineDidEmit(.turnSettled(stamped))
   }
 
@@ -544,7 +736,28 @@ public final class DictationEngine {
     turnInputDevice = audioCapture.currentInput?.name
     turnInputTransport = audioCapture.currentInput?.transport
     turnKeyDownTime = ProcessInfo.processInfo.systemUptime
+    turnKeyDownEpoch = Date().timeIntervalSince1970
     turnCaptureStartMs = nil
+    // A turn cancelled by chord or Escape while capturing (discardCapture) never reaches
+    // handleKeyUp, so without this reset it would inherit the previous turn's key_up_epoch.
+    turnKeyUpEpoch = nil
+    turnStartingNoticeShown = false
+    // Same reasoning as turnKeyUpEpoch above. Neither stopRecording call site is
+    // guaranteed to run before the next key-down decides to bail out early (offline gate,
+    // capturePending never reaching audio); without this reset such a turn's row (if any)
+    // would otherwise read a previous turn's finalize stats.
+    turnFinalizeExit = nil
+    turnFinalizeDrainMs = nil
+    turnTrailWaitMs = nil
+    turnBankedQuietMs = nil
+    turnQuietResets = nil
+    turnTrailPeakDb = nil
+    turnNoiseFloorDb = nil
+    turnQuietThresholdDb = nil
+    captureTimingLock.lock()
+    let previousCaptureEnd = lastCaptureEndUptime
+    captureTimingLock.unlock()
+    turnMsSincePrevCapture = previousCaptureEnd.map { (turnKeyDownTime - $0) * 1000 }
 
     micIdleWorkItem?.cancel()
     micIdleWorkItem = nil
@@ -552,7 +765,16 @@ public final class DictationEngine {
     capturePending = true
     captureGeneration &+= 1
     let generation = captureGeneration
-    if !audioCapture.isEngineRunning { scheduleStartingNotice(generation: generation) }
+    // "warm" when the mic was already running when this key-down was decided -
+    // the same instant that decides whether the "Getting ready" pill is even scheduled.
+    let micWasWarm = audioCapture.isEngineRunning
+    turnMicStateAtKeydown = micWasWarm ? "warm" : "cold"
+    // Connection readiness at the same key-down instant, through a brief lock scope
+    // on the live client (never sessionQueue.sync from main).
+    let socketSnapshot = liveClient?.socketStateAtKeydown
+    turnSocketStateAtKeydown = socketSnapshot?.state ?? "closed"
+    turnSocketAgeMs = socketSnapshot?.ageMs
+    if !micWasWarm { scheduleStartingNotice(generation: generation) }
     audioCapture.ensureReady { [weak self] ready in
       guard let self = self, self.capturePending, self.captureGeneration == generation else {
         return
@@ -592,6 +814,7 @@ public final class DictationEngine {
         self.capturePending || self.captureActive
       else { return }
       self.startingNoticeWorkItem = nil
+      self.turnStartingNoticeShown = true
       self.feedback.showStarting()
     }
     startingNoticeWorkItem = item
@@ -696,8 +919,11 @@ public final class DictationEngine {
       guard let self = self else { return }
       // Zero grace and zero trail: there is nothing in this clip worth waiting for. The
       // buffers still have to be drained, or the next turn would inherit them.
-      let (_, duration, _, _, _, _, _) = self.audioCapture.stopRecording(
-        gracePeriodMs: 0, maxTrailMs: 0, silenceThresholdDb: self.config.trailSilenceDb)
+      let (_, duration, _, _, _, _, _, finalize) = self.audioCapture.stopRecording(
+        gracePeriodMs: 0, minTrailMs: 0, maxTrailMs: 0,
+        silenceThresholdDb: self.config.trailSilenceDb)
+      self.noteCaptureFinished()
+      self.stampFinalizeStats(finalize)
       self.liveClient?.abandonTurn()
       if !self.config.keepMicrophoneWarm {
         DispatchQueue.main.async { [weak self] in self?.audioCapture.suspendEngine() }
@@ -806,8 +1032,10 @@ public final class DictationEngine {
       scheduleMicIdleRelease()
       return
     }
-    // A startup wait must not silently change the intended destination.
-    guard NSWorkspace.shared.frontmostApplication?.processIdentifier == turnFrontmostPID else {
+    // A startup wait must not silently change the intended destination. A sink has none.
+    guard
+      isHeadless || NSWorkspace.shared.frontmostApplication?.processIdentifier == turnFrontmostPID
+    else {
       feedback.showError(message: "Focus changed. Press again to dictate.")
       scheduleMicIdleRelease()
       return
@@ -824,10 +1052,11 @@ public final class DictationEngine {
     turnInputDevice = audioCapture.currentInput?.name
     turnInputTransport = audioCapture.currentInput?.transport
     turnCaptureStartMs = (ProcessInfo.processInfo.systemUptime - turnKeyDownTime) * 1000
+    turnPrerollMsUsed = audioCapture.preRollMsUsedInTurn
     if hot.soundFeedback { SoundManager.playStartSound() }
     feedback.showListening(lockAfter: holdToLockInterval)
     feedback.captureStarted(pid: turnFrontmostPID, followFocus: hot.hudFollowFocus)
-    if config.restoreClipboard { TextInjector.prepareClipboard() }
+    if config.restoreClipboard, !isHeadless { TextInjector.prepareClipboard() }
     armHoldToLock()
     armSessionLimit()
 
@@ -869,6 +1098,11 @@ public final class DictationEngine {
     if turnLocked { return }
     captureActive = false
     turnFinishMode = finish
+    // Wall-clock equivalent of keyUpTime. When keyUpTime came from an event
+    // timestamp (uptime-based, in the past), shift now's epoch back by the same queueing
+    // delay instead of stamping the moment this handler happened to run. Stamped only
+    // here: a refused press's release must not overwrite a settling turn's key-up.
+    turnKeyUpEpoch = Date().timeIntervalSince1970 - (handlerTime - keyUpTime)
     // Stamped on main with the other per-turn fields; sessionQueue compares against this
     // instead of reading captureGeneration off its own thread (audit F33).
     turnFeedbackGeneration = captureGeneration
@@ -1014,10 +1248,13 @@ public final class DictationEngine {
     guard !isStopping else { return }
     let pipelineStartTime = ProcessInfo.processInfo.systemUptime
     turnReleaseTime = keyUpTime
-    let (pcmData, duration, chunks, capturedBytes, peakDb, speechFrames, interrupted) =
+    let (pcmData, duration, chunks, capturedBytes, peakDb, speechFrames, interrupted, finalize) =
       audioCapture.stopRecording(
-        gracePeriodMs: config.postRollMs, maxTrailMs: config.postRollMaxMs,
-        silenceThresholdDb: config.trailSilenceDb)
+        gracePeriodMs: config.postRollMs, minTrailMs: config.postRollMinMs,
+        maxTrailMs: config.postRollMaxMs, silenceThresholdDb: config.trailSilenceDb,
+        quietMarginDb: config.quietMarginDb)
+    noteCaptureFinished()
+    stampFinalizeStats(finalize)
     if !config.keepMicrophoneWarm {
       DispatchQueue.main.async { [weak self] in self?.audioCapture.suspendEngine() }
     }
@@ -1036,6 +1273,13 @@ public final class DictationEngine {
     turnSpeechFrames = speechFrames
     turnSettlePath = nil
     turnFirstInterimMs = nil
+    turnReconnectedDuringTurn = nil
+    turnHedgeFired = false
+    turnHedgeWinner = nil
+    turnCommitToLastSendMs = nil
+    turnCommitToFirstMsgMs = nil
+    turnCommitToFinalMs = nil
+    turnCommitToTurnCompleteMs = nil
     turnAudioSeconds = duration
     turnCaptureFinalizeMs = (ProcessInfo.processInfo.systemUptime - pipelineStartTime) * 1000
     if interrupted {
@@ -1343,6 +1587,9 @@ public final class DictationEngine {
     captureFinalizeMs: Double, reason: String, isRetry: Bool = false, backupRoute: Bool = false
   ) {
     guard currentTurnId == turnId, !turnSettled else { return }
+    // A hedge or fallback REST call was started for this live turn; which route's
+    // result actually settles it is decided in settle().
+    if backupRoute { turnHedgeFired = true }
     if backupRoute, !isRetry {
       DispatchQueue.main.async { [weak self] in
         self?.feedback.showProcessingStatus("Using backup route")
@@ -1482,6 +1729,20 @@ public final class DictationEngine {
       return
     }
     turnSettled = true
+    // Connection state, hedge, and round-trip split: read here, before any of this
+    // function's own cleanup (abandonTurn, below) can itself rotate the socket and taint
+    // reconnected_during_turn with a reconnect that settle() caused rather than one the
+    // turn actually raced against.
+    turnReconnectedDuringTurn = liveClient?.lastConnectionChangedDuringTurn
+    let roundTrip = liveClient?.lastRoundTrip
+    turnCommitToLastSendMs = roundTrip?.lastSendMs
+    turnCommitToFirstMsgMs = roundTrip?.firstMsgMs
+    turnCommitToFinalMs = roundTrip?.finalMs
+    turnCommitToTurnCompleteMs = roundTrip?.turnCompleteMs
+    // hedge_winner names whichever route's result actually reaches settle(); it is NULL
+    // whenever no hedge or fallback REST call was ever started for this turn.
+    turnHedgeWinner =
+      turnHedgeFired ? (route == "WS" ? "ws" : (route == "REST" ? "rest" : nil)) : nil
     pendingTurnDeadline?.cancel()
     pendingTurnDeadline = nil
     pendingRestRequest?.cancel()
@@ -1550,7 +1811,14 @@ public final class DictationEngine {
           speechFrames: turnSpeechFrames,
           settlePath: turnSettlePath,
           finishMode: turnFinishMode,
-          eventQueueMs: turnEventQueueMs
+          eventQueueMs: turnEventQueueMs,
+          reconnectedDuringTurn: turnReconnectedDuringTurn,
+          hedgeFired: turnHedgeFired,
+          hedgeWinner: turnHedgeWinner,
+          commitToLastSendMs: turnCommitToLastSendMs,
+          commitToFirstMsgMs: turnCommitToFirstMsgMs,
+          commitToFinalMs: turnCommitToFinalMs,
+          commitToTurnCompleteMs: turnCommitToTurnCompleteMs
         ))
       processingLock.lock()
       isProcessing = false
@@ -1600,7 +1868,14 @@ public final class DictationEngine {
           speechFrames: turnSpeechFrames,
           settlePath: turnSettlePath,
           finishMode: turnFinishMode,
-          eventQueueMs: turnEventQueueMs
+          eventQueueMs: turnEventQueueMs,
+          reconnectedDuringTurn: turnReconnectedDuringTurn,
+          hedgeFired: turnHedgeFired,
+          hedgeWinner: turnHedgeWinner,
+          commitToLastSendMs: turnCommitToLastSendMs,
+          commitToFirstMsgMs: turnCommitToFirstMsgMs,
+          commitToFinalMs: turnCommitToFinalMs,
+          commitToTurnCompleteMs: turnCommitToTurnCompleteMs
         ))
       processingLock.lock()
       isProcessing = false
@@ -1639,7 +1914,7 @@ public final class DictationEngine {
     // row is written and the text is pasted anyway (audit F11).
     let turnId = currentTurnId
     var canPrepareClipboard = false
-    if config.restoreClipboard, !clipboardPrepared, !SecureInputMonitor.isActive,
+    if config.restoreClipboard, !isHeadless, !clipboardPrepared, !SecureInputMonitor.isActive,
       AXIsProcessTrusted()
     {
       DispatchQueue.main.sync {
@@ -1706,7 +1981,14 @@ public final class DictationEngine {
           speechFrames: turnSpeechFrames,
           settlePath: turnSettlePath,
           finishMode: turnFinishMode,
-          eventQueueMs: turnEventQueueMs
+          eventQueueMs: turnEventQueueMs,
+          reconnectedDuringTurn: turnReconnectedDuringTurn,
+          hedgeFired: turnHedgeFired,
+          hedgeWinner: turnHedgeWinner,
+          commitToLastSendMs: turnCommitToLastSendMs,
+          commitToFirstMsgMs: turnCommitToFirstMsgMs,
+          commitToFinalMs: turnCommitToFinalMs,
+          commitToTurnCompleteMs: turnCommitToTurnCompleteMs
         ))
       processingLock.lock()
       isProcessing = false
@@ -1743,6 +2025,12 @@ public final class DictationEngine {
         ? "Vocabulary replacements exceeded safe limits. Original text saved in History."
         : "Vocabulary replacements exceeded safe limits. Nothing pasted. Review Vocabulary."
       Log.warn("VOCAB", "Replacement budget exceeded; no text was pasted.")
+    } else if case .sink(let deliver) = delivery {
+      // Never the clipboard or a synthesized paste: the harness only needs the text.
+      let sinkStart = ProcessInfo.processInfo.systemUptime
+      deliver(config.trailingSpace ? text + " " : text)
+      injectMs = (ProcessInfo.processInfo.systemUptime - sinkStart) * 1000.0
+      injected = true
     } else if SecureInputMonitor.isActive {
       let copyStart = ProcessInfo.processInfo.systemUptime
       if !TextInjector.copyOnly(text: text, appendSpace: config.trailingSpace) {
@@ -1936,7 +2224,14 @@ public final class DictationEngine {
       settlePath: turnSettlePath,
       finishMode: turnFinishMode,
       eventQueueMs: turnEventQueueMs,
-      deliveryOutcome: injected ? "dispatched" : (deliveryError == nil ? "copied" : "failed")
+      deliveryOutcome: injected ? "dispatched" : (deliveryError == nil ? "copied" : "failed"),
+      reconnectedDuringTurn: turnReconnectedDuringTurn,
+      hedgeFired: turnHedgeFired,
+      hedgeWinner: turnHedgeWinner,
+      commitToLastSendMs: turnCommitToLastSendMs,
+      commitToFirstMsgMs: turnCommitToFirstMsgMs,
+      commitToFinalMs: turnCommitToFinalMs,
+      commitToTurnCompleteMs: turnCommitToTurnCompleteMs
     )
 
     record.postProcessing = postProcessing
@@ -1950,12 +2245,17 @@ public final class DictationEngine {
         Log.warn("CLEANUP", message)
       }
     }
+    let readyMs = (ProcessInfo.processInfo.systemUptime - totalStartTime) * 1000
+    record.readyMs = readyMs
+    // recordTurn reads the turn* fallback-fill fields (key_up_epoch, the finalize-stats
+    // fields, etc.) while they still belong to this turn. isProcessing must stay true until
+    // that read finishes, or handleKeyDown could see it false, start turn N+1, and reset
+    // those same fields on main while this line is still reading them - every other call
+    // site already clears isProcessing after recordTurn/recordCancelledTurn for this reason.
+    recordTurn(record)
     processingLock.lock()
     isProcessing = false
     processingLock.unlock()
-    let readyMs = (ProcessInfo.processInfo.systemUptime - totalStartTime) * 1000
-    record.readyMs = readyMs
-    recordTurn(record)
     Log.debug("LATENCY", "Key-up to next-turn readiness: \(String(format: "%.1f", readyMs))ms")
     DispatchQueue.main.async { [weak self] in self?.scheduleMicIdleRelease() }
   }

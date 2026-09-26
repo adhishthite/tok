@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 import XCTest
 
@@ -21,6 +24,12 @@ final class AlgorithmTests: XCTestCase {
     XCTAssertTrue(
       EngineConfiguration.load(values: ["LANGUAGE_CODES": "auto"]).languageCodes.isEmpty)
     XCTAssertEqual(EngineConfiguration.load(values: [:]).restFallbackTimeout, 4)
+  }
+
+  func testTrailingCaptureFloorDefaultsAndClamps() {
+    XCTAssertEqual(EngineConfiguration.load(values: [:]).postRollMinMs, 30)
+    XCTAssertEqual(EngineConfiguration.load(values: ["POST_ROLL_MIN_MS": "999"]).postRollMinMs, 250)
+    XCTAssertEqual(EngineConfiguration.load(values: ["POST_ROLL_MIN_MS": "-5"]).postRollMinMs, 0)
   }
 
   func testVocabularyParsingAndCasePreserveCanonicalTerms() {

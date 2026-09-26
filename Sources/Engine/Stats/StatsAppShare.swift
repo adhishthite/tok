@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 /// Words dictated into one application.
 public struct StatsAppShare: Sendable, Equatable, Identifiable {
   public var name: String

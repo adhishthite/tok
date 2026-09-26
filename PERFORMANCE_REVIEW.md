@@ -46,18 +46,17 @@ useful with one or six samples; nearest-rank p95 is simply their maximum.
 - Existing microphone profiles in PERFORMANCE.md concern hardware readiness and
   main-thread setup. They do not measure current window frames or speech accuracy.
 
-## Repeatable real-speech comparison
+## Repeatable real-speech evaluation
 
 1. Use the same Mac, microphone, destination document, network, language settings,
-   vocabulary, and cleanup-off policy for Tok and the read-only JustSpeak build.
-   Record exact source builds and relevant configuration before the session.
+   vocabulary, and cleanup-off policy for every run.
+   Record the exact source build and relevant configuration before the session.
 2. Prepare 15 owner-reviewed prompts outside Git: English, Marathi, and mixed
    language, each covering a short phrase, names/technical terms, numbers and
    punctuation, a mid-sentence pause, and a longer sentence. Define expected words
-   before testing; neither app's transcript is the ground truth.
-3. Speak each prompt twice per app, alternating which app goes first. This gives
-   30 turns per app. Treat this as an initial comparison, not a precise tail study.
-   Only one dictation app may hold the shortcut or microphone during a trial.
+   before testing; Tok's transcript is not the ground truth.
+3. Speak each prompt twice. This gives 30 turns. Treat this as an initial
+   evaluation, not a precise tail study. Quit other dictation apps first.
 4. Bound each recording to 20 seconds and each settlement wait to 10 seconds.
    Record timeout/fallback/missing-output trials as failures. Repeat a failed trial
    only as a separately identified retry. Never drop the original result.
@@ -73,8 +72,8 @@ useful with one or six samples; nearest-rank p95 is simply their maximum.
    when available. Test optional cleanup in another set so its added roundtrip
    does not contaminate the baseline. Review meaning preservation manually.
 
-Acceptance requires median Live latency below 500 ms and accuracy/latency at least
-as good as JustSpeak under comparable conditions. Current evidence establishes
+Acceptance requires median Live latency below 500 ms and per-slice accuracy
+against the ground truth. Current evidence establishes
 neither. The real-speech session needs owner participation and has not been run.
 
 ## UI performance evidence still needed
@@ -99,9 +98,8 @@ one-frame update targets. No new Instruments capture was performed in this revie
 A new read-only SQLite query selected only build, outcome, transport, delivery,
 cleanup status, and total timing. It used a two-second database timeout and a
 three-second preference-path lookup. The build 3 and build 4 sample counts and
-timings above are unchanged; there are no build 5 or build 6 records. The reference
-JustSpeak checkout is clean at `06f1e09137be9569f877322257b05b88c7f6da6a`.
-No paired real-speech trials or destination-output inspections have occurred.
+timings above are unchanged; there are no build 5 or build 6 records.
+No real-speech trials or destination-output inspections have occurred.
 [ACCEPTANCE_SESSION.md](ACCEPTANCE_SESSION.md) provides the prepared protocol.
 
 The current host is macOS 26.6.2 (25G83), arm64. Instruments discovery lists

@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import SwiftUI
 import TokEngine
 
@@ -28,6 +31,7 @@ struct SettingsPane: View {
     case .vocabulary: VocabularyPane()
     case .privacy: PrivacyPane()
     case .advanced: AdvancedPane()
+    case .experimental: ExperimentalPane()
     case .about: AboutPane()
     }
   }

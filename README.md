@@ -101,6 +101,36 @@ choice. Never commit credentials.
 guide before preparing release artifacts. Passing offline tests does not establish
 real-dictation accuracy, latency, or accessibility acceptance.
 
+## Optional: TypeSafe judgments
+
+Settings > Experimental > "TypeSafe judgments" adds an optional [TypeSafe](https://typesafe.ai)
+key. The feature stays off, with no network calls and no behavior change, until a key is
+saved AND a one-time check of TypeSafe's models endpoint succeeds; a key that fails the
+check stays disabled until a different key is saved. The key lives in the macOS Keychain,
+like the Gemini key.
+
+With a verified key, Tok sends small, targeted requests to TypeSafe (never on the paste
+path) for three things:
+
+1. **Typed-correction genuineness** - when a typed-correction pair (Settings > Vocabulary >
+   "Learn from typed corrections") looks like a candidate, Jev judges whether the correction
+   is a genuine misrecognition fix rather than a wording change, replacing a cruder
+   capitalization/vocabulary heuristic.
+2. **Vocabulary analysis** ("Analyze history" in Vocabulary) - Jev confirms re-dictation pairs
+   and scores each suggested term or replacement rule; suggestions show this as a confidence
+   percentage.
+3. **Per-turn quality** - after a dictation is delivered, Jev scores whether it was filler,
+   how clean the transcript is, and its register and language, stored alongside that history
+   row for later review.
+
+What is sent: transcript text, typed-correction word pairs and their surrounding sentence,
+and the destination app name and bundle identifier. "Analyze history" additionally sends past
+saved dictations as repeated-dictation pairs and rule excerpts. Never audio, never window
+contents, never timestamps. A `PRIVACY_MODE` setting redacts logs only; it does not stop
+TypeSafe requests. See
+[PRIVACY.md](PRIVACY.md). Cost is about $0.042 per million input tokens; a single judgment
+request is typically a few hundred tokens.
+
 ## Configuration
 
 Most options are available in Settings. Expand the complete reference for defaults,
@@ -193,13 +223,15 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | Maximum cleanup wait | <code>POST_PROCESS_TIMEOUT_MS</code> | <code>2500</code> | 500 to 10000 | Milliseconds before using the original transcript. Failed cleanup never blocks delivery indefinitely. |
 | Stream while speaking | <code>ENABLE_LIVE_WEBSOCKET</code> | <code>true</code> | true, false | Use the live connection for lower settlement latency. |
 | Fallback delay | <code>REST_FALLBACK_TIMEOUT</code> | <code>4.0</code> | 0.1 to 30.0 | Seconds to wait before also trying the fallback route. |
-| Streaming frame size | <code>CHUNK_MS</code> | <code>150</code> | 20 to 500 | Milliseconds of audio sent in each streaming frame. |
-| Trailing silence | <code>SILENCE_FLUSH_MS</code> | <code>700</code> | 0 to 2000 | Milliseconds of synthetic silence sent to help finalize the final word. |
+| Streaming frame size | <code>CHUNK_MS</code> | <code>100</code> | 20 to 500 | Milliseconds of audio sent in each streaming frame. |
+| Trailing silence | <code>SILENCE_FLUSH_MS</code> | <code>200</code> | 0 to 2000 | Milliseconds of synthetic silence sent to help finalize the final word. |
 | Use aligned end signals | <code>WS_ENDPOINT_ALIGNED</code> | <code>true</code> | true, false | Send only the documented end-of-turn signal. Turn off to compare latency and last-word accuracy with the earlier triple signal. |
 | Pre-roll | <code>PRE_ROLL_MS</code> | <code>400</code> | 0 to 1000 | Milliseconds retained before pressing the shortcut when warm capture is enabled. |
 | Trailing quiet window | <code>POST_ROLL_MS</code> | <code>250</code> | 0 to 500 | Milliseconds of quiet needed before finishing capture. |
+| Minimum trailing capture | <code>POST_ROLL_MIN_MS</code> | <code>30</code> | 0 to 250 | Milliseconds recorded after release even when the room is already quiet. |
 | Maximum trailing capture | <code>POST_ROLL_MAX_MS</code> | <code>1500</code> | 0 to 5000 | Milliseconds to wait for speech after release, at most. |
 | Quiet threshold | <code>TRAIL_SILENCE_DB</code> | <code>-40.0</code> | -80.0 to -10.0 | Audio below this level in dBFS counts as quiet. |
+| Noisy-room margin | <code>QUIET_MARGIN_DB</code> | <code>8</code> | 0.0 to 20.0 | In a noisy room, audio this many dB above the room's own level still counts as quiet. 0 uses the quiet threshold alone. |
 | Speech boundary detection | <code>VAD_MODE</code> | <code>manual</code> | <code>manual</code>, <code>tuned</code>, <code>auto</code> | Manual uses the shortcut. Tuned and automatic use server speech detection. |
 | Server quiet window | <code>VAD_SILENCE_MS</code> | <code>1500</code> | 200 to 5000 | Milliseconds of silence before the tuned server mode finishes speech. |
 | Live input price | <code>LIVE_INPUT_PRICE_PER_1M</code> | <code>3.50</code> | 0.0 to 1000.0 | US dollars per million tokens, used for cost estimates. |
@@ -210,6 +242,7 @@ History retention is changed through a confirmation in Settings. An empty vocabu
 | Cleanup output price | <code>POST_PROCESS_OUTPUT_PRICE_PER_1M</code> | <code>2.50</code> | 0.0 to 1000.0 | USD per million output tokens, including reported thinking tokens. Costs remain unknown when usage is not reported. |
 | History database path | <code>HISTORY_DB</code> | (empty) | Text | Empty uses Tok’s Application Support folder. |
 | Diagnostic detail | <code>LOG_LEVEL</code> | <code>normal</code> | <code>normal</code>, <code>verbose</code> | Normal records essential events. Verbose includes additional engineering detail. |
+| Experiment label | <code>EXPERIMENT_TAG</code> | (empty) | Text | Stored with each dictation so measurements can be grouped. Leave empty normally. |
 
 <!-- END GENERATED SETTINGS -->
 

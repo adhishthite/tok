@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import AppKit
 
 // Tok's original vector artwork. Run `make icon` to regenerate the macOS asset set.

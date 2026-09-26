@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import AppKit
 import SwiftUI
 import XCTest
@@ -122,6 +125,12 @@ final class DiagnosticsTests: XCTestCase {
     XCTAssertTrue(lines[1].hasSuffix("[ERROR] [APP] Something failed"))
     // ISO 8601 timestamp prefix precedes the message on its own line.
     XCTAssertTrue(lines[0].contains("T"), "expected an ISO 8601 timestamp prefix")
+  }
+
+  func testDefaultRollThresholdCoversATwoWeekWindow() {
+    // 4 MB active + 4 MB rolled = 8 MB total, sized for roughly a two-week
+    // analysis window rather than the old ~1 MB (~9 day) budget.
+    XCTAssertEqual(DiagnosticsFile.defaultRollThreshold, 4 * 1024 * 1024)
   }
 
   func testDiagnosticsFileRollsPastTheThresholdAndStaysBounded() {

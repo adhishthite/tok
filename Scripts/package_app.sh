@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2026 Adhish Thite
+# SPDX-License-Identifier: Apache-2.0
+
 set -euo pipefail
 app="${1:?Pass the built Tok.app path}"
 root="$(cd "$(dirname "$0")/.." && pwd)"

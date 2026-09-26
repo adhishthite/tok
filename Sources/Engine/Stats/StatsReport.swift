@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 
 /// Everything the stats dashboard shows for one range, computed from the stats database.

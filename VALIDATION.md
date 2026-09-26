@@ -27,7 +27,7 @@ The current feedback batch adds a compact Settings toolbar, removes the sidebar
 toggle, provides explicit connection-test badges with cancellation/invalidation,
 and reveals the running app for permission setup. Build 3 adds the app icon and
 colored navigation symbols to the menu, labels vocabulary analysis as “Analyze
-history…”, and removes JustSpeak configuration-import actions from both setup
+history…”, and removes the legacy configuration-import actions from both setup
 and Settings. The unused configuration file chooser was deleted. Development
 `.env` seeding remains separate from the product UI.
 
@@ -161,9 +161,7 @@ The Live tests matched the expected sentence on all three turns. Measured
 audio-end-to-settlement times were 617.1, 582.2, and 520.7 ms. The median was
 582.2 ms. Each used the server-turn-complete path.
 
-A separate three-turn run of JustSpeak's unchanged Live client, using the same
-synthetic audio and configuration, returned 469.9, 651.6, and 736.8 ms. These
-small, sequential samples do not establish parity or a sub-500 ms result. They
+These small, sequential samples do not establish a sub-500 ms result. They
 exclude microphone finalization and paste delivery.
 
 ## Owner test at the working-dictation gate

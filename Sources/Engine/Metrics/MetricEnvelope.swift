@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 
 /// The per-Mac facts attached to every event. Built by the app, never by the engine.

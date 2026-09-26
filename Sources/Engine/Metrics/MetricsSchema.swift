@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 /// The complete list of usage metric events and fields. PRIVACY.md is generated
 /// from this table, and a test rejects any event whose keys are not listed here.
 public enum MetricsSchema {

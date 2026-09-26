@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 import XCTest
 
@@ -61,7 +64,9 @@ final class LiveIntegrationTests: XCTestCase {
         client.sendAudioChunk(pcm.subdata(in: offset..<end))
       }
       let released = ProcessInfo.processInfo.systemUptime
-      client.sendAudioChunk(Data(count: config.silenceFlushMs * 32))
+      if config.silenceFlushMs > 0 {
+        client.sendAudioChunk(Data(count: config.silenceFlushMs * 32))
+      }
       let done = DispatchSemaphore(value: 0)
       var row: [String: Any] = ["repetition": repetition]
       client.commitTurn { result in

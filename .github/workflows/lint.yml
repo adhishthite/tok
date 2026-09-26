@@ -1,0 +1,59 @@
+name: Lint
+
+# The fast pull-request check. None of this needs Xcode, so it runs on Linux on every
+# push to a pull request, including Markdown-only changes the macOS CI skips.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift-format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Same Swift release as the development Mac, so both run the same formatter.
+    container: swift:6.4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Swift format lint
+        run: swift format lint --strict --recursive Sources Tests Scripts Tools
+
+  scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: License files and headers
+        run: |
+          cmp LICENSE Resources/Tok-LICENSE.txt
+          python3 Scripts/license_headers.py --check
+      - name: Shell syntax
+        run: for script in Scripts/*.sh; do bash -n "$script" || exit; done
+      - name: Ruff
+        run: >-
+          pipx run ruff check --isolated --select E4,E7,E9,F,I,SIM,PLW1510
+          Scripts/ci Tests/ScriptTests/test_ci_release.py Scripts/turn_report.py
+          Tests/ScriptTests/test_turn_report.py Scripts/harness_clips.py
+          Scripts/harness_report.py Tests/ScriptTests/test_harness_report.py
+          Scripts/license_headers.py Tests/ScriptTests/test_license_headers.py
+      - name: Python tests
+        run: python3 -m unittest discover -s Tests/ScriptTests -p 'test_*.py'
+      - name: Workflow lint
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
+          ./actionlint

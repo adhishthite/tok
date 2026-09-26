@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 
 /// Coalesces values onto one target queue. The newest value wins and at most one hop is in

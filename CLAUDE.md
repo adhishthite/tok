@@ -1,11 +1,7 @@
 # CLAUDE.md
 
 Tok: native macOS push-to-talk dictation with a Gemini Live backend, shipped
-as a signed menu-bar app. Ported from https://github.com/adhishthite/justspeak
-(an interpreted-script prototype; local clone at
-/Users/adhish/Projects/AI/justspeak, read-only from here). When engine
-behavior is in question, that repo's `src/` and `CLAUDE.md` are the spec.
-Tok is not a Google product and carries no Google branding.
+as a signed menu-bar app. Tok is not a Google product and carries no Google branding.
 
 ## Build
 - XcodeGen `project.yml` is the source of truth; `*.xcodeproj` is generated
@@ -24,9 +20,10 @@ Tok is not a Google product and carries no Google branding.
 - `HUD/` is AppKit + Core Animation on an NSPanel. Do not rewrite in SwiftUI.
   Never animate the panel frame. `HoldRingView`'s backing layer is the
   CAShapeLayer via `makeBackingLayer`. All colors come from the Tok palette.
+- `Engine/Judgment` is optional, gated on the TypeSafe key, and never on the paste path.
 - One type per file, named after the type. Normal access control.
 
-## Engine invariants (inherited; do not relearn these)
+## Engine invariants (do not relearn these)
 - Settle-once arbiter: `currentTurnId`/`turnSettled`/`pendingFallbackTimer`
   mutate only on `sessionQueue`; `settle()` is the sole paste-or-error path;
   WS and REST race, first result for a live turn wins. No second path to
@@ -53,15 +50,17 @@ Tok is not a Google product and carries no Google branding.
 
 ## Current working agreement
 - Work directly on main and commit small, verified changes. Tags and releases require the owner's instruction.
-- The source repository is private: `adhishthite/tok`. Pushes require the owner's
-  authorization. Read [CI_RELEASE.md](CI_RELEASE.md) before release work; the
-  current release workflow requires public hosting and cannot run against this
-  private repository without a separate hosting design.
-- HANDOFF.md is guidance. The reference source wins when the brief disagrees.
+- The source repository is public: `adhishthite/tok`, licensed Apache-2.0. The root
+  `LICENSE` and `Resources/Tok-LICENSE.txt` must stay identical; `make check` enforces it.
+  Pushes require the owner's authorization. Read [CI_RELEASE.md](CI_RELEASE.md) before
+  release work. Binaries and update feeds are published from `adhishthite/tok-releases`.
 - Continue the full goal autonomously. The owner superseded milestone review stops on 2026-09-05.
 - Treat native behavior, restrained feedback, responsiveness, and performance as design inputs now, not a final cosmetic phase.
-- Keep JustSpeak read-only. Its corporate interpreter restrictions do not apply here.
-- Use the relevant skills listed in HANDOFF section 9 before work in each area.
+- Load the relevant skill before work in its area: `macos-menubar-tuist-app` (layering only),
+  `macos-spm-app-packaging` (signing, notarization, Sparkle), `swiftui-expert-skill`,
+  `swiftui-ui-patterns`, `swiftui-view-refactor`, `swift-concurrency-expert`,
+  `swiftui-performance-audit`, `app-store-changelog` (release notes), `security-review`
+  before a release, and `gemini-live-api`/`gemini-api` only for protocol changes.
 - Before SwiftUI work, read ~/.agents/skills/swiftui-expert-skill/references/latest-apis.md.
 - No em dashes in prose, docs, or new user-facing copy.
 

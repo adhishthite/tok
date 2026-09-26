@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import AVFoundation
 import AppKit
 import AudioToolbox
@@ -63,9 +66,13 @@ final class AudioCaptureEngine {
   private var preRollRingBuffer = Data()
   private let maxPreRollBytes: Int
   private var preRollBytesInTurn = 0
+  // Count of frameDbValues entries contributed by pre-roll audio at the start of this turn
+  // (onset_db excludes them). Set once, right after the pre-roll folds into the
+  // stats accumulator in startRecordingOnQueue, under `lock` like preRollBytesInTurn.
+  private var preRollFrameCountInTurn = 0
 
-  // Streaming chunk accumulator (CHUNK_MS; default 150ms = 4800 bytes, docs suggest ~100ms
-  // for the dedicated transcribe model)
+  // Streaming chunk accumulator (CHUNK_MS; default 100ms = 3200 bytes, the size the
+  // dedicated transcribe model's docs suggest)
   private var pendingChunkBuffer = Data()
   private let streamingChunkTargetBytes: Int
 
@@ -78,7 +85,6 @@ final class AudioCaptureEngine {
   // exactly. All under `lock`; per-frame dB values are classified against the caller's
   // threshold at stopRecording time (the threshold is a stopRecording argument).
   private static let speechFrameSamples = 320  // 20ms of 16kHz mono
-  private static let minTrailSec: Double = 0.06
   // Post-roll poll step. 10ms, not 25ms: the old step quantized the exit of an
   // already-banked turn to about 75ms against a 60ms floor (measured minimum 77ms).
   private static let postRollPollSec: Double = 0.010
@@ -90,6 +96,101 @@ final class AudioCaptureEngine {
 
   var onAudioChunk: ((Data) -> Void)?
   var onAudioLevel: ((Double) -> Void)?
+
+  // Milliseconds of pre-roll audio actually prepended to the turn now finishing (0
+  // when pre-roll was off or the mic was cold). Snapshot under `lock`, then compute outside
+  // it - no I/O or callbacks here, just arithmetic on the copy.
+  var preRollMsUsedInTurn: Double {
+    lock.lock()
+    let bytes = preRollBytesInTurn
+    lock.unlock()
+    return Double(bytes) / 32.0
+  }
+
+  // First-word-clipping proxy - the loudest of the first five 20ms frames of
+  // NEWLY captured audio after capture start, excluding pre-roll. NULL (nil) if the clip has
+  // no post-pre-roll frames at all. Snapshot under `lock`, compute outside it.
+  var onsetDbInTurn: Double? {
+    lock.lock()
+    let frames = frameDbValues
+    let preRollFrames = preRollFrameCountInTurn
+    lock.unlock()
+    return Self.onsetDb(frames: frames, preRollFrameCount: preRollFrames)
+  }
+
+  /// Pure function backing `onsetDbInTurn`, tested directly: the max of up to the first five
+  /// frames at and after `preRollFrameCount`, or nil if none exist.
+  static func onsetDb(frames: [Double], preRollFrameCount: Int) -> Double? {
+    let start = max(0, preRollFrameCount)
+    guard start < frames.count else { return nil }
+    let end = min(frames.count, start + 5)
+    return frames[start..<end].max()
+  }
+
+  /// Pure function backing CaptureFinalizeStats.noiseFloorDb, tested directly. 10th
+  /// percentile (linear interpolation between the two closest ranks) of every per-20ms-frame
+  /// dB value in the clip. nil if fewer than 10 frames exist - too little signal for a
+  /// percentile to mean anything.
+  /// Speech keeps at least this much headroom above the adaptive quiet line.
+  static let quietSpeechHeadroomDb = 12.0
+
+  /// The level below which the trailing-capture wait counts audio as quiet. In a quiet room
+  /// it is the configured threshold. In a room whose own level reaches that threshold, the
+  /// fixed line would read room tone as speech and hold every turn to the cap, so the line
+  /// rises to the turn's room floor (10th percentile of its 20 ms frames: pauses between
+  /// words fall to room level) plus `marginDb`, but never closer than
+  /// `quietSpeechHeadroomDb` to the turn's speech level (90th percentile), so words are never
+  /// read as quiet. Too few frames to estimate either, or a zero margin, keeps the
+  /// configured threshold. It governs only the wait after release; quiet banked before
+  /// release is always judged against the configured threshold.
+  static func quietThresholdDb(frames: [Double], configuredDb: Double, marginDb: Double)
+    -> Double
+  {
+    guard marginDb > 0, frames.count >= 10 else { return configuredDb }
+    let sorted = frames.sorted()
+    let floor = percentile(sorted: sorted, 0.10)
+    let speech = percentile(sorted: sorted, 0.90)
+    return max(configuredDb, min(floor + marginDb, speech - quietSpeechHeadroomDb))
+  }
+
+  private static func percentile(sorted: [Double], _ fraction: Double) -> Double {
+    let rank = fraction * Double(sorted.count - 1)
+    let lowerIndex = Int(rank)
+    let upperIndex = min(lowerIndex + 1, sorted.count - 1)
+    return sorted[lowerIndex] + (sorted[upperIndex] - sorted[lowerIndex])
+      * (rank - Double(lowerIndex))
+  }
+
+  static func noiseFloorDb(frames: [Double]) -> Double? {
+    guard frames.count >= 10 else { return nil }
+    let sorted = frames.sorted()
+    let rank = 0.10 * Double(sorted.count - 1)
+    let lowerIndex = Int(rank)
+    let upperIndex = min(lowerIndex + 1, sorted.count - 1)
+    let fraction = rank - Double(lowerIndex)
+    return sorted[lowerIndex] + (sorted[upperIndex] - sorted[lowerIndex]) * fraction
+  }
+
+  /// Pure function classifying why the adaptive trailing-capture loop just broke
+  /// (called only at the instant `postRollWakeDelay` returns <= 0 for the same arguments, so
+  /// it mirrors that function's own branching rather than re-deciding anything). `quietIsStale`
+  /// is whether the iteration that made quiet win was a stale level reading rather than a
+  /// genuine below-threshold one; it only changes the result when quiet (not cap) wins.
+  static func trailExitReason(
+    now: TimeInterval, entryTime: TimeInterval, quietStart: TimeInterval?, graceSec: Double,
+    minTrailSec: Double, maxTrailSec: Double, quietIsStale: Bool
+  ) -> String {
+    if entryTime + maxTrailSec - now <= 0 { return "cap" }
+    if let quietStart = quietStart, quietStart + graceSec - now <= 0,
+      entryTime + minTrailSec - now <= 0
+    {
+      return quietIsStale ? "quiet_stale" : "quiet"
+    }
+    // Unreachable when called only at a genuine break (see postRollWakeDelay: those are the
+    // only two conditions under which it returns <= 0), kept as an honest default rather than
+    // one that claims a quiet exit that was not actually satisfied.
+    return "cap"
+  }
 
   // Device metadata is written on the hardware queue and read through a locked snapshot.
   private var inputSnapshot: InputDeviceCatalog.Device?
@@ -104,7 +205,7 @@ final class AudioCaptureEngine {
   private var pendingReselect = false
 
   init(
-    preRollMs: Int = 400, chunkMs: Int = 150, silenceFlushMs: Int = 700, inputDevice: String = ""
+    preRollMs: Int = 400, chunkMs: Int = 100, silenceFlushMs: Int = 200, inputDevice: String = ""
   ) {
     self.preferredInputDevice = inputDevice
     // Standard 16kHz 16-bit Mono Linear PCM for speech AI models
@@ -484,7 +585,7 @@ final class AudioCaptureEngine {
         chunkCountSnapshot = chunkCount
       }
 
-      // Coalesce audio into ~150ms frames before dispatching to WebSocket
+      // Coalesce audio into CHUNK_MS frames (default 100 ms) before dispatching to WebSocket
       var toStream: Data? = nil
       if pendingChunkBuffer.count >= streamingChunkTargetBytes {
         toStream = pendingChunkBuffer
@@ -607,6 +708,7 @@ final class AudioCaptureEngine {
 
     // Prepend rolling pre-roll buffer to prevent clipped first syllable
     preRollBytesInTurn = 0
+    preRollFrameCountInTurn = 0
     var immediatePreRollChunk: Data? = nil
     if !preRollRingBuffer.isEmpty {
       preRollBytesInTurn = preRollRingBuffer.count
@@ -616,6 +718,8 @@ final class AudioCaptureEngine {
       // idle), so their stats are folded in once here - a ≤400ms scan, off the key-up
       // path entirely.
       accumulateStats(data: preRollRingBuffer)
+      // Frames the pre-roll completed; onset_db starts reading after this many.
+      preRollFrameCountInTurn = frameDbValues.count
       preRollRingBuffer.removeAll(keepingCapacity: true)
     }
 
@@ -667,13 +771,39 @@ final class AudioCaptureEngine {
     return min(floorRemaining, capRemaining)
   }
 
-  func stopRecording(gracePeriodMs: Int, maxTrailMs: Int, silenceThresholdDb: Double) -> (
+  /// Whether a post-release level reading is speech. A stale reading is quiet. While the
+  /// quiet window banked before release is unbroken, the configured line decides: that bank
+  /// was judged on it, and a soft final word under the raised adaptive line must reset it
+  /// rather than end capture at the floor. After the first reset, the adaptive line applies
+  /// to the fresh post-release window.
+  static func isTrailSpeaking(
+    levelDb: Double, stale: Bool, bankedWindow: Bool, configuredDb: Double, adaptiveDb: Double
+  ) -> Bool {
+    guard !stale else { return false }
+    return levelDb >= (bankedWindow ? configuredDb : adaptiveDb)
+  }
+
+  func stopRecording(
+    gracePeriodMs: Int, minTrailMs: Int, maxTrailMs: Int, silenceThresholdDb: Double,
+    quietMarginDb: Double = 0
+  ) -> (
     pcmData: Data, duration: Double, chunkCount: Int, capturedBytes: Int, peakDb: Double?,
-    speechFrames: Int, interrupted: Bool
+    speechFrames: Int, interrupted: Bool, finalize: CaptureFinalizeStats
   ) {
     // True hold duration is measured at entry, BEFORE the post-roll wait - otherwise the
     // grace period pads every tap past the caller's micro-click duration threshold.
     let stopRequestTime = ProcessInfo.processInfo.systemUptime
+
+    // Capture finalization diagnostics for whichever branch below runs. All default
+    // to the "no wait happened" values; the adaptive branch is the only one that overwrites
+    // drainMs/bankedQuietMs/quietResets/trailPeakDb, matching CaptureFinalizeStats' own
+    // "0/nil when that branch never ran" contract.
+    var finalizeExit = "none"
+    var finalizeDrainMs = 0.0
+    var bankedQuietMs = 0.0
+    var quietResets = 0
+    var trailPeakDb: Double? = nil
+    var quietThresholdDb: Double? = nil
 
     // 1. Trailing capture: keep streaming while speech energy persists. gracePeriodMs is the
     // required continuous-quiet window; maxTrailMs the hard cap. maxTrailMs <= gracePeriodMs
@@ -681,11 +811,14 @@ final class AudioCaptureEngine {
     // quiet so a wedged tap can never hold the turn to the cap.
     if gracePeriodMs <= 0 {
       // Adaptation and fixed post-roll both disabled - no wait.
+      finalizeExit = "none"
     } else if maxTrailMs <= gracePeriodMs {
       usleep(useconds_t(gracePeriodMs * 1000))
+      finalizeExit = "fixed"
     } else {
       let graceSec = Double(gracePeriodMs) / 1000.0
       let maxTrailSec = Double(maxTrailMs) / 1000.0
+      let minTrailSec = Double(minTrailMs) / 1000.0
       // Quiet banked BEFORE the release counts toward the window: most releases come
       // after the speaker has already finished, and the old floor of a full window
       // after key-up was ~250ms of pure wait on those turns (history p50 capture
@@ -694,16 +827,35 @@ final class AudioCaptureEngine {
       // processing queue first, or a backlog (blocked meter write) would leave loud
       // buffers unaccounted for while their frames get credited as quiet. After the
       // drain the only lag is the in-flight hardware buffer, which under-credits.
+      let drainStart = ProcessInfo.processInfo.systemUptime
       audioProcessingQueue.sync {}
+      finalizeDrainMs = (ProcessInfo.processInfo.systemUptime - drainStart) * 1000.0
+      // Copy under the lock, sort after it (see finishRecording's noise floor).
       lock.lock()
+      let turnFrames = frameDbValues
+      lock.unlock()
+      let quietDb = Self.quietThresholdDb(
+        frames: turnFrames, configuredDb: silenceThresholdDb, marginDb: quietMarginDb)
+      quietThresholdDb = quietDb
+      // Quiet banked before release is judged against the configured threshold, not the
+      // adaptive line: a soft final syllable under the raised line must not count as banked
+      // quiet, or a release during it could end capture at the floor. A noisy room then
+      // banks little and waits out the full quiet window after release, under the adaptive
+      // line, which still ends it well before the cap.
       var quietFrames = 0
-      for db in frameDbValues.reversed() {
+      for db in turnFrames.reversed() {
         if db > silenceThresholdDb { break }
         quietFrames += 1
       }
-      lock.unlock()
+      bankedQuietMs = Double(quietFrames) * 20.0
       var quietStart: CFAbsoluteTime? =
         quietFrames > 0 ? stopRequestTime - Double(quietFrames) * 0.02 : nil
+      // True until the first post-release speaking reading. While it holds, the quiet window
+      // started before release and fresh audio is judged on the same configured line.
+      var bankedWindow = quietFrames > 0
+      // Whether the iteration that will end up satisfying "quiet" was a stale level
+      // reading, tracked as the loop runs so the classification below needs no re-derivation.
+      var lastIterationStale = false
       while true {
         let now = ProcessInfo.processInfo.systemUptime
         lock.lock()
@@ -711,17 +863,30 @@ final class AudioCaptureEngine {
         let levelTime = lastLevelTime
         lock.unlock()
 
-        let speaking = (now - levelTime) <= 0.30 && levelDb >= silenceThresholdDb
+        trailPeakDb = trailPeakDb.map { max($0, levelDb) } ?? levelDb
+        let stale = (now - levelTime) > 0.30
+        lastIterationStale = stale
+        let speaking = Self.isTrailSpeaking(
+          levelDb: levelDb, stale: stale, bankedWindow: bankedWindow,
+          configuredDb: silenceThresholdDb, adaptiveDb: quietDb)
         if speaking {
+          if quietStart != nil { quietResets += 1 }
           quietStart = nil
+          bankedWindow = false
         } else if quietStart == nil {
           quietStart = now
         }
 
         let delay = Self.postRollWakeDelay(
           now: now, entryTime: stopRequestTime, quietStart: quietStart, graceSec: graceSec,
-          minTrailSec: Self.minTrailSec, maxTrailSec: maxTrailSec)
-        if delay <= 0 { break }
+          minTrailSec: minTrailSec, maxTrailSec: maxTrailSec)
+        if delay <= 0 {
+          finalizeExit = Self.trailExitReason(
+            now: now, entryTime: stopRequestTime, quietStart: quietStart, graceSec: graceSec,
+            minTrailSec: minTrailSec, maxTrailSec: maxTrailSec,
+            quietIsStale: lastIterationStale)
+          break
+        }
         // Round up so a sub-microsecond remainder cannot spin the loop.
         usleep(useconds_t(max(1.0, (delay * 1_000_000).rounded(.up))))
       }
@@ -739,14 +904,24 @@ final class AudioCaptureEngine {
       }
     }
 
+    let trailWaitMs = (ProcessInfo.processInfo.systemUptime - stopRequestTime) * 1000.0
+
     return audioProcessingQueue.sync {
-      finishRecording(stopRequestTime: stopRequestTime, silenceThresholdDb: silenceThresholdDb)
+      finishRecording(
+        stopRequestTime: stopRequestTime, silenceThresholdDb: silenceThresholdDb,
+        finalizeExit: finalizeExit, finalizeDrainMs: finalizeDrainMs, trailWaitMs: trailWaitMs,
+        bankedQuietMs: bankedQuietMs, quietResets: quietResets, trailPeakDb: trailPeakDb,
+        quietThresholdDb: quietThresholdDb)
     }
   }
 
-  private func finishRecording(stopRequestTime: CFAbsoluteTime, silenceThresholdDb: Double) -> (
+  private func finishRecording(
+    stopRequestTime: CFAbsoluteTime, silenceThresholdDb: Double, finalizeExit: String,
+    finalizeDrainMs: Double, trailWaitMs: Double, bankedQuietMs: Double, quietResets: Int,
+    trailPeakDb: Double?, quietThresholdDb: Double?
+  ) -> (
     pcmData: Data, duration: Double, chunkCount: Int, capturedBytes: Int, peakDb: Double?,
-    speechFrames: Int, interrupted: Bool
+    speechFrames: Int, interrupted: Bool, finalize: CaptureFinalizeStats
   ) {
     // The gate and final chunk delivery share the capture queue. A new hardware buffer
     // cannot send later audio ahead of the pre-roll or after the end-of-turn signal.
@@ -765,8 +940,8 @@ final class AudioCaptureEngine {
       pendingChunkBuffer.removeAll(keepingCapacity: true)
     }
 
-    // 5. Append the acoustic lookahead silence flush (SILENCE_FLUSH_MS; default 700ms =
-    // 22,400 bytes @ 16kHz 16-bit mono). This satisfies the lookahead window speech
+    // 5. Append the acoustic lookahead silence flush (SILENCE_FLUSH_MS; default 200ms =
+    // 6,400 bytes @ 16kHz 16-bit mono). This satisfies the lookahead window speech
     // encoders need to finalize trailing words; appended AFTER stat accumulation stopped,
     // so the silence gate never sees it regardless of duration.
     let silenceData = Data(count: silenceFlushBytes)
@@ -786,7 +961,19 @@ final class AudioCaptureEngine {
       statSampleCount > 0 ? 20 * log10(max(Double(turnMaxAbsSample), 1.0) / 32768.0) : nil
     var speechFrames = 0
     for db in frameDbValues where db > silenceThresholdDb { speechFrames += 1 }
+    // Whole-clip noise floor, from the same frameDbValues population speechFrames just
+    // counted from. Copy the array under lock (cheap: value-type retain, no element copy
+    // until something mutates it) and sort it after unlock - a long clip can carry
+    // thousands of frames, and sorting them is not the kind of pure O(n) pass the rest of
+    // this lock scope does, so it should not add latency to the audio tap's next write.
+    let noiseFloorFrames = frameDbValues
     lock.unlock()
+    let noiseFloorDb = Self.noiseFloorDb(frames: noiseFloorFrames)
+
+    let finalize = CaptureFinalizeStats(
+      exit: finalizeExit, drainMs: finalizeDrainMs, trailWaitMs: trailWaitMs,
+      bankedQuietMs: bankedQuietMs, quietResets: quietResets, trailPeakDb: trailPeakDb,
+      noiseFloorDb: noiseFloorDb, quietThresholdDb: quietThresholdDb)
 
     // 7. Fire chunk callbacks outside the lock. Ordering preserved: trailing real audio first, then silence.
 
@@ -798,7 +985,7 @@ final class AudioCaptureEngine {
     }
 
     Log.endMeter()
-    return (data, duration, chunks, capturedBytes, peakDb, speechFrames, interrupted)
+    return (data, duration, chunks, capturedBytes, peakDb, speechFrames, interrupted, finalize)
   }
 
   func stopEngine() {

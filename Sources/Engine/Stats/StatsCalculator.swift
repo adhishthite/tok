@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 
 /// Pure aggregation over rows the stats repository read. No SQLite, so tests can

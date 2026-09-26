@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 
 public enum EngineEvent: Sendable {
@@ -25,4 +28,7 @@ public enum EngineEvent: Sendable {
   // "Using backup route" (audit F09) and the limit notices (audit F06). Only meaningful
   // between `processing` and the turn's success or failure.
   case processingStatus(String)
+  // JudgmentService's TypeSafe probe state. Emitted once when the delegate is first wired
+  // up (so the store never shows a stale default) and again on every transition.
+  case judgmentAvailability(JudgmentAvailability)
 }

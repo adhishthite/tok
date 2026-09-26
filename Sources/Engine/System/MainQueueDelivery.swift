@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import Foundation
 
 /// QueueDelivery bound to the main queue, for consumers that own main-thread state (HUD

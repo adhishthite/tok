@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 /// How often one word was dictated.
 public struct StatsWordCount: Sendable, Equatable, Identifiable {
   public var word: String

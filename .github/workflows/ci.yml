@@ -1,10 +1,10 @@
 name: CI
 
-# macOS minutes bill at 10x against the Pro plan's 3,000 included minutes, so the
-# job runs only when a build input changes. Markdown, audits, and review notes never
-# reach xcodebuild. README.md and PRIVACY.md are checked by make check-settings but
-# stay excluded here, as they were under the earlier ignore list; run the workflow
-# manually after editing their settings tables.
+# The full build and XCTest run. The repository is public, so hosted macOS
+# minutes are free; pull requests and pushes to main run it when a build input
+# changes. Markdown, audits, and review notes never reach xcodebuild. README.md
+# and PRIVACY.md are checked by make check-settings but stay excluded here; run
+# the workflow manually after editing their settings tables.
 on:
   push:
     branches: [main]
@@ -91,10 +91,11 @@ jobs:
           path: build/package/Tok.zip
           if-no-files-found: error
           retention-days: 14
+      # About 95 MB per run, so only a failed run keeps it, and only for three days.
       - name: Upload test results
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Tok-test-results-${{ github.sha }}
           path: build/DerivedData/Logs/Test/*.xcresult
-          retention-days: 14
+          retention-days: 3

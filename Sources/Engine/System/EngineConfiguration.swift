@@ -1,3 +1,6 @@
+// Copyright 2026 Adhish Thite
+// SPDX-License-Identifier: Apache-2.0
+
 import AVFoundation
 import AppKit
 import AudioToolbox
@@ -11,6 +14,10 @@ import SQLite3
 public struct EngineConfiguration: Sendable {
   public init() {}
   public var geminiApiKey: String = ""
+  // Optional upgrade (see Engine/Judgment): active only when this key is set AND a one-time
+  // models probe succeeds. Not a SettingCatalog row - lives in Keychain only, mirroring
+  // geminiApiKey exactly.
+  public var typesafeApiKey: String = ""
   public var geminiModel: String = "gemini-3.5-flash-lite"
   public var geminiLiveModel: String = "gemini-3.5-transcribe-live"
   public var smartTranscription: Bool = true
@@ -91,6 +98,14 @@ public struct EngineConfiguration: Sendable {
   // continuously, hard-capped at postRollMaxMs. Set equal to postRollMs (or 0) to disable
   // adaptation and get the old fixed post-roll.
   public var postRollMaxMs: Int = 1500
+  // Capture kept after release even when the quiet window was already banked before it:
+  // a soft final sound can sit under the threshold, and a hardware buffer may still be in
+  // flight at key-up. Every turn pays it, so it is a per-turn latency floor.
+  public var postRollMinMs: Int = 30
+  // Adaptive quiet line for the trailing-capture wait: in a room louder than
+  // trailSilenceDb, audio up to this many dB above the turn's measured room floor still
+  // counts as quiet, so room tone cannot hold every turn to postRollMaxMs. 0 disables it.
+  public var quietMarginDb: Double = 8
   // RMS dBFS below which the mic is considered quiet (speech typically -30 to -15, room
   // noise -50 to -60 on this meter).
   public var trailSilenceDb: Double = -40.0
@@ -106,10 +121,10 @@ public struct EngineConfiguration: Sendable {
   // audioStreamEnd + activityEnd + clientContent.turnComplete triple.
   public var wsEndpointAligned: Bool = true
   // Streaming chunk size; docs recommend ~100ms for the dedicated model (150 = shipped).
-  public var chunkMs: Int = 150
+  public var chunkMs: Int = 100
   // Synthetic trailing silence appended after key-up so the speech encoder's lookahead
   // window can finalize the last word. 0 disables it entirely.
-  public var silenceFlushMs: Int = 700
+  public var silenceFlushMs: Int = 200
   // Release the mic (status-bar indicator off) after this many seconds without a dictation;
   // the next key-down re-arms it. 0 = keep the mic always on (lowest latency, indicator lit).
   public var keepMicrophoneWarm: Bool = false
@@ -155,6 +170,11 @@ public struct EngineConfiguration: Sendable {
   public var learnCorrections: Bool = false
   // paste-to-read-back delay; the user needs time to notice and fix
   public var learnDelayMs: Int = 8000
+  // Free-text label stored with every history row so measurements from a
+  // deliberate A/B session can be grouped later without timestamp archaeology. Hot: no
+  // engine restart needed. nil (not empty string) when unset, so old rows and rows with no
+  // label both read NULL. Trimmed and capped to 64 characters at parse time (SettingCatalog).
+  public var experimentTag: String? = nil
 
   static func parseVocabulary(from text: String) -> [String] {
     var items: [String] = []
@@ -255,6 +275,7 @@ public struct EngineConfiguration: Sendable {
   {
     var config = EngineConfiguration()
     config.geminiApiKey = values["GEMINI_API_KEY"] ?? ""
+    config.typesafeApiKey = values["TYPESAFE_API_KEY"] ?? ""
     for setting in SettingCatalog.all {
       setting.apply(&config, values[setting.key] ?? setting.defaultValue)
     }
