@@ -282,3 +282,42 @@ which also stops packaging on pull requests and skips documentation-only changes
 No installed Sparkle update from build 13 has been recorded yet. Full `make check`
 on the merged source passed locally before the bump: TokEngineTests 111 (3 live
 tests skipped), TokTests 52, TokHUDTests 12, Python script tests 25.
+
+# Publication review: Tok 0.1.8, build 15
+
+Published on 2026-09-26 at 07:05:25Z as the latest release in `adhishthite/tok-releases`, tag
+`v0.1.8`, targeting hosting commit `ae0693c5c045bb57ecaf785edd283c10a50a1cb8`.
+App source: `0e2b5a59d5f7` (Bump to 0.1.8, build 15), now in the public
+`adhishthite/tok` repository. It carries pull request 8: shorter capture and
+flush defaults measured by the latency harness, the adaptive noisy-room quiet
+line, optional TypeSafe judgments, the Keychain read fix, and two-week
+diagnostics. The owner approved the assets and notes before upload.
+
+| Upload asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Tok.dmg | 3331917 | a824937a3ac00f301ce10f0f21c82872d83f4b40132e4127e5a3c04255d73755 |
+| Tok.zip | 3402838 | 817497ccd59c1e2f6c85f9fc6cf29d32e56f74a2afc840a3c7a6900a1aeab1a7 |
+| appcast.xml | 1177 | 2c3f569f4b4e4a808160d98d86b4b029322f41a011dd9ae53b743a82cf47afef |
+| checksums.txt | 226 | fb4911de59c75a52744ba0a822b78e094999a26b5643805c98edc59e341b969b |
+
+Exact files: `build/package/build-15/release-assets/`. Only the four files above
+were uploaded. The local manifest is not uploaded. The published notes are kept at
+`build/release-notes-15.md`.
+
+## Verification
+
+Apple accepted the app ZIP (`87c92180-eb85-431c-85b8-156a31db2d79`) and the final
+DMG (`9cc48dcd-4359-4cb5-9cbd-fc1dbfa6b822`). Each was uploaded once and resumed
+from its saved ID. Both were stapled and validated, and `spctl` reported
+`Notarized Developer ID`. `stage-assets` verified the binary, the macOS 14.0
+minimum, the team identifier, and the ZIP contents before signing the feed with
+the Keychain Sparkle key. Server-reported digests of all four assets matched the
+staged hashes on the draft. Anonymous HTTPS downloads through both the versioned
+and the latest URLs matched the staged bytes. The downloaded feed and archive
+passed `sign_update --verify`; an archive with one appended byte was rejected.
+Files remain in `build/anonymous-release-verification/v0.1.8/`.
+
+Source checks: CI and Lint passed on `0e2b5a5` and on the merge commit
+`79ce6e4`. Full `make check` passed locally before the bump. A security review
+of `bb2362f..0e2b5a5` found no finding at confidence 8 or higher. No installed
+Sparkle update from build 14 has been recorded yet.
