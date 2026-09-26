@@ -66,14 +66,14 @@ this gate. Keep a separate ground-truth transcript for evaluation outside Git.
 
 Run a fixed, repeatable set of English, Marathi, and mixed-language utterances,
 including names, punctuation, pauses, short phrases, idle startup, and sustained
-use. Compare Tok and the read-only JustSpeak build under comparable device and
-network conditions. Alternate run order and report sample counts and failures.
+use. Hold device and network conditions constant across runs and report sample
+counts and failures.
 
 Report median and tail key-up-to-paste latency for successful WebSocket turns,
 alongside failure, fallback, duplicate, and first-word-loss counts. Do not discard
 slow turns without recording the exclusion and reason. Required: median below
-500 ms and latency and accuracy at least as good as JustSpeak. Evaluate accuracy
-against the ground truth rather than treating either app's output as correct.
+500 ms, with accuracy reported per language slice. Evaluate accuracy against the
+ground truth rather than treating Tok's output as correct.
 
 ## Distribution and updates
 

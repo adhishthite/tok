@@ -40,28 +40,25 @@ whether the row refreshes, and successful dictation after recovery and relaunch.
 Do not use `tccutil reset`, erase Keychain entries, or clear owner data. If a truly
 first-run denial cannot be repeated safely, record that case as untested.
 
-## Speech comparison conditions
+## Speech evaluation conditions
 
 The owner must review expected wording before any run. Copy the synthetic prompt
 bank below into a private session sheet outside Git, correct it, and freeze that
-version. The reviewed sheet is ground truth. Neither app's output is ground truth.
+version. The reviewed sheet is ground truth. Tok's output is not ground truth.
 Record deviations in actual speech separately; do not silently blame recognition
 for a reading mistake or revise expected text to match an output.
 
-Record exact Tok bundle build/source revision, JustSpeak source revision and
-launch method, macOS build, architecture, microphone/model/connection, display
+Record exact Tok bundle build/source revision, macOS build, architecture, microphone/model/connection, display
 refresh rate, destination app/version, and network condition. Record configuration
 by safe names and nonsecret values only: language codes, vocabulary fixture ID,
 Live/fallback models, pre/post-roll, silence flush, frame size, VAD, warm capture,
-shortcut, replacement rules, and live-model cleanup. Hold these comparable.
-Do not change JustSpeak source or saved configuration to force a match;
-document any mismatch and limit the comparison accordingly.
+shortcut, replacement rules, and live-model cleanup. Hold these constant across
+the session and document any change.
 
 Tok's optional “Polish dictations before pasting” and “Adapt formatting to the
 app” must both be off for baseline. This is separate from its existing live-model
-cleanup setting, which must be recorded and matched where possible.
-Only one app may own the microphone and shortcut at a time. Restore the owner's
-normal app after the session. Use real speech, consistent speaking distance and
+cleanup setting, which must be recorded. Quit other dictation apps so Tok alone
+owns the microphone and shortcut. Use real speech, consistent speaking distance and
 pace, and the same speaker. Do not substitute synthesized audio for this gate.
 
 ## Synthetic prompt bank for owner review
@@ -88,9 +85,7 @@ be agreed before scoring. These invented sentences contain no private transcript
 | X4 | Mixed, pause | आधी draft save करा [pause two seconds] मग review सुरू करा. |
 | X5 | Mixed, longer | आज staging report तपासा, totals confirm करा आणि updated version शुक्रवारी team ला पाठवा. |
 
-Speak each prompt twice per app: 30 baseline turns per app, 60 overall. For each
-prompt, use Tok then JustSpeak on repetition one and JustSpeak then Tok on
-repetition two. Preserve that paired order in the evidence. Bound speech to
+Speak each prompt twice: 30 baseline turns. Bound speech to
 20 seconds and wait at most 10 seconds after release. A late delivery after that
 cutoff remains a timeout with a separately recorded late-delivery event.
 Retries get new IDs; never discard their original failures.
@@ -104,15 +99,14 @@ screenshots. Private speech and actual output stay outside Git and tool output.
 
 Keep these separate from the 30-turn steady-condition baseline:
 
-| Cohort | Minimum per app | Procedure |
+| Cohort | Minimum | Procedure |
 | --- | ---: | --- |
 | Idle startup | 6 | E1, M1, X1 twice, each after at least 60 seconds idle with on-demand capture off between turns; record actual idle duration. |
 | Device change | 6 per transition | E1, M1, X1 twice immediately after a documented device switch; include Bluetooth connect/disconnect when hardware is available. |
-| Cleanup enabled | 30 Tok | Repeat the paired 15-prompt bank twice; report added time, meaning changes, names/numbers errors, and cleanup fallback separately. |
-| App-aware cleanup | 6 Tok per destination | Use three agreed prompts twice in each selected destination, record context enabled and review formatting/meaning separately. |
+| Cleanup enabled | 30 | Repeat the 15-prompt bank twice; report added time, meaning changes, names/numbers errors, and cleanup fallback separately. |
+| App-aware cleanup | 6 per destination | Use three agreed prompts twice in each selected destination, record context enabled and review formatting/meaning separately. |
 
-If the idle microphone policy differs, results are a product-default comparison,
-not an isolated implementation comparison. If only one device is available,
+If only one device is available,
 device-change and Bluetooth coverage remain blocked. A successful fallback is
 successful delivery via REST, but not a successful Live-path latency sample.
 
@@ -125,8 +119,8 @@ Never export complete History CSV or run `SELECT *` against the owner's database
 Per-turn metadata fields:
 
 ```text
-session_id, trial_id, prompt_id, repetition, app, source_build, cohort,
-order_in_pair, device_fixture_id, cleanup_status, route, outcome,
+session_id, trial_id, prompt_id, repetition, source_build, cohort,
+device_fixture_id, cleanup_status, route, outcome,
 delivery_outcome, dispatch_ms, visible_ms, visible_method, timing_uncertainty_ms,
 reference_word_count, substitutions, deletions, insertions,
 names_error_count, numbers_error_count, punctuation_error_count,
@@ -143,11 +137,11 @@ Report pooled WER as `(substitutions + deletions + insertions) / reference words
 using NFC normalization and an owner-agreed tokenization/number policy. Score
 punctuation, names, and numbers separately. Give English/Marathi/mixed slices.
 
-Report paired latency differences only for pairs meeting the same success/path
-criteria, and report how many failed pairs were excluded. Those exclusions must
-remain in reliability totals. Comparison acceptance needs both latency and
-accuracy at least as good as JustSpeak, with uncertainty stated. A small favorable
-median alone does not establish broad equivalence.
+Report latency only for turns meeting the same success/path criteria, and report
+how many failed turns were excluded. Those exclusions must remain in reliability
+totals. Acceptance needs median Live latency below 500 ms and per-slice accuracy
+against the ground truth, with uncertainty stated. A favorable median alone does
+not establish tail behavior.
 
 History total timing ends at paste-event dispatch. A destination change observer
 can confirm insertion but still does not prove a displayed frame. For visible
@@ -168,10 +162,6 @@ metrics and do not rename dispatch latency as visible-text latency.
 - `Sources/Support/RuntimeReport.swift` and History timing can identify build and
   engine state; use only explicit metadata fields. No existing reviewed helper
   establishes destination-frame presentation.
-- JustSpeak's `tests/live_benchmark.py` compares its historical/current Live
-  clients with a PCM fixture. It is not a Tok-versus-JustSpeak installed-app test.
-  Do not run it on private speech or assume its output is safe without reviewing
-  the fixture's result fields. JustSpeak remains read-only.
 
 For UI profiling, the coordinator must capture actual presentation events and
 refresh-rate evidence with reproducible synthetic interactions. CPU profiles or
@@ -182,7 +172,7 @@ All builds/tests use an initial 120-second supervisor; hosted CI checks may use
 ## Blockers to record, not waive
 
 - Isolated-account/Mac access and owner-controlled key entry for onboarding.
-- Owner-reviewed ground truth and real speaker participation for the comparison.
+- Owner-reviewed ground truth and real speaker participation for the evaluation.
 - Actual hardware access for each claimed OS, architecture, and device condition.
 - A capture method tying release/state input to a presented destination/UI frame.
 - Approved public destination and publication for the installed hosted update.
