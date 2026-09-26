@@ -263,6 +263,26 @@ key-up: 1024 frames, about 21 ms at 48 kHz. The default is now 30 ms, which keep
 that buffer with margin and saves about 25 ms on floor-bound turns. 15 ms would
 save about 20 ms more but cuts below one buffer.
 
+## Long dictations, 2026-09-26
+
+Forty paragraph clips (16 to 34 s of speech, median 24 s): English prompts,
+Hinglish and Marathi-English code-switching, and full Hindi and Marathi
+paragraphs. Direct mode, 80 pairs per arm unless noted:
+
+| Comparison | Round trip | 95% CI |
+| --- | --- | --- |
+| Paragraph vs short-clip baseline | 718 vs 440 ms median | |
+| Flush 200 vs 350 ms | -45 ms | -86 to +3 |
+| Flush 0 vs 350 ms | -88 ms | -109 to -55 |
+| Verbatim vs Smart transcription (40 pairs) | -17 ms | -41 to +10 |
+
+Commit-to-result time grows with the length of the turn, about 280 ms more for a
+24 s dictation, and Smart transcription is not the cause. The flush savings hold
+on long turns, and accuracy did not change with the flush (English WER 2.5 to
+2.7%, the same 4 of 48 last-word misses in every arm). A 12-pair acoustic
+paragraph batch ran alongside the 10-session direct run and is too contended to
+read.
+
 ## Latency harness
 
 The harness runs real engine turns without a person. `TokHarness` builds a
