@@ -1,24 +1,15 @@
 name: CI
 
-# macOS minutes bill at 10x against the Pro plan's 3,000 included minutes, so the
-# job runs only when a build input changes. Markdown, audits, and review notes never
-# reach xcodebuild. README.md and PRIVACY.md are checked by make check-settings but
-# stay excluded here, as they were under the earlier ignore list; run the workflow
-# manually after editing their settings tables.
+# The full build and XCTest run. macOS minutes are the expensive ones, so pull
+# requests get only the Linux Lint workflow; run this by hand before a merge:
+#   gh workflow run CI --ref <branch>
+# A push to main runs it when a build input changes. Markdown, audits, and review
+# notes never reach xcodebuild. README.md and PRIVACY.md are checked by make
+# check-settings but stay excluded here; run the workflow manually after editing
+# their settings tables.
 on:
   push:
     branches: [main]
-    paths:
-      - 'Sources/**'
-      - 'Tests/**'
-      - 'Resources/**'
-      - 'Scripts/**'
-      - 'Tools/**'
-      - 'Config/**'
-      - 'project.yml'
-      - 'Makefile'
-      - '.github/workflows/**'
-  pull_request:
     paths:
       - 'Sources/**'
       - 'Tests/**'
