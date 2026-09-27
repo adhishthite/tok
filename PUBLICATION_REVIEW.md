@@ -321,3 +321,44 @@ Source checks: CI and Lint passed on `0e2b5a5` and on the merge commit
 `79ce6e4`. Full `make check` passed locally before the bump. A security review
 of `bb2362f..0e2b5a5` found no finding at confidence 8 or higher. No installed
 Sparkle update from build 14 has been recorded yet.
+
+# Publication review: Tok 0.1.9, build 16
+
+Published on 2026-09-27 at 13:01:53Z as the latest release in `adhishthite/tok-releases`, tag
+`v0.1.9`, targeting hosting commit `ae0693c5c045bb57ecaf785edd283c10a50a1cb8`.
+App source: `5c2ade61d2ae` (merge of pull request 10). It removes the optional TypeSafe
+(Jev) integration so that Tok sends generative AI requests to the Gemini API only. On
+launch it deletes the retired TypeSafe Keychain item and drops the build 15 judgment
+columns from history. The owner approved the release after merging pull request 10.
+
+| Upload asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Tok.dmg | 3196003 | 05caa27d81f308374a0b53c3eda9c65c11ef3601f57f63822447d6166928ba9c |
+| Tok.zip | 3259611 | 8852793257a85cd34665acb680a532d6081d9a96f83538dd90266cc7557b6495 |
+| appcast.xml | 1177 | 93efafa0a06b3aa355e3c8bd72c8fafe978b68f66339bc303c74b92d2689b0be |
+| checksums.txt | 226 | 2341a798d3c4af769407adf3340846456752326773ee2c688573de0263cd577d |
+
+Exact files: `build/package/build-16/release-assets/`. Only the four files above
+were uploaded. The local manifest is not uploaded. The published notes are kept at
+`build/release-notes-16.md`.
+
+## Verification
+
+Apple accepted the app ZIP (`5c360d33-2d65-4b41-8638-4a254797a4a3`) and the final
+DMG (`5372bc1c-ca08-4619-969e-db081db29a8b`). Each was uploaded once and resumed
+from its saved ID. Both were stapled and validated, and `spctl` reported
+`Notarized Developer ID`. The app is version 0.1.9, build 16, `x86_64 arm64`, and
+its binary contains no `api.typesafe.ai` string. `stage-assets` verified the binary,
+the macOS 14.0 minimum, the team identifier, and the ZIP contents before signing the
+feed with the Keychain Sparkle key. Server-reported digests of all four assets
+matched the staged hashes on the draft. Anonymous HTTPS downloads through both the
+versioned and the latest URLs matched the staged bytes. The downloaded feed and
+archive passed `sign_update --verify`; an archive with one appended byte was
+rejected. The app on a read-only mount of the downloaded DMG passed `stapler
+validate` and `spctl`. Files remain in `build/anonymous-release-verification/v0.1.9/`.
+
+Source checks: CI and Lint passed on the merge commit `5c2ade6`, and on the pull
+request. Full `make check` passed locally before merge. A security review of
+`d314827..5c2ade6` found no finding at confidence 7 or higher. The upgrade of an
+installed build 15 (Keychain item deleted, history columns dropped) has not been
+observed on a real machine yet.
