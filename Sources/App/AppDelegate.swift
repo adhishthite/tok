@@ -21,7 +21,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     vocabularyWindows.connect(to: store.settings)
     store.start()
-    Task.detached(priority: .utility) { Keychain.deleteRetiredTypeSafeKey() }
+    // Build 15 TypeSafe leftovers go at launch, whether or not history is on.
+    let configuration = store.settings.configuration
+    Task.detached(priority: .utility) {
+      Keychain.deleteRetiredTypeSafeKey()
+      HistoryRetiredColumns.removeIfPresent(configuration: configuration)
+    }
     if store.needsSetup || ProcessInfo.processInfo.arguments.contains("--show-setup") {
       setupWindow.show(store: store)
     }

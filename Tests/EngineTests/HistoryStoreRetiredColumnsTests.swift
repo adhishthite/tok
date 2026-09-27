@@ -21,6 +21,60 @@ final class HistoryStoreRetiredColumnsTests: XCTestCase {
     var config = EngineConfiguration()
     config.historyDbPath = directory.appendingPathComponent("history.db").path
 
+    makeBuild15Database(config)
+
+    let reopened = HistoryStore(config: config)
+    defer { reopened.close() }
+    reopened.record(Self.turn("after upgrade"))
+    reopened.recordCorrection(wrong: "cot", right: "Kot", appName: "Fixture")
+    reopened.queue.sync {}
+
+    XCTAssertTrue(
+      columnNames(config.historyDbPath, table: "transcriptions")
+        .isDisjoint(with: Self.retiredTranscriptionColumns))
+    XCTAssertFalse(columnNames(config.historyDbPath, table: "corrections").contains("genuineness"))
+    XCTAssertEqual(
+      strings(config.historyDbPath, "SELECT text FROM transcriptions ORDER BY id"),
+      [
+        "seed", "after upgrade",
+      ])
+    XCTAssertEqual(
+      strings(config.historyDbPath, "SELECT source FROM corrections ORDER BY id"),
+      ["ax_readback", "ax_readback"])
+  }
+
+  func testLaunchCleanupDropsJudgmentColumnsWithoutAHistoryStore() {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var config = EngineConfiguration()
+    config.historyDbPath = directory.appendingPathComponent("history.db").path
+    config.historyEnabled = false
+    makeBuild15Database(config)
+
+    HistoryRetiredColumns.removeIfPresent(configuration: config)
+
+    XCTAssertTrue(
+      columnNames(config.historyDbPath, table: "transcriptions")
+        .isDisjoint(with: Self.retiredTranscriptionColumns))
+    XCTAssertFalse(columnNames(config.historyDbPath, table: "corrections").contains("genuineness"))
+    XCTAssertEqual(strings(config.historyDbPath, "SELECT text FROM transcriptions"), ["seed"])
+    XCTAssertEqual(strings(config.historyDbPath, "SELECT source FROM corrections"), ["ax_readback"])
+  }
+
+  func testLaunchCleanupNeverCreatesADatabase() {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var config = EngineConfiguration()
+    config.historyDbPath = directory.appendingPathComponent("history.db").path
+
+    HistoryRetiredColumns.removeIfPresent(configuration: config)
+
+    XCTAssertFalse(FileManager.default.fileExists(atPath: config.historyDbPath))
+  }
+
+  /// A history database as build 15 left it: one row, the judgment columns filled, and one
+  /// TypeSafe-confirmed correction.
+  private func makeBuild15Database(_ config: EngineConfiguration) {
     let first = HistoryStore(config: config)
     first.record(Self.turn("seed"))
     first.queue.sync {}
@@ -46,25 +100,6 @@ final class HistoryStoreRetiredColumnsTests: XCTestCase {
     XCTAssertTrue(
       columnNames(config.historyDbPath, table: "transcriptions")
         .isSuperset(of: Self.retiredTranscriptionColumns))
-
-    let reopened = HistoryStore(config: config)
-    defer { reopened.close() }
-    reopened.record(Self.turn("after upgrade"))
-    reopened.recordCorrection(wrong: "cot", right: "Kot", appName: "Fixture")
-    reopened.queue.sync {}
-
-    XCTAssertTrue(
-      columnNames(config.historyDbPath, table: "transcriptions")
-        .isDisjoint(with: Self.retiredTranscriptionColumns))
-    XCTAssertFalse(columnNames(config.historyDbPath, table: "corrections").contains("genuineness"))
-    XCTAssertEqual(
-      strings(config.historyDbPath, "SELECT text FROM transcriptions ORDER BY id"),
-      [
-        "seed", "after upgrade",
-      ])
-    XCTAssertEqual(
-      strings(config.historyDbPath, "SELECT source FROM corrections ORDER BY id"),
-      ["ax_readback", "ax_readback"])
   }
 
   private static func turn(_ text: String) -> TurnRecord {

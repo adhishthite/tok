@@ -49,11 +49,15 @@ final class HistoryStore {
 
   var path: String { dbPath }
 
-  init(config: EngineConfiguration) {
+  static func resolvedPath(_ config: EngineConfiguration) -> String {
     let rawPath =
       config.historyDbPath.isEmpty
       ? "~/Library/Application Support/Tok/history.db" : config.historyDbPath
-    self.dbPath = (rawPath as NSString).expandingTildeInPath
+    return (rawPath as NSString).expandingTildeInPath
+  }
+
+  init(config: EngineConfiguration) {
+    self.dbPath = Self.resolvedPath(config)
     self.endpointAligned = config.wsEndpointAligned
     self.chunkMs = config.chunkMs
     self.silenceFlushMs = config.silenceFlushMs
@@ -269,21 +273,7 @@ final class HistoryStore {
       sqlite3_exec(opened, migration, nil, nil, nil)
     }
 
-    // Build 15 stored third-party (TypeSafe) judgments in these columns. They are dropped so
-    // no judgment outlives the removed integration; "no such column" on a DB that never had
-    // them, or that was already cleaned, is expected and ignored.
-    for column in [
-      "corrections.genuineness", "transcriptions.jev_filler", "transcriptions.jev_plausibility",
-      "transcriptions.jev_register", "transcriptions.jev_language", "transcriptions.jev_model",
-      "transcriptions.jev_ms", "transcriptions.jev_input_tokens",
-    ] {
-      let parts = column.split(separator: ".")
-      sqlite3_exec(
-        opened, "ALTER TABLE \(parts[0]) DROP COLUMN \(parts[1])", nil, nil, nil)
-    }
-    sqlite3_exec(
-      opened, "UPDATE corrections SET source = 'ax_readback' WHERE source = 'ax_readback_jev'",
-      nil, nil, nil)
+    HistoryRetiredColumns.remove(from: opened)
 
     do { try HistoryPostProcessingSchema.migrate(opened) } catch {
       markOpenFailure("Could not prepare cleanup metrics in history.")
