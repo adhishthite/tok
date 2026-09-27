@@ -6,7 +6,7 @@ APP := $(DERIVED)/Build/Products/$(CONFIGURATION)/Tok.app
 ACTIONLINT ?= actionlint
 XCODEBUILD := ./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme Tok -configuration $(CONFIGURATION) -derivedDataPath "$(DERIVED)" -destination 'platform=macOS'
 
-.PHONY: install clean check format lint generate build run test package test-live distribute containers notarize-app notarize-dmg profile-microphone icon check-updates settings-tool settings-reference check-settings test-cleanup-live test-jev-live check-ci report harness-clips harness-build harness harness-smoke harness-direct harness-report
+.PHONY: install clean check format lint generate build run test package test-live distribute containers notarize-app notarize-dmg profile-microphone icon check-updates settings-tool settings-reference check-settings test-cleanup-live check-ci report harness-clips harness-build harness harness-smoke harness-direct harness-report
 
 install:
 	@command -v xcodegen >/dev/null || brew install xcodegen
@@ -75,9 +75,6 @@ test-live:
 
 test-cleanup-live: generate
 	./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme TokLiveChecks -configuration Debug -derivedDataPath "$(DERIVED)" -destination 'platform=macOS' -only-testing:TokEngineTests/PostProcessingLiveTests test
-
-test-jev-live: generate
-	./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme TokLiveChecks -configuration Debug -derivedDataPath "$(DERIVED)" -destination 'platform=macOS' -only-testing:TokEngineTests/JudgmentLiveTests test
 
 lint:
 	xcrun swift format lint --strict --recursive Sources Tests Scripts Tools

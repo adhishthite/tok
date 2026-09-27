@@ -29,9 +29,6 @@ final class DictationStore: DictationEngineDelegate {
   private(set) var settingsPending = false
   private(set) var retentionError: String?
   private(set) var historyError: String?
-  /// TypeSafe probe state, mirrored from `JudgmentService.availability` (Engine/Judgment).
-  /// Defaults to `.off` until the engine's delegate wiring pushes the real snapshot.
-  private(set) var judgmentAvailability: JudgmentAvailability = .off
   /// The last failure text, kept for the menu after `status` returns to ready (audit F03).
   private(set) var lastError: String?
   /// How the last dictation reached the app, in plain language (audit F04).
@@ -323,7 +320,6 @@ final class DictationStore: DictationEngineDelegate {
       message = text
     case .diagnostic(let line): appendDiagnostic(line)
     case .historyError(let reason): historyError = reason
-    case .judgmentAvailability(let availability): judgmentAvailability = availability
     case .audioLevel, .captureStarted: break
     }
     // Sparkle waits for the turn to finish before it may install or relaunch.

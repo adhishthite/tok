@@ -39,17 +39,6 @@ final class StoreTests: XCTestCase {
     XCTAssertEqual(store.message, "Test failure")
   }
 
-  func testStateTracksJudgmentAvailabilityEvents() {
-    let store = DictationStore()
-    XCTAssertEqual(store.judgmentAvailability, .off)
-    store.engineDidEmit(.judgmentAvailability(.checking))
-    XCTAssertEqual(store.judgmentAvailability, .checking)
-    store.engineDidEmit(.judgmentAvailability(.available))
-    XCTAssertEqual(store.judgmentAvailability, .available)
-    store.engineDidEmit(.judgmentAvailability(.unavailable(reason: "HTTP 401 (key rejected)")))
-    XCTAssertEqual(store.judgmentAvailability, .unavailable(reason: "HTTP 401 (key rejected)"))
-  }
-
   func testDiagnosticsRemainBounded() {
     let store = DictationStore()
     for index in 0..<350 { store.engineDidEmit(.diagnostic("Test line \(index)")) }

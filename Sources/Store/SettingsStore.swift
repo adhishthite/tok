@@ -4,26 +4,15 @@
 import Foundation
 import Observation
 import TokEngine
-import os
 
 @MainActor
 @Observable
 final class SettingsStore {
-  private static let logger = os.Logger(subsystem: "com.adhishthite.tok", category: "settings")
   private(set) var hasAPIKey = false
   var apiKeyProvidedByEnvironment: Bool {
     !(ProcessInfo.processInfo.environment["GEMINI_API_KEY"] ?? "").isEmpty
   }
-  // Optional upgrade (see Engine/Judgment); mirrors the Gemini key flow exactly.
-  private(set) var hasTypeSafeKey = false
-  var typesafeApiKeyProvidedByEnvironment: Bool {
-    !(ProcessInfo.processInfo.environment["TYPESAFE_API_KEY"] ?? "").isEmpty
-  }
   private(set) var loadError: String?
-  /// Non-fatal: set when the optional TypeSafe Keychain item could not be read (locked
-  /// keychain, denied interaction, corrupt item). Unlike `loadError`, this never blocks
-  /// settings reconstruction or engine creation; Judgment simply stays gated off.
-  private(set) var typesafeKeyError: String?
   private(set) var values: [String: String] = [:]
   private(set) var overrides: [String: String] = [:]
   @ObservationIgnored private(set) var configuration = EngineConfiguration()
@@ -38,8 +27,7 @@ final class SettingsStore {
   @ObservationIgnored private let defaults: UserDefaults
   /// Seam for tests: defaults to the real Keychain read, so `load()` can be exercised
   /// against injected failures without touching the actual Keychain.
-  @ObservationIgnored private let readKey: (Keychain.Account) throws -> String?
-  @ObservationIgnored private let deleteKey: (Keychain.Account) throws -> Void
+  @ObservationIgnored private let readKey: () throws -> String?
   let supportDirectory: URL
   var vocabularyURL: URL { supportDirectory.appendingPathComponent("vocabulary.txt") }
   var resolvedVocabularyURL: URL {
@@ -55,12 +43,10 @@ final class SettingsStore {
 
   init(
     defaults: UserDefaults = .standard, supportDirectory: URL? = nil,
-    readKey: @escaping (Keychain.Account) throws -> String? = Keychain.readAPIKey,
-    deleteKey: @escaping (Keychain.Account) throws -> Void = Keychain.deleteAPIKey
+    readKey: @escaping () throws -> String? = Keychain.readAPIKey
   ) {
     self.defaults = defaults
     self.readKey = readKey
-    self.deleteKey = deleteKey
     self.supportDirectory =
       supportDirectory
       ?? FileManager.default.urls(
@@ -82,20 +68,7 @@ final class SettingsStore {
           defaults.set(true, forKey: "TokImportedDevelopmentConfig")
         }
       #endif
-      configuration.geminiApiKey = try readKey(.gemini) ?? ""
-      // The TypeSafe key is optional (Engine/Judgment). A Keychain error reading it (locked
-      // keychain, denied interaction, corrupt item; "not found" already returns nil above the
-      // throw) must not disable core dictation, so it gets its own do/catch and never touches
-      // loadError.
-      do {
-        configuration.typesafeApiKey = try readKey(.typesafe) ?? ""
-        typesafeKeyError = nil
-      } catch {
-        configuration.typesafeApiKey = ""
-        typesafeKeyError = "Could not read the TypeSafe key from Keychain."
-        let account = Keychain.Account.typesafe.rawValue
-        Self.logger.warning("Could not read Keychain item \(account, privacy: .public)")
-      }
+      configuration.geminiApiKey = try readKey() ?? ""
       values = [:]
       overrides = [:]
       for setting in SettingCatalog.all {
@@ -136,14 +109,10 @@ final class SettingsStore {
     effective["GEMINI_API_KEY"] =
       ProcessInfo.processInfo.environment["GEMINI_API_KEY"].flatMap { $0.isEmpty ? nil : $0 }
       ?? configuration.geminiApiKey
-    effective["TYPESAFE_API_KEY"] =
-      ProcessInfo.processInfo.environment["TYPESAFE_API_KEY"].flatMap { $0.isEmpty ? nil : $0 }
-      ?? configuration.typesafeApiKey
     let vocabulary = vocabularyText(rereading: rereadVocabulary)
     configuration = EngineConfiguration.load(values: effective, vocabularyText: vocabulary)
     configuration.buildId = BuildIdentity.revision
     hasAPIKey = !configuration.geminiApiKey.isEmpty
-    hasTypeSafeKey = !configuration.typesafeApiKey.isEmpty
   }
 
   /// Reads the vocabulary file only when asked to, or when the resolved path changed.
@@ -170,29 +139,6 @@ final class SettingsStore {
     try await ServiceProbe.validate(configuration: configuration)
   }
 
-  func validateAndSaveTypeSafeKey(_ key: String) async throws {
-    let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-    try await TypeSafeProbe.validate(apiKey: trimmed)
-    try Keychain.saveAPIKey(trimmed, account: .typesafe)
-    configuration.typesafeApiKey = trimmed
-    typesafeKeyError = nil
-    rebuild()
-    didChange?([Self.everySetting])
-  }
-  /// Deletes the saved TypeSafe key and turns judgments off: the change notice reaches the
-  /// engine, whose JudgmentService drops its client for an empty key, so nothing more is
-  /// sent to TypeSafe. A key supplied by the environment is outside Tok's control.
-  func removeTypeSafeKey() throws {
-    try deleteKey(.typesafe)
-    configuration.typesafeApiKey = ""
-    typesafeKeyError = nil
-    rebuild()
-    didChange?([Self.everySetting])
-  }
-  func testTypeSafeConnection() async throws {
-    try await TypeSafeProbe.validate(apiKey: configuration.typesafeApiKey)
-  }
-
   @discardableResult
   func importConfiguration(from source: URL, notify: Bool = true) throws
     -> ConfigurationImportResult
@@ -200,7 +146,6 @@ final class SettingsStore {
     let url = source.hasDirectoryPath ? source.appendingPathComponent(".env") : source
     var imported = try EnvImporter.read(url)
     let importedKey = imported.removeValue(forKey: "GEMINI_API_KEY")
-    let importedTypeSafeKey = imported.removeValue(forKey: "TYPESAFE_API_KEY")
     imported.removeValue(forKey: "HISTORY_DB")
     // Importing preferences must not shorten the owner's history retention.
     // Existing-record deletion is confirmed separately in History settings.
@@ -214,11 +159,6 @@ final class SettingsStore {
     if let key = importedKey, !key.isEmpty {
       try Keychain.saveAPIKey(key)
       configuration.geminiApiKey = key
-    }
-    if let key = importedTypeSafeKey, !key.isEmpty {
-      try Keychain.saveAPIKey(key, account: .typesafe)
-      configuration.typesafeApiKey = key
-      typesafeKeyError = nil
     }
     var result = vocabulary == nil ? ConfigurationImportResult.chooseVocabulary : .settingsOnly
     if let contents {

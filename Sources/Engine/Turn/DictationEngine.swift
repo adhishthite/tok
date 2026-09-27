@@ -52,9 +52,6 @@ public final class DictationEngine {
   private var hotkeyManager: HotkeyManager?
   let history: HistoryStore?
   private var correctionWatcher: CorrectionWatcher?
-  // Optional upgrade (see Engine/Judgment). Always present; a no-op gate until a TypeSafe
-  // key is configured and its models probe succeeds.
-  let judgmentService: JudgmentService
 
   // Cross-thread "is a turn active" flag - read synchronously from the event-tap thread in
   // handleKeyDown (must stay fast/non-blocking), written only from sessionQueue-executed code.
@@ -318,24 +315,14 @@ public final class DictationEngine {
       )
     }
     self.history = config.historyEnabled ? HistoryStore(config: config) : nil
-    self.judgmentService = JudgmentService(apiKey: config.typesafeApiKey)
     // A failed history write is otherwise only a log line; Settings shows this (audit F29).
     // onError arrives on the history queue, so the hop to main is this wiring's job.
-    // (judgmentService must be assigned before this point: every stored property needs a
-    // value before `self` can be captured, even weakly, in a closure.)
     history?.onError = { [weak self] message in
       DispatchQueue.main.async { self?.delegate?.engineDidEmit(.historyError(message)) }
     }
-    // Forwards every availability transition through the same delegate every other engine
-    // event uses; engineDidEmit hops to main itself, so no extra dispatch is needed here.
-    // The callback fires on judgmentService.queue, never while its lock is held.
-    self.judgmentService.onAvailabilityChange = { [weak self] availability in
-      self?.delegate?.engineDidEmit(.judgmentAvailability(availability))
-    }
     if config.learnCorrections {
       if config.historyEnabled {
-        self.correctionWatcher = CorrectionWatcher(
-          config: config, history: self.history, judgment: self.judgmentService)
+        self.correctionWatcher = CorrectionWatcher(config: config, history: self.history)
       } else {
         // Without history there is nowhere to store a correction, so the watcher would
         // read the destination window over Accessibility for nothing (audit F33).
@@ -408,10 +395,6 @@ public final class DictationEngine {
     }
     self.hotkeyManager = hotkey
 
-    // The judgment probe (kicked off in init) may already have settled before a delegate
-    // existed to hear about it, so push the current snapshot once at startup rather than
-    // relying only on the next transition (otherwise the store shows a stale `.off`).
-    delegate?.engineDidEmit(.judgmentAvailability(judgmentService.availability))
     feedback.ready()
   }
 
@@ -554,10 +537,6 @@ public final class DictationEngine {
     hotLock.lock()
     hotSettings = HotSettings(configuration)
     hotLock.unlock()
-    // Rebuilds the TypeSafe client and reruns its probe immediately when the key differs,
-    // without waiting for a full engine restart (a key edit while a turn is active is
-    // debounced and may not restart the engine right away).
-    judgmentService.configure(apiKey: configuration.typesafeApiKey)
     Log.configure(
       delegate: delegate, apiKey: config.geminiApiKey, privacyMode: configuration.privacyMode)
   }
@@ -590,25 +569,7 @@ public final class DictationEngine {
       stamped.socketStateAtKeydown = turnSocketStateAtKeydown
     }
     if stamped.socketAgeMs == nil { stamped.socketAgeMs = turnSocketAgeMs }
-    // Item 3: a delivered (pasted or copy-only), non-empty transcript gets a fire-and-forget
-    // Jev quality judgment once history has assigned it a rowid. Respects PRIVACY_MODE the
-    // same way history already does (no extra gating: history keeps recording under privacy
-    // mode today, so this does too); with history disabled there is nothing to key the
-    // judgment to, so it is skipped entirely.
-    if let history, judgmentService.isAvailable, stamped.outcome == "success",
-      let text = stamped.text, !text.isEmpty
-    {
-      let appName = stamped.appName
-      let appBundleId = stamped.appBundleId
-      history.record(stamped) { [weak judgmentService] rowid in
-        guard let judgmentService else { return }
-        TranscriptQualityJudge.assess(
-          rowid: rowid, transcript: text, appName: appName, appBundleId: appBundleId,
-          judgment: judgmentService, history: history)
-      }
-    } else {
-      history?.record(stamped)
-    }
+    history?.record(stamped)
     delegate?.engineDidEmit(.turnSettled(stamped))
   }
 

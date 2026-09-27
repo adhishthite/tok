@@ -17,16 +17,8 @@ public enum VocabularyAnalyzer {
     guard rows.count >= 5 else { throw VocabularyAnalysisError.insufficientHistory }
     try Task.checkCancellation()
     let observed = loadCorrections(dbPath: path, days: days)
-    // Item 2 (optional upgrade; see Engine/Judgment). This offline analysis run can afford
-    // the one round trip the models probe costs; the live turn path never waits like this.
-    let judgment = JudgmentService(apiKey: config.typesafeApiKey)
-    _ = await judgment.awaitAvailability()
-    let (retryPairs, jevConfirmedPairs) = await filterRetryPairs(
-      findRetryPairs(rows), judgment: judgment)
-    try Task.checkCancellation()
     let prompt = buildPrompt(
-      rows: rows, pairs: retryPairs, observed: observed, config: config,
-      confirmedRetryPairs: jevConfirmedPairs)
+      rows: rows, pairs: findRetryPairs(rows), observed: observed, config: config)
     let model = config.analyzeModel.isEmpty ? config.geminiModel : config.analyzeModel
     let raw = try await requestAnalysis(prompt: prompt, model: model, config: config)
     try Task.checkCancellation()
@@ -35,8 +27,7 @@ public enum VocabularyAnalyzer {
       known.insert(rule.wrong.lowercased())
       known.insert(rule.right.lowercased())
     }
-    let suggestions = parseSuggestions(raw: raw, known: known)
-    return await attachConfidence(suggestions, rows: rows, judgment: judgment)
+    return parseSuggestions(raw: raw, known: known)
   }
   private static func validComponent(_ value: String) -> Bool {
     !value.isEmpty && !value.hasPrefix("#") && !value.contains("=>") && !value.contains(",")
@@ -204,60 +195,11 @@ public enum VocabularyAnalyzer {
     Set(text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
   }
 
-  // Item 2 (optional upgrade; see Engine/Judgment). With Jev available, judges each
-  // recall-found retry pair with one noul and keeps only pairs >= retryPairThreshold,
-  // reporting whether Jev was used at all (`jevConfirmed`) so buildPrompt can say so.
-  // Without Jev (or with no pairs), returns the input unchanged - byte-for-byte identical
-  // to today's prompt for that case.
-  static func filterRetryPairs(
-    _ pairs: [(older: Row, newer: Row)], judgment: JudgmentService
-  ) async -> (pairs: [(older: Row, newer: Row)], jevConfirmed: Bool) {
-    guard judgment.isAvailable, !pairs.isEmpty else { return (pairs, false) }
-    // Bounded the same way buildPrompt's own prompt block already is.
-    let capped = Array(pairs.prefix(20))
-    var questions: [String: JudgmentQuestion] = [:]
-    var stateItems: [String: JudgmentValue] = [:]
-    for (index, pair) in capped.enumerated() {
-      let id = "pair_\(index)"
-      stateItems[id] = .object([
-        "first": .string(pair.older.text), "second": .string(pair.newer.text),
-      ])
-      questions[id] = .noul(
-        instructions: """
-          Is `\(id).second` a re-dictation of `\(id).first` with the same intended content, \
-          rather than merely similar content?
-          """,
-        criteria: [
-          "true": "The speaker repeated the same intended sentence, e.g. after a misrecognition.",
-          "false": "The content is topically similar but the intended meaning differs.",
-        ])
-    }
-    let result = await judgment.ask(
-      state: .object(stateItems), questions: questions, label: "retry_pairs")
-    guard case .success(let response) = result else {
-      if case .failure(let error) = result {
-        Log.warn("Jev", "Retry-pair judgment failed: \(error.diagnosticDescription).")
-      }
-      return (pairs, false)
-    }
-    var kept: [(older: Row, newer: Row)] = []
-    for (index, pair) in capped.enumerated() {
-      guard case .noul(let value)? = response.answers["pair_\(index)"],
-        value >= retryPairThreshold
-      else { continue }
-      kept.append(pair)
-    }
-    return (kept, true)
-  }
-
-  // Unevaluated threshold; must be tuned on real data.
-  static let retryPairThreshold = 0.6
-
   // Internal, not private: VocabularySuggestionTests asserts the built prompt
   // carries no timestamp pattern (audit F32).
   static func buildPrompt(
     rows: [Row], pairs: [(older: Row, newer: Row)], observed: [ObservedCorrection],
-    config: EngineConfiguration, confirmedRetryPairs: Bool = false
+    config: EngineConfiguration
   ) -> String {
     var existing: [String] = config.customVocabulary
     existing.append(contentsOf: config.replacementRules.map { "\($0.wrong) => \($0.right)" })
@@ -278,8 +220,7 @@ public enum VocabularyAnalyzer {
       pairs.isEmpty
       ? "(none)"
       : pairs.prefix(20).map { p in
-        let confirmed = confirmedRetryPairs ? "\nConfirmed as a genuine re-dictation by Jev." : ""
-        return "A: \(p.older.text)\nB: \(p.newer.text)\(confirmed)"
+        "A: \(p.older.text)\nB: \(p.newer.text)"
       }.joined(separator: "\n---\n")
 
     let contextBlock =
@@ -371,148 +312,4 @@ public enum VocabularyAnalyzer {
     return suggestions
   }
 
-  // Item 2 (optional upgrade; see Engine/Judgment). For each proposed replacement rule, asks
-  // Jev a 4-level risk score (normalized 0...1, safest = 1) using up to 3 transcript excerpts
-  // where the wrong side appears; for each proposed vocabulary term, asks a single noul on
-  // whether it is worth boosting. Returns suggestions unchanged (nil confidence, original
-  // order) when Jev is unavailable or there is nothing to judge.
-  static func attachConfidence(
-    _ suggestions: [VocabularySuggestion], rows: [Row], judgment: JudgmentService
-  ) async -> [VocabularySuggestion] {
-    guard judgment.isAvailable, !suggestions.isEmpty else { return suggestions }
-    let items = suggestions.enumerated().map { index, suggestion in
-      confidenceItem(id: "item_\(index)", suggestion: suggestion, rows: rows)
-    }
-    var confidenceById: [String: Double] = [:]
-    for chunk in chunkedByEstimatedTokens(items) {
-      // Cancel stops at the next chunk: no further excerpts leave after the user stops.
-      if Task.isCancelled { break }
-      let state = JudgmentValue.object(
-        Dictionary(uniqueKeysWithValues: chunk.map { ($0.id, $0.state) }))
-      let questions = Dictionary(uniqueKeysWithValues: chunk.map { ($0.id, $0.question) })
-      let result = await judgment.ask(
-        state: state, questions: questions, label: "vocabulary_confidence")
-      guard case .success(let response) = result else {
-        if case .failure(let error) = result {
-          Log.warn(
-            "Jev",
-            "Suggestion confidence failed for \(chunk.count) items: \(error.diagnosticDescription)."
-          )
-        }
-        continue
-      }
-      for item in chunk {
-        guard let confidence = confidence(for: item.kind, answer: response.answers[item.id]) else {
-          continue
-        }
-        confidenceById[item.id] = confidence
-      }
-    }
-    guard !confidenceById.isEmpty else { return suggestions }
-    let updated = suggestions.enumerated().map { index, suggestion in
-      VocabularySuggestion(
-        line: suggestion.line, reason: suggestion.reason,
-        confidence: confidenceById["item_\(index)"])
-    }
-    // Suggestions without a confidence (e.g. a chunk that failed) sort after those with one,
-    // in their original relative order.
-    return updated.enumerated().sorted { lhs, rhs in
-      switch (lhs.element.confidence, rhs.element.confidence) {
-      case (let l?, let r?): return l != r ? l > r : lhs.offset < rhs.offset
-      case (nil, nil): return lhs.offset < rhs.offset
-      case (nil, _): return false
-      case (_, nil): return true
-      }
-    }.map(\.element)
-  }
-
-  private enum ConfidenceKind {
-    case vocabularyTerm
-    case replacementRule(levels: Int)
-  }
-
-  private struct ConfidenceItem {
-    let id: String
-    let state: JudgmentValue
-    let question: JudgmentQuestion
-    let kind: ConfidenceKind
-    let estimatedTokens: Int
-  }
-
-  // Ordered lowest to highest, so the TypeSafe score runs 0 (would corrupt) to 3 (safe).
-  // "left side" matches the wording of the question that carries these levels.
-  private static let ruleRiskLevels = [
-    "would corrupt correct text: the left side is a real word or phrase that appears legitimately",
-    "risky: the left side is plausible dictation in some contexts",
-    "mostly safe: the left side is rarely intended",
-    "safe: the left side is never intended speech, only a misrecognition",
-  ]
-
-  private static func confidenceItem(id: String, suggestion: VocabularySuggestion, rows: [Row])
-    -> ConfidenceItem
-  {
-    if let arrow = suggestion.line.range(of: " => ") {
-      let wrong = String(suggestion.line[..<arrow.lowerBound])
-      let right = String(suggestion.line[arrow.upperBound...])
-      let excerpts = rows.filter { $0.text.localizedCaseInsensitiveContains(wrong) }.prefix(3)
-        .map(\.text)
-      let state = JudgmentValue.object([
-        "rule": .string("\(wrong) => \(right)"),
-        "excerpts": .array(excerpts.map { .string($0) }),
-      ])
-      let question = JudgmentQuestion.score(
-        instructions:
-          "`\(id).rule` would be applied as an always-on replacement rule to every future dictation, rewriting its left side wherever it appears. `\(id).excerpts` holds past transcripts containing that left side. Pick the level that describes how safe that rule is.",
-        criteria: ruleRiskLevels)
-      let estimate = (wrong.count + right.count + excerpts.reduce(0) { $0 + $1.count }) / 4 + 60
-      return ConfidenceItem(
-        id: id, state: state, question: question,
-        kind: .replacementRule(levels: ruleRiskLevels.count), estimatedTokens: estimate)
-    }
-    let state = JudgmentValue.object(["term": .string(suggestion.line)])
-    let question = JudgmentQuestion.noul(
-      instructions:
-        "Is `\(id).term` a term worth boosting for speech recognition - a proper noun, product name, jargon, or acronym - rather than a common word?"
-    )
-    let estimate = suggestion.line.count / 4 + 40
-    return ConfidenceItem(
-      id: id, state: state, question: question, kind: .vocabularyTerm, estimatedTokens: estimate)
-  }
-
-  // TypeSafe scores are 0-indexed over the level list: a 4-level question answers in 0...3,
-  // as a probability-weighted mean of the level positions (docs.typesafe.ai/primitives/score).
-  // Normalizing therefore divides by the top level index, not by it minus one.
-  private static func confidence(for kind: ConfidenceKind, answer: JudgmentAnswer?) -> Double? {
-    switch (kind, answer) {
-    case (.vocabularyTerm, .noul(let value)?):
-      return value
-    case (.replacementRule(let levels), .score(let value, _)?) where levels > 1:
-      return min(1, max(0, value / Double(levels - 1)))
-    default:
-      return nil
-    }
-  }
-
-  // Keeps each judgment request's state under ~8k estimated tokens (CLAUDE.md/spec budget),
-  // splitting into multiple sequential requests only when the fan-out is large enough to
-  // need it. `analyze()` already caps suggestions at 15 vocabulary + 10 replacements, so a
-  // single chunk is the common case.
-  private static func chunkedByEstimatedTokens(
-    _ items: [ConfidenceItem], budget: Int = 8000
-  ) -> [[ConfidenceItem]] {
-    var chunks: [[ConfidenceItem]] = []
-    var current: [ConfidenceItem] = []
-    var used = 0
-    for item in items {
-      if !current.isEmpty && used + item.estimatedTokens > budget {
-        chunks.append(current)
-        current = []
-        used = 0
-      }
-      current.append(item)
-      used += item.estimatedTokens
-    }
-    if !current.isEmpty { chunks.append(current) }
-    return chunks
-  }
 }

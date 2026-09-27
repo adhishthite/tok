@@ -18,22 +18,15 @@ final class CorrectionWatcher {
   // Lowercased boost terms: a correction whose right side is a known vocabulary term
   // passes the proper-noun gate even when lowercase ("kubectl", "gcloud").
   let vocabSet: Set<String>
-  // Item 1 (optional upgrade; see Engine/Judgment). When available, genuineness judging
-  // replaces the capitalization/vocab proxy and the Levenshtein band as the precision gate.
-  let judgment: JudgmentService
   // Main-thread-only. Bumping invalidates any armed read-back (captureActive idiom):
   // a new capture means the field is about to change under the pending read.
   var generation = 0
   let worker = DispatchQueue(label: "com.adhishthite.tok.corrections", qos: .utility)
 
-  // Unevaluated threshold; must be tuned on real data.
-  static let genuinenessThreshold = 0.7
-
-  init(config: EngineConfiguration, history: HistoryStore?, judgment: JudgmentService) {
+  init(config: EngineConfiguration, history: HistoryStore?) {
     self.history = history
     self.delayMs = config.learnDelayMs
     self.vocabSet = Set(config.customVocabulary.map { $0.lowercased() })
-    self.judgment = judgment
   }
 
   // Main thread. Called after a successful paste into the app identified by pid.
@@ -63,106 +56,17 @@ final class CorrectionWatcher {
       guard let self = self else { return }
       // Only the result crosses back to main; the field is never retained or logged.
       guard let field = Self.focusedFieldValue(pid: targetPid) else { return }
-      if self.judgment.isAvailable {
-        let candidates = Self.extractCandidates(
-          pasted: pastedText, field: field, vocabSet: self.vocabSet, applyProxyGates: false)
-        guard !candidates.isEmpty else { return }
-        self.judgeGenuineness(candidates: candidates) { [weak self] genuine in
-          guard let self = self, !genuine.isEmpty else { return }
-          DispatchQueue.main.async { [weak self] in
-            guard let self = self, gen == self.generation, !SecureInputMonitor.isActive,
-              NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPid
-            else { return }
-            for (candidate, score) in genuine {
-              self.history?.recordCorrection(
-                wrong: candidate.wrong, right: candidate.right, appName: appName,
-                genuineness: score, source: "ax_readback_jev")
-            }
-            Log.info("LEARN", "Observed \(genuine.count) typed corrections (Jev-confirmed).")
-          }
+      let pairs = Self.extractCorrections(pasted: pastedText, field: field, vocabSet: self.vocabSet)
+      DispatchQueue.main.async { [weak self] in
+        guard let self = self, gen == self.generation, !SecureInputMonitor.isActive,
+          NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPid
+        else { return }
+        for p in pairs {
+          self.history?.recordCorrection(wrong: p.wrong, right: p.right, appName: appName)
         }
-      } else {
-        let pairs = Self.extractCorrections(
-          pasted: pastedText, field: field, vocabSet: self.vocabSet)
-        DispatchQueue.main.async { [weak self] in
-          guard let self = self, gen == self.generation, !SecureInputMonitor.isActive,
-            NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPid
-          else { return }
-          for p in pairs {
-            self.history?.recordCorrection(wrong: p.wrong, right: p.right, appName: appName)
-          }
-          if !pairs.isEmpty { Log.info("LEARN", "Observed \(pairs.count) typed corrections.") }
-        }
+        if !pairs.isEmpty { Log.info("LEARN", "Observed \(pairs.count) typed corrections.") }
       }
     }
-  }
-
-  // Sends one noul per candidate pair in a single Jev request and keeps only those judged
-  // genuine (noul >= genuinenessThreshold). Internal (not private) so tests can drive it
-  // directly with synthetic candidates instead of the AX read-back.
-  func judgeGenuineness(
-    candidates: [Candidate], completion: @escaping ([(candidate: Candidate, score: Double)]) -> Void
-  ) {
-    guard !candidates.isEmpty else {
-      completion([])
-      return
-    }
-    var questions: [String: JudgmentQuestion] = [:]
-    for index in candidates.indices {
-      questions["pair_\(index)"] = Self.genuinenessQuestion(index: index)
-    }
-    let state = JudgmentValue.object([
-      "pairs": .array(
-        candidates.map {
-          .object([
-            "pasted": .string($0.pastedWindow), "edited": .string($0.editedWindow),
-            "wrong": .string($0.wrong), "right": .string($0.right),
-          ])
-        })
-    ])
-    judgment.ask(state: state, questions: questions, label: "correction_genuineness") { result in
-      let response: JudgmentResponse
-      switch result {
-      case .success(let value):
-        response = value
-      // .unavailable means the gate is simply closed, which is the normal no-key state and
-      // never worth a line; any other failure is a real integration problem, so it is logged.
-      case .failure(.unavailable):
-        completion([])
-        return
-      case .failure(let error):
-        Log.warn("Jev", "Correction genuineness judgment failed: \(error.diagnosticDescription).")
-        completion([])
-        return
-      }
-      var genuine: [(candidate: Candidate, score: Double)] = []
-      for (index, candidate) in candidates.enumerated() {
-        guard case .noul(let value)? = response.answers["pair_\(index)"],
-          value >= Self.genuinenessThreshold
-        else { continue }
-        genuine.append((candidate, value))
-      }
-      completion(genuine)
-    }
-  }
-
-  // The candidate itself travels in the request state as `pairs[index]`; the question only
-  // needs the index to point at it.
-  private static func genuinenessQuestion(index: Int) -> JudgmentQuestion {
-    .noul(
-      instructions: """
-        In `pairs[\(index)]`, speech recognition produced `pairs[\(index)].wrong` where the \
-        speaker's own edit shows `pairs[\(index)].right` was intended, inside the surrounding \
-        text `pairs[\(index)].pasted` (as recognized) versus `pairs[\(index)].edited` (after the \
-        user's edit). Is `pairs[\(index)].right` what the speaker actually said - a phonetic or \
-        spelling misrecognition fix - and not a change of meaning, wording, tense, or a deletion?
-        """,
-      criteria: [
-        "true":
-          "A misrecognition fix: \"cloud\" -> \"Claude\" (misheard product name); \"cot\" -> \"Kot\" (misheard name).",
-        "false":
-          "A meaning or wording change, not a misrecognition: \"quick\" -> \"fast\" (synonym swap); \"the\" -> \"a\" (grammar edit).",
-      ])
   }
 
   // Focused element's string value in the target app, or nil when the app exposes none.
@@ -196,19 +100,6 @@ final class CorrectionWatcher {
   // band. A missed correction costs nothing (the analyzer can still infer it); a false
   // positive plants a bad rule suggestion.
   static func extractCorrections(pasted: String, field: String, vocabSet: Set<String>) -> [Pair] {
-    extractCandidates(pasted: pasted, field: field, vocabSet: vocabSet, applyProxyGates: true).map {
-      Pair(wrong: $0.wrong, right: $0.right)
-    }
-  }
-
-  // The full gate stack through "not case-only" and the cap of 3 always applies (recall
-  // filter). `applyProxyGates` additionally applies the capitalization/known-vocab proxy and
-  // the Levenshtein band - the precision filter used only when Jev is unavailable to judge
-  // genuineness directly (item 1). `pastedWindow`/`editedWindow` are the surrounding window
-  // sentences a genuineness judgment needs for context.
-  static func extractCandidates(
-    pasted: String, field: String, vocabSet: Set<String>, applyProxyGates: Bool
-  ) -> [Candidate] {
     guard pasted.utf8.count <= 16000, field.utf8.count <= 500000 else { return [] }
     let pastedTokens = tokenize(pasted)
     let fieldTokens = tokenize(field)
@@ -218,10 +109,8 @@ final class CorrectionWatcher {
 
     let window = bestWindow(pasted: pastedTokens, field: fieldTokens)
     guard !window.isEmpty else { return [] }
-    let pastedSentence = pastedTokens.joined(separator: " ")
-    let editedSentence = window.joined(separator: " ")
 
-    var candidates: [Candidate] = []
+    var pairs: [Pair] = []
     for (wrongRaw, rightRaw) in substitutions(from: pastedTokens, to: window) {
       let wrong = strip(wrongRaw)
       let right = strip(rightRaw)
@@ -231,18 +120,14 @@ final class CorrectionWatcher {
       guard !stopwords.contains(wrong.lowercased()), !stopwords.contains(right.lowercased()) else {
         continue
       }
-      if applyProxyGates {
-        guard right.first!.isUppercase || vocabSet.contains(right.lowercased()) else { continue }
-        let dist = levenshtein(wrong.lowercased(), right.lowercased())
-        let maxLen = max(wrong.count, right.count)
-        guard dist <= max(2, (6 * maxLen) / 10) else { continue }
-      }
-      candidates.append(
-        Candidate(
-          wrong: wrong, right: right, pastedWindow: pastedSentence, editedWindow: editedSentence))
-      if candidates.count >= 3 { break }
+      guard right.first!.isUppercase || vocabSet.contains(right.lowercased()) else { continue }
+      let dist = levenshtein(wrong.lowercased(), right.lowercased())
+      let maxLen = max(wrong.count, right.count)
+      guard dist <= max(2, (6 * maxLen) / 10) else { continue }
+      pairs.append(Pair(wrong: wrong, right: right))
+      if pairs.count >= 3 { break }
     }
-    return candidates
+    return pairs
   }
 
   private static func tokenize(_ text: String) -> [String] {

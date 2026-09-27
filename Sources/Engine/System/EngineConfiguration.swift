@@ -14,10 +14,6 @@ import SQLite3
 public struct EngineConfiguration: Sendable {
   public init() {}
   public var geminiApiKey: String = ""
-  // Optional upgrade (see Engine/Judgment): active only when this key is set AND a one-time
-  // models probe succeeds. Not a SettingCatalog row - lives in Keychain only, mirroring
-  // geminiApiKey exactly.
-  public var typesafeApiKey: String = ""
   public var geminiModel: String = "gemini-3.5-flash-lite"
   public var geminiLiveModel: String = "gemini-3.5-transcribe-live"
   public var smartTranscription: Bool = true
@@ -275,7 +271,6 @@ public struct EngineConfiguration: Sendable {
   {
     var config = EngineConfiguration()
     config.geminiApiKey = values["GEMINI_API_KEY"] ?? ""
-    config.typesafeApiKey = values["TYPESAFE_API_KEY"] ?? ""
     for setting in SettingCatalog.all {
       setting.apply(&config, values[setting.key] ?? setting.defaultValue)
     }

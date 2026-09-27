@@ -5,13 +5,10 @@ import Foundation
 import Security
 
 enum Keychain {
-  enum Account: String {
-    case gemini = "gemini-api-key"
-    case typesafe = "typesafe-api-key"
-  }
   private static let service = "com.adhishthite.tok"
-  static func readAPIKey(_ account: Account = .gemini) throws -> String? {
-    var query = baseQuery(account)
+  private static let account = "gemini-api-key"
+  static func readAPIKey() throws -> String? {
+    var query = baseQuery
     query[kSecReturnData as String] = true
     query[kSecMatchLimit as String] = kSecMatchLimitOne
     var result: CFTypeRef?
@@ -22,12 +19,12 @@ enum Keychain {
     }
     return String(data: data, encoding: .utf8)
   }
-  static func saveAPIKey(_ value: String, account: Account = .gemini) throws {
+  static func saveAPIKey(_ value: String) throws {
     let data = Data(value.utf8)
     let status = SecItemUpdate(
-      baseQuery(account) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+      baseQuery as CFDictionary, [kSecValueData as String: data] as CFDictionary)
     if status == errSecItemNotFound {
-      var query = baseQuery(account)
+      var query = baseQuery
       query[kSecValueData as String] = data
       query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
       let addStatus = SecItemAdd(query as CFDictionary, nil)
@@ -36,17 +33,20 @@ enum Keychain {
       throw KeychainError(status: status)
     }
   }
-  /// Removes a stored key. A key that was never saved counts as removed.
-  static func deleteAPIKey(_ account: Account) throws {
-    let status = SecItemDelete(baseQuery(account) as CFDictionary)
-    guard status == errSecSuccess || status == errSecItemNotFound else {
-      throw KeychainError(status: status)
-    }
+  /// Deletes the key that builds 15 and earlier stored for the removed TypeSafe integration,
+  /// so no third-party credential outlives the feature. Best effort: a missing item or a
+  /// locked keychain is left for the next launch.
+  static func deleteRetiredTypeSafeKey() {
+    SecItemDelete(
+      [
+        kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+        kSecAttrAccount as String: "typesafe-api-key",
+      ] as CFDictionary)
   }
-  private static func baseQuery(_ account: Account) -> [String: Any] {
+  private static var baseQuery: [String: Any] {
     [
       kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-      kSecAttrAccount as String: account.rawValue,
+      kSecAttrAccount as String: account,
     ]
   }
 }
