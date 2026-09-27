@@ -20,7 +20,8 @@ as a signed menu-bar app. Tok is not a Google product and carries no Google bran
 - `HUD/` is AppKit + Core Animation on an NSPanel. Do not rewrite in SwiftUI.
   Never animate the panel frame. `HoldRingView`'s backing layer is the
   CAShapeLayer via `makeBackingLayer`. All colors come from the Tok palette.
-- `Engine/Judgment` is optional, gated on the TypeSafe key, and never on the paste path.
+- Generative AI calls go to the Gemini API only. Do not add a third-party AI service:
+  the owner's approval for Google corporate use depends on it.
 - One type per file, named after the type. Normal access control.
 
 ## Engine invariants (do not relearn these)

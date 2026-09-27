@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     vocabularyWindows.connect(to: store.settings)
     store.start()
+    Task.detached(priority: .utility) { Keychain.deleteRetiredTypeSafeKey() }
     if store.needsSetup || ProcessInfo.processInfo.arguments.contains("--show-setup") {
       setupWindow.show(store: store)
     }

@@ -94,11 +94,6 @@ struct SettingsReference {
       "# Gemini API key (required). Create one at https://aistudio.google.com/",
       "# Saved to Keychain on import; never stored in preferences.",
       "GEMINI_API_KEY=",
-      "",
-      "# TypeSafe API key (optional). Create one at https://typesafe.ai/",
-      "# Enables Jev judgments (correction scoring, analyzer confidence, per-turn quality",
-      "# signals). Everything works without it; nothing is sent to TypeSafe when it is empty.",
-      "TYPESAFE_API_KEY=",
     ]
     for group in SettingGroup.allCases {
       let settings = SettingCatalog.all.filter { $0.group == group }
