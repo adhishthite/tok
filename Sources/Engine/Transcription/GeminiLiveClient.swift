@@ -1097,7 +1097,9 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
 
   // Base64's alphabet (A-Za-z0-9+/=) needs no JSON escaping, so the fixed-shape
   // envelope is built once and the payload is spliced in directly, skipping
-  // JSONSerialization on the hot per-chunk (CHUNK_MS, ~100ms) path.
+  // JSONSerialization on the hot per-chunk (CHUNK_MS, ~100ms) path. The Live API
+  // documents raw 16-bit 16 kHz PCM as its only input format, so live audio stays
+  // uncompressed (decision record: adhishthite/tok#17).
   private static let audioChunkJSONPrefix =
     "{\"realtimeInput\":{\"audio\":{\"mimeType\":\"audio/pcm;rate=16000\",\"data\":\""
   private static let audioChunkJSONSuffix = "\"}}}"
@@ -1216,9 +1218,12 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     }
   }
 
+  static func audioChunkFrame(_ pcmChunk: Data) -> String {
+    audioChunkJSONPrefix + pcmChunk.base64EncodedString() + audioChunkJSONSuffix
+  }
+
   func sendAudioChunk(_ pcmChunk: Data) {
-    sendTurnMessage(
-      Self.audioChunkJSONPrefix + pcmChunk.base64EncodedString() + Self.audioChunkJSONSuffix)
+    sendTurnMessage(Self.audioChunkFrame(pcmChunk))
   }
 
   func commitTurn(
