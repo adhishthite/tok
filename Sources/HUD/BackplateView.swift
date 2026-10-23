@@ -15,17 +15,13 @@ final class BackplateView: NSView {
   override init(frame frameRect: NSRect) {
     super.init(frame: frameRect)
     self.wantsLayer = true
-    if #available(macOS 10.15, *) {
-      self.layer?.cornerCurve = .continuous
-    }
+    self.layer?.cornerCurve = .continuous
   }
 
   required init?(coder: NSCoder) {
     super.init(coder: coder)
     self.wantsLayer = true
-    if #available(macOS 10.15, *) {
-      self.layer?.cornerCurve = .continuous
-    }
+    self.layer?.cornerCurve = .continuous
   }
 
   override func draw(_ dirtyRect: NSRect) {

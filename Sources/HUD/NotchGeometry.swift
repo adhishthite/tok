@@ -10,8 +10,7 @@ struct NotchGeometry {
   let hasPhysicalNotch: Bool
 
   static func detect(screen: NSScreen) -> NotchGeometry {
-    if #available(macOS 12.0, *),
-      let left = screen.auxiliaryTopLeftArea,
+    if let left = screen.auxiliaryTopLeftArea,
       let right = screen.auxiliaryTopRightArea
     {
       let width = right.minX - left.maxX
