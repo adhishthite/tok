@@ -98,7 +98,7 @@ enum PostProcessingClient {
         "type": "OBJECT", "properties": ["text": ["type": "STRING"]], "required": ["text"],
       ],
     ]
-    if ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"].contains(model) {
+    if model == "gemini-3.5-flash-lite" {
       generation["thinkingConfig"] = ["thinkingLevel": "minimal"]
     }
     request.httpBody = try JSONSerialization.data(withJSONObject: [

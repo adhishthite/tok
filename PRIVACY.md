@@ -47,7 +47,8 @@ judgment columns from the history database.
   "Hide dictated words on screen".
 - **Diagnostics** keep a session log in memory, plus a rolling file on disk in
   the same folder. Both hold timing and error lines only, never transcript
-  text or your API key, and the file is capped at about 1 MB.
+  text or your API key. The file rolls at 4 MB and one older file is kept,
+  so diagnostics on disk are capped at about 8 MB in total.
 
 ## Usage metrics
 

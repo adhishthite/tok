@@ -328,7 +328,7 @@ public final class DictationEngine {
         // read the destination window over Accessibility for nothing (audit F33).
         Log.warn(
           "LEARN",
-          "LEARN_CORRECTIONS is on but HISTORY=false - corrections are not observed. Turn History on to collect them for `make analyze`."
+          "Learn from typed corrections is on, but Save dictation history is off, so corrections are not saved. Turn on Save dictation history in Settings to keep them."
         )
       }
     }
