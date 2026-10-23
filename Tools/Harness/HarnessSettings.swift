@@ -94,7 +94,9 @@ enum HarnessSettings {
     let reference = effective(arm: baseline, owner: owner)
     return Set(
       names.filter { name in
-        guard name != baseline.name, let arm = HarnessArm.named(name) else { return false }
+        guard name != baseline.name, name != "control", let arm = HarnessArm.named(name) else {
+          return false
+        }
         return effective(arm: arm, owner: owner) == reference
       })
   }
