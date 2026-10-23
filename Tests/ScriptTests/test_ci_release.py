@@ -206,6 +206,43 @@ class CIReleaseTests(unittest.TestCase):
                 ):
                     release.verify_update_flags(info)
 
+    def test_minimum_macos_follows_the_project_deployment_target(self):
+        self.assertEqual(release.MINIMUM_MACOS, "15.0")
+        universal = ["arm64", "x86_64"]
+        release.verify_platform(universal, {"LSMinimumSystemVersion": "15.0"})
+        for architectures, minimum in [
+            (universal, "14.0"),
+            (universal, None),
+            (["arm64"], "15.0"),
+        ]:
+            with (
+                self.subTest(architectures=architectures, minimum=minimum),
+                self.assertRaisesRegex(RuntimeError, "declare macOS 15.0"),
+            ):
+                release.verify_platform(
+                    architectures, {"LSMinimumSystemVersion": minimum}
+                )
+
+    def test_appcast_must_carry_the_minimum_system_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            appcast = Path(directory) / "appcast.xml"
+            appcast.write_text(
+                "<item><sparkle:minimumSystemVersion>15.0"
+                "</sparkle:minimumSystemVersion></item>"
+            )
+            release.verify_appcast_minimum(appcast)
+            stale_feeds = [
+                "<item></item>",
+                "<sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>",
+            ]
+            for stale in stale_feeds:
+                appcast.write_text(stale)
+                with (
+                    self.subTest(stale=stale),
+                    self.assertRaisesRegex(RuntimeError, "minimum"),
+                ):
+                    release.verify_appcast_minimum(appcast)
+
     def test_wrong_zip_is_rejected_before_code_verification(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -247,7 +284,7 @@ class CIReleaseTests(unittest.TestCase):
                 "CFBundleVersion": "8",
                 "TokSourceRevision": "a" * 12,
                 "SUFeedURL": state["feed_url"],
-                "LSMinimumSystemVersion": "14.0",
+                "LSMinimumSystemVersion": release.MINIMUM_MACOS,
                 "SURequireSignedFeed": True,
                 "SUVerifyUpdateBeforeExtraction": True,
             }
@@ -266,7 +303,10 @@ class CIReleaseTests(unittest.TestCase):
                     with zipfile.ZipFile(args[3]) as zipped:
                         zipped.extractall(args[4])
                 if Path(command).name == "generate_appcast":
-                    Path(args[args.index("-o") + 1]).write_text("synthetic signed feed")
+                    Path(args[args.index("-o") + 1]).write_text(
+                        "synthetic signed feed <sparkle:minimumSystemVersion>"
+                        f"{release.MINIMUM_MACOS}</sparkle:minimumSystemVersion>"
+                    )
                 return subprocess.CompletedProcess(
                     args,
                     0,
