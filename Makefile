@@ -6,7 +6,7 @@ APP := $(DERIVED)/Build/Products/$(CONFIGURATION)/Tok.app
 ACTIONLINT ?= actionlint
 XCODEBUILD := ./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme Tok -configuration $(CONFIGURATION) -derivedDataPath "$(DERIVED)" -destination 'platform=macOS'
 
-.PHONY: install clean check format lint generate build run test package test-live distribute containers notarize-app notarize-dmg profile-microphone icon check-updates settings-tool settings-reference check-settings test-cleanup-live check-ci report harness-clips harness-build harness harness-smoke harness-direct harness-report
+.PHONY: install clean check format lint generate build run test package test-live distribute containers notarize-app notarize-dmg profile-microphone icon check-updates settings-tool settings-reference check-settings test-cleanup-live test-tsan check-ci report harness-clips harness-build harness harness-smoke harness-direct harness-report
 
 install:
 	@command -v xcodegen >/dev/null || brew install xcodegen
@@ -69,6 +69,9 @@ profile-microphone: build
 
 test: generate
 	$(XCODEBUILD) test
+
+test-tsan: generate
+	./Scripts/xcodebuild.sh -project Tok.xcodeproj -scheme Tok -configuration Debug -derivedDataPath "$(CURDIR)/build/DerivedData-TSan" -destination 'platform=macOS' -enableThreadSanitizer YES -only-testing:TokEngineTests test
 
 test-live:
 	./Scripts/live_check.sh

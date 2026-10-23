@@ -323,6 +323,32 @@ gives up the 41 ms finalize of the first version for the full quiet window, and 
 removes the cap. Loud transient sounds at speech level (a notification, a voice) still hold
 the tail; no level-based rule can separate those from words.
 
+## Concurrency refactor baseline, 2026-10-23
+
+Baseline for #14 before any engine isolation change. Real use of build 16
+(`5c2ade61d2ae`, the engine source on main), 2026-09-27 to 2026-10-23, 5 sessions,
+`make report ARGS="--build 5c2ade61d2ae"`, 261 successful turns:
+
+| Metric | n | Median | p95 |
+| --- | --- | --- | --- |
+| `total_ms` | 261 | 490.7 | 840.2 |
+| `roundtrip_ms` | 261 | 422.5 | 759.5 |
+| `capture_finalize_ms` | 261 | 32.5 | 120.8 |
+| `commit_to_final_ms` | 260 | 416.5 | 731.4 |
+| `inject_ms` | 261 | 13.7 | 23.7 |
+| `event_queue_ms` | 268 | 0.3 | 7.4 |
+
+Split-half noise (first 134 vs last 134 rows by time, all outcomes, nearest-rank
+p95): `total_ms` p50 and p95 each moved 44 ms, `commit_to_final_ms` p50 47 ms and
+p95 152 ms, `capture_finalize_ms` p95 102 ms. The engine-local metrics held:
+`event_queue_ms` and `inject_ms` moved under 2 ms, `capture_finalize_ms` p50 0.1 ms.
+The 5 ms p50 and 10 ms p95 gate in #14 is therefore usable for `event_queue_ms`,
+`inject_ms` and the `capture_finalize_ms` median only. Network-bound metrics need a
+paired harness run to separate a regression from run-to-run variance.
+
+`make test-tsan` runs `TokEngineTests` under Thread Sanitizer in its own derived
+data folder: 163 tests, 3 skipped (live API), 0 failures, 0 sanitizer reports.
+
 ## Latency harness
 
 The harness runs real engine turns without a person. `TokHarness` builds a
