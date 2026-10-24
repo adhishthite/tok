@@ -39,9 +39,9 @@ final class HarnessRunner {
   private static let minGapS: TimeInterval = 1.0
   /// Audio kept after the last word by Scripts/harness_clips.py (TRIM_TAIL_S).
   private static let clipTrailS = 0.12
-  /// A stopped clip also reports completion, at the moment it stops. Clips that play out
-  /// finish within about 25 ms of plan, so finishing more than this early means the output
-  /// stopped mid-clip and the turn heard only part of it.
+  /// A second guard next to `ClipPlayer.clipInterrupted` for a stop with another cause: a
+  /// stopped clip reports completion when it stops, and clips that play out finish within
+  /// about 25 ms of plan.
   static let earlyStopMs = 100.0
 
   struct PlannedTurn {
@@ -283,6 +283,7 @@ final class HarnessRunner {
       playbackDelayMs = (finished - expectedEnd) * 1000
       waitUntilHost(finished - Self.clipTrailS + turn.tailMs / 1000)
     }
+    let interrupted = player.clipInterrupted
     DispatchQueue.main.async { engine.harnessKeyUp() }
     let record = observer.waitForRecord(timeout: Self.recordTimeout)
     player.stopClip()
@@ -306,10 +307,10 @@ final class HarnessRunner {
       silenceFlushMs: configuration.silenceFlushMs, ambientDb: ambientDb, reference: clip.text)
     row.playbackDelayMs = playbackDelayMs
     if let record { row.apply(record) } else { row.outcome = "no_record" }
-    if let playbackDelayMs, playbackDelayMs < -Self.earlyStopMs {
+    if interrupted || (playbackDelayMs ?? 0) < -Self.earlyStopMs {
       // Reports count only "success" rows, so this keeps a partial clip out of the results.
       row.outcome = "playback_interrupted"
-      say("clip \(clip.clipId) stopped \(Int(-playbackDelayMs)) ms early; turn excluded")
+      say("clip \(clip.clipId) output stopped during playback; turn excluded")
     }
     write(row)
 

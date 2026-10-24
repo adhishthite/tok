@@ -91,6 +91,16 @@ final class ClipPlayer {
     return playedBackAt
   }
 
+  /// True when the output stopped after the current clip was scheduled. A stopped clip
+  /// reports completion like a played one, so only this tells them apart. Read it before
+  /// `stopClip`.
+  var clipInterrupted: Bool {
+    restartLock.lock()
+    let changed = configurationChanged
+    restartLock.unlock()
+    return changed || !engine.isRunning
+  }
+
   /// The engine stops itself on a configuration change and does not start again, so
   /// every later clip would play into silence.
   private func restartIfNeeded() throws {
