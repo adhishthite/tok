@@ -125,4 +125,47 @@ final class ConnectionStateClientTests: XCTestCase {
       epoch: 0, error: NSError(domain: "fixture", code: 2), reason: "keepalive")
     check(kinds.last == "lost_keepalive", "a keepalive-tagged failure reports lost_keepalive")
   }
+
+  func testCloseReasonIsReducedToAFixedCategory() {
+    check(GeminiLiveClient.closeReasonCategory("") == "none", "an empty reason reads none")
+    check(GeminiLiveClient.closeReasonCategory("API key not valid") == "key", "key wording")
+    check(
+      GeminiLiveClient.closeReasonCategory("RESOURCE_EXHAUSTED: quota") == "quota", "quota")
+    check(
+      GeminiLiveClient.closeReasonCategory("Deadline expired before operation") == "timeout",
+      "deadline wording reads timeout")
+    check(GeminiLiveClient.closeReasonCategory("zebra-7731") == "other", "anything else")
+  }
+
+  func testConnectionLossLogsCloseCodeAndCategoryButNoText() {
+    let recorder = EngineEventRecorder()
+    Log.configure(delegate: recorder, apiKey: "", privacyMode: false)
+    defer { Log.configure(delegate: nil, apiKey: "", privacyMode: false) }
+    let probe = LiveWriteProbe()
+    let client = GeminiLiveClient(apiKey: "")
+    client.recoveryFixture(probe)
+    guard let task = client.webSocketTask else { return XCTFail("fixture has no task") }
+    client.urlSession(
+      client.urlSession, webSocketTask: task, didCloseWith: .goingAway,
+      reason: Data("idle timeout zebra-7731".utf8))
+    client.connectionFailed(
+      epoch: 0,
+      error: NSError(
+        domain: "fixture", code: 57, userInfo: [NSLocalizedDescriptionKey: "detail-4471"]))
+    Log.flush()
+    let lines = recorder.events.compactMap { event -> String? in
+      if case .diagnostic(let line) = event { return line }
+      return nil
+    }
+    check(
+      lines.contains { $0.contains("close frame code=1001 reason=timeout") },
+      "the close frame logs its code and category: \(lines)")
+    check(
+      lines.contains {
+        $0.contains("connection lost kind=lost_error close=0 closeReason=timeout error=fixture/57")
+      }, "the loss logs kind, close code, category and error number: \(lines)")
+    check(
+      !lines.contains { $0.contains("zebra") || $0.contains("detail-4471") },
+      "neither the close reason text nor the error text is logged")
+  }
 }
