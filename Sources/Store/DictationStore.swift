@@ -226,7 +226,6 @@ final class DictationStore: DictationEngineDelegate {
   func previewHUD() { hud?.preview() }
 
   func stop() {
-    crashDiagnostics.unregister()
     hud?.hide()
     engine?.stop()
     engine = nil

@@ -82,6 +82,19 @@ final class CrashDiagnosticsTests: XCTestCase {
     log.close()
   }
 
+  /// Pause and a permission revocation both call `stop()`; neither may end crash reporting,
+  /// since only launch registers the subscriber.
+  func testPausingDictationKeepsCrashReportsSubscribed() {
+    let suite = "TokCrashDiagnosticsTests.\(UUID().uuidString)"
+    defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+    let settings = SettingsStore(defaults: UserDefaults(suiteName: suite)!, supportDirectory: root)
+    let store = DictationStore(settings: settings)
+    store.crashDiagnostics.register()
+    store.setPaused(true)
+    store.setPaused(false)
+    XCTAssertTrue(store.crashDiagnostics.isRegistered)
+  }
+
   func testClearLogDeletesStoredCrashReports() {
     let suite = "TokCrashDiagnosticsTests.\(UUID().uuidString)"
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }

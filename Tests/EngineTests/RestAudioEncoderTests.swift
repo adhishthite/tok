@@ -60,16 +60,13 @@ final class RestAudioEncoderTests: XCTestCase {
     XCTAssertEqual(audio.data, WAVEncoder.encode(from: pcm, sampleRate: 16000, channels: 1))
   }
 
-  func testIncompressibleAudioStaysWAVSoItNeverExceedsTheWAVBound() {
-    var generator = UInt64(11)
-    let samples = (0..<32_000).map { _ -> Int16 in
-      generator = generator &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
-      return Int16(truncatingIfNeeded: generator >> 48)
-    }
-    let pcm = samples.withUnsafeBytes { Data($0) }
-    let audio = RestAudioEncoder.encode(pcm: pcm)
+  /// A FLAC result as large as WAV is dropped, so the payload never exceeds the WAV bound
+  /// that GeminiRestClient sizes turns against.
+  func testFLACNoSmallerThanWAVStaysWAVSoItNeverExceedsTheWAVBound() {
+    let pcm = speechLikePCM(seconds: 1)
+    let audio = RestAudioEncoder.encode(pcm: pcm) { Data(count: $0.count + 44) }
     XCTAssertEqual(audio.mimeType, "audio/wav")
-    XCTAssertEqual(audio.data.count, pcm.count + 44)
+    XCTAssertEqual(audio.data, WAVEncoder.encode(from: pcm, sampleRate: 16000, channels: 1))
   }
 
   func testRequestPartCarriesTheEncoderMimeTypeAndBytes() throws {

@@ -134,14 +134,16 @@ enum RestAudioEncoder {
   private nonisolated(unsafe) static var failureReported = false
   private static let failureLock = NSLock()
 
-  /// One warning per launch: a broken encoder would otherwise log on every REST turn.
+  /// One warning per launch: a broken encoder would otherwise log on every REST turn. Each
+  /// turn still tries FLAC first.
   private static func reportFailureOnce(_ error: Error) {
     failureLock.lock()
     let first = !failureReported
     failureReported = true
     failureLock.unlock()
     if first {
-      Log.warn("REST", "FLAC encode failed (\(error)); sending WAV for this launch's REST turns.")
+      Log.warn(
+        "REST", "FLAC encode failed (\(error)); sending WAV. Later failures are not logged.")
     }
   }
 

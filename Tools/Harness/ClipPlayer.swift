@@ -76,7 +76,8 @@ final class ClipPlayer {
   }
 
   /// When the current clip actually finished leaving the speaker, waiting up to
-  /// `timeout` for it. Nil when it is still playing after the wait.
+  /// `timeout` for it. Nil when it is still playing after the wait. A clip stopped by
+  /// `stopClip` or by a configuration change reports the moment it stopped.
   func playedBack(timeout: TimeInterval) -> TimeInterval? {
     doneLock.lock()
     if let playedBackAt {

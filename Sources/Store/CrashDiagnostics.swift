@@ -30,9 +30,16 @@ final class CrashDiagnostics: NSObject, MXMetricManagerSubscriber, @unchecked Se
     self.maxBytes = maxBytes
   }
 
-  func register() { MXMetricManager.shared.add(self) }
+  /// Main thread only.
+  private(set) var isRegistered = false
 
-  func unregister() { MXMetricManager.shared.remove(self) }
+  /// Once per launch. The subscription lasts for the app run: pausing dictation or losing
+  /// a permission must not end crash reporting, and process exit removes it.
+  func register() {
+    guard !isRegistered else { return }
+    MXMetricManager.shared.add(self)
+    isRegistered = true
+  }
 
   /// Keeps crash and hang diagnostics only. CPU, disk-write and launch diagnostics, and
   /// the performance metrics payloads, are out of scope.
