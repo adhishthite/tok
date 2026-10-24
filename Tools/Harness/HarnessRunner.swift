@@ -223,6 +223,11 @@ final class HarnessRunner {
       else { return .aborted("could not play clip \(turn.clip.clipId)") }
       previousEnd = ProcessInfo.processInfo.systemUptime
       done += 1
+      if row.playbackDelayMs == nil {
+        return .aborted(
+          "clip \(turn.clip.clipId) did not finish playing within 15 s of release. The output "
+            + "engine is not rendering; check the speakers and any app holding the audio device.")
+      }
       let usable = row.outcome == "success" && (row.accuracy?.hypothesisWords ?? 0) > 0
       consecutiveBad = usable ? 0 : consecutiveBad + 1
       if consecutiveBad >= Self.maxConsecutiveBad {
@@ -253,6 +258,7 @@ final class HarnessRunner {
     let speechStart = keyDown + turn.leadMs / 1000
     let keyUp = speechStart + (clip.speechOffsetS - clip.speechOnsetS) + turn.tailMs / 1000
     let expectedEnd: TimeInterval
+    let restartsBefore = player.restarts
     do {
       expectedEnd = try player.play(
         url: clipDirectory.appendingPathComponent("\(clip.clipId).wav"),
@@ -260,6 +266,9 @@ final class HarnessRunner {
     } catch {
       writeLog("[harness] \(clip.clipId): \(error)")
       return nil
+    }
+    if player.restarts > restartsBefore {
+      say("output engine restarted after a configuration change (restart \(player.restarts))")
     }
     waitUntilHost(keyDown)
     DispatchQueue.main.async { engine.harnessKeyDown() }

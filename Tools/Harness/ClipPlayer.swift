@@ -7,6 +7,7 @@ import Foundation
 /// Plays clips through one output engine that runs for the whole harness run, so the
 /// speakers never pay a cold start and every clip is placed on the host clock. All clips
 /// must share one sample rate and channel count (Scripts/harness_clips.py writes them so).
+/// A route or format change stops the engine; the next `play` restarts it.
 final class ClipPlayer {
   private let engine = AVAudioEngine()
   private let node = AVAudioPlayerNode()
@@ -14,6 +15,11 @@ final class ClipPlayer {
   private let doneLock = NSLock()
   private let done = DispatchSemaphore(value: 0)
   private var playedBackAt: TimeInterval?
+  private let restartLock = NSLock()
+  private var configurationChanged = false
+  private var observer: NSObjectProtocol?
+  /// Restarts after a configuration change or a stopped engine. Read between clips.
+  private(set) var restarts = 0
 
   init(format: AVAudioFormat) throws {
     self.format = format
@@ -21,6 +27,18 @@ final class ClipPlayer {
     engine.connect(node, to: engine.mainMixerNode, format: format)
     try engine.start()
     node.play()
+    observer = NotificationCenter.default.addObserver(
+      forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
+    ) { [weak self] _ in
+      guard let self else { return }
+      self.restartLock.lock()
+      self.configurationChanged = true
+      self.restartLock.unlock()
+    }
+  }
+
+  deinit {
+    if let observer { NotificationCenter.default.removeObserver(observer) }
   }
 
   static func format(of url: URL) throws -> AVAudioFormat {
@@ -39,6 +57,7 @@ final class ClipPlayer {
     guard file.processingFormat == format else {
       throw HarnessError.setup("\(url.lastPathComponent) does not match the clip bank format")
     }
+    try restartIfNeeded()
     doneLock.lock()
     playedBackAt = nil
     doneLock.unlock()
@@ -69,6 +88,22 @@ final class ClipPlayer {
     doneLock.lock()
     defer { doneLock.unlock() }
     return playedBackAt
+  }
+
+  /// The engine stops itself on a configuration change and does not start again, so
+  /// every later clip would play into silence.
+  private func restartIfNeeded() throws {
+    restartLock.lock()
+    let changed = configurationChanged
+    configurationChanged = false
+    restartLock.unlock()
+    guard changed || !engine.isRunning else { return }
+    node.stop()
+    engine.stop()
+    engine.connect(node, to: engine.mainMixerNode, format: format)
+    try engine.start()
+    node.play()
+    restarts += 1
   }
 
   func stopClip() {
