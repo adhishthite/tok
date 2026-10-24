@@ -29,6 +29,15 @@ class ShippedTextTests(unittest.TestCase):
         self.assertIsNotNone(stated, "PRIVACY.md no longer states the diagnostics cap")
         self.assertGreaterEqual(int(stated.group(1)), total_mb)
 
+    def test_privacy_states_the_crash_report_bounds(self):
+        source = (ROOT / "Sources/Store/CrashDiagnostics.swift").read_text()
+        files = re.search(r"defaultMaxFiles = (\d+)", source)
+        megabytes = re.search(r"defaultMaxBytes = (\d+) \* 1024 \* 1024", source)
+        self.assertIsNotNone(files)
+        self.assertIsNotNone(megabytes)
+        privacy = " ".join((ROOT / "PRIVACY.md").read_text().split())
+        self.assertIn(f"at most {files.group(1)} reports and {megabytes.group(1)} MB", privacy)
+
     def test_no_developer_commands_or_retired_models_in_shipped_strings(self):
         offenders = []
         for path in sorted((ROOT / "Sources").rglob("*.swift")):

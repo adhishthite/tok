@@ -49,6 +49,11 @@ judgment columns from the history database.
   the same folder. Both hold timing and error lines only, never transcript
   text or your API key. The file rolls at 4 MB and one older file is kept,
   so diagnostics on disk are capped at about 8 MB in total.
+- **Crash and hang reports** come from macOS through MetricKit, usually at the next
+  launch. Tok stores them in the same folder, readable only by your account. They hold
+  call stacks and app and macOS metadata, never transcript text or your API key. Tok
+  keeps at most 10 reports and 2 MB, oldest deleted first. They leave the Mac only
+  inside a diagnostics report you save, and "Clear log" deletes them.
 
 ## Usage metrics
 
