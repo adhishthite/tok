@@ -48,15 +48,20 @@ final class RestDecoderTests: XCTestCase {
   }
 
   func testInlineAudioSizeMathMatchesTheDocumentedCap() {
-    // 44-byte WAV header, then 4 base64 characters per 3 bytes.
-    XCTAssertEqual(GeminiRestClient.inlineAudioBytes(pcmByteCount: 0), 60)
-    let sevenMinutes = 7 * 60 * 32_000
-    let nineMinutes = 9 * 60 * 32_000
+    // 4 base64 characters per 3 encoded bytes, padded.
+    XCTAssertEqual(GeminiRestClient.inlineAudioBytes(encodedByteCount: 44), 60)
+    let sevenMinutesWAV = 7 * 60 * 32_000 + 44
+    let nineMinutesWAV = 9 * 60 * 32_000 + 44
     XCTAssertLessThanOrEqual(
-      GeminiRestClient.inlineAudioBytes(pcmByteCount: sevenMinutes),
+      GeminiRestClient.inlineAudioBytes(encodedByteCount: sevenMinutesWAV),
       GeminiRestClient.maxInlineAudioBytes)
     XCTAssertGreaterThan(
-      GeminiRestClient.inlineAudioBytes(pcmByteCount: nineMinutes),
+      GeminiRestClient.inlineAudioBytes(encodedByteCount: nineMinutesWAV),
+      GeminiRestClient.maxInlineAudioBytes)
+    // The turn cap is sized from WAV, the largest payload the encoder returns.
+    let cappedWAV = Int(GeminiRestClient.maxInlineAudioSeconds * 32_000) + 44
+    XCTAssertLessThanOrEqual(
+      GeminiRestClient.inlineAudioBytes(encodedByteCount: cappedWAV),
       GeminiRestClient.maxInlineAudioBytes)
   }
 
@@ -64,7 +69,8 @@ final class RestDecoderTests: XCTestCase {
     let finished = expectation(description: "size check answers")
     var failure: NSError?
     GeminiRestClient.transcribe(
-      pcmData: Data(count: 9 * 60 * 32_000), apiKey: "fixture-key", model: "gemini-fixture"
+      audio: (Data(count: 9 * 60 * 32_000 + 44), "audio/wav"), apiKey: "fixture-key",
+      model: "gemini-fixture"
     ) { result in
       if case .failure(let error) = result { failure = error as NSError }
       finished.fulfill()

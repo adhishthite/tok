@@ -13,26 +13,34 @@ import SQLite3
 
 struct GeminiRestClient {
   /// The documented ceiling for an inline generateContent request body is 20 MB. Audio is
-  /// 16 kHz mono PCM (32 KB per second) wrapped in base64, which adds a third, so the cap
-  /// lands near seven and a half minutes of speech. Fail before the encode and the upload
-  /// instead of after a 400 that costs the whole round trip.
+  /// wrapped in base64, which adds a third. Fail before the upload instead of after a 400
+  /// that costs the whole round trip.
   static let maxInlineAudioBytes = 20 * 1024 * 1024
 
-  /// Seconds of 16 kHz 16-bit mono audio that fit under maxInlineAudioBytes once the WAV
+  /// Seconds of 16 kHz 16-bit mono audio that fit under maxInlineAudioBytes as WAV once the
   /// header and base64 expansion are counted: about 491 s. The engine caps every turn here.
+  /// RestAudioEncoder never returns more than the WAV size, so every capped turn fits.
   static let maxInlineAudioSeconds: Double =
     Double(maxInlineAudioBytes * 3 / 4 - 44) / 32_000.0
 
-  /// Bytes the base64 audio part will occupy for a PCM buffer of this size. 44 is the WAV
-  /// header WAVEncoder prepends; base64 emits 4 characters per 3 input bytes, padded.
-  static func inlineAudioBytes(pcmByteCount: Int) -> Int {
-    let wavBytes = pcmByteCount + 44
-    return ((wavBytes + 2) / 3) * 4
+  /// Bytes the base64 audio part will occupy for an encoded payload of this size: base64
+  /// emits 4 characters per 3 input bytes, padded.
+  static func inlineAudioBytes(encodedByteCount: Int) -> Int {
+    ((encodedByteCount + 2) / 3) * 4
+  }
+
+  /// The inlineData part for an encoded payload. Base64's alphabet (A-Za-z0-9+/=) needs no
+  /// JSON escaping, so the envelope is spliced around it directly: running the multi-MB
+  /// string through JSONSerialization would escape-scan and copy it a second time.
+  static func audioPart(_ audio: (data: Data, mimeType: String)) -> String {
+    "{\"inlineData\":{\"mimeType\":\"" + audio.mimeType + "\",\"data\":\""
+      + audio.data.base64EncodedString() + "\"}}"
   }
 
   @discardableResult
   static func transcribe(
-    pcmData: Data, apiKey: String, model: String, languageCodes: [String] = [],
+    audio: (data: Data, mimeType: String), apiKey: String, model: String,
+    languageCodes: [String] = [],
     customVocabulary: [String] = [], smartTranscription: Bool = false, isRetry: Bool = false,
     completion:
       @escaping (
@@ -41,14 +49,16 @@ struct GeminiRestClient {
   ) -> CancellableRequest {
     let request = CancellableRequest()
     perform(
-      pcmData: pcmData, apiKey: apiKey, model: model, languageCodes: languageCodes,
+      audio: audio, apiKey: apiKey, model: model, languageCodes: languageCodes,
       customVocabulary: customVocabulary, smartTranscription: smartTranscription, isRetry: isRetry,
       scope: request, completion: completion)
     return request
   }
 
+  /// `audio` is the turn's payload from RestAudioEncoder, encoded once and reused by the
+  /// hedge, the fallback and both retries.
   static func perform(
-    pcmData: Data,
+    audio: (data: Data, mimeType: String),
     apiKey: String,
     model: String,
     languageCodes: [String] = [],
@@ -72,19 +82,16 @@ struct GeminiRestClient {
       return
     }
 
-    // Size the request before building it: a turn past the inline limit can only fail, and
-    // encoding megabytes first would delay that failure by seconds.
-    guard inlineAudioBytes(pcmByteCount: pcmData.count) <= maxInlineAudioBytes else {
+    // Size the request before building it: a payload past the inline limit can only fail,
+    // and base64-encoding megabytes first would delay that failure.
+    guard inlineAudioBytes(encodedByteCount: audio.data.count) <= maxInlineAudioBytes else {
       Log.warn(
         "REST",
-        "Recording is \(pcmData.count / 1024) KB of PCM, past the inline request limit - not sending."
+        "Recording is \(audio.data.count / 1024) KB as \(audio.mimeType), past the inline request limit - not sending."
       )
       completion(.failure(RESTResponse.recordingTooLongError()))
       return
     }
-
-    let wavData = WAVEncoder.encode(from: pcmData, sampleRate: 16000, channels: 1)
-    let base64Wav = wavData.base64EncodedString()
 
     let urlString =
       "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent"
@@ -103,11 +110,8 @@ struct GeminiRestClient {
     request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
     request.timeoutInterval = 10.0
 
-    // Base64's alphabet (A-Za-z0-9+/=) needs no JSON escaping, so the envelope is spliced
-    // around the audio payload directly - running the multi-MB string through
-    // JSONSerialization would escape-scan and copy it a second time for nothing. The
-    // small prompt/system strings still go through JSONSerialization for real escaping.
-    let audioPart = "{\"inlineData\":{\"mimeType\":\"audio/wav\",\"data\":\"" + base64Wav + "\"}}"
+    // The small prompt/system strings still go through JSONSerialization for real escaping.
+    let audioPart = Self.audioPart(audio)
 
     let body: String
     if model.contains("transcribe") {
@@ -193,7 +197,7 @@ struct GeminiRestClient {
             "429 rate limited on \(model) - retrying once after \(String(format: "%.1f", delay))s.")
           scope.schedule(after: max(0, delay)) {
             Self.perform(
-              pcmData: pcmData, apiKey: apiKey, model: model, languageCodes: languageCodes,
+              audio: audio, apiKey: apiKey, model: model, languageCodes: languageCodes,
               customVocabulary: customVocabulary, smartTranscription: smartTranscription,
               isRetry: true, scope: scope, completion: completion)
           }
