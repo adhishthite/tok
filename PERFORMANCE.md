@@ -396,10 +396,13 @@ make harness-report  # add ARGS="--min-turns 20" to drop smoke runs
   factor. Rows go to `build/harness/history.db`, tagged `harness-<arm>`, and to
   `build/harness/runs/<run>.jsonl`.
 - **Conditions.** Keep the lid open, the built-in speakers on at a fixed volume,
-  and the room quiet. Before each arm block the harness measures the room with
-  nothing playing. It pauses while the median is above `TRAIL_SILENCE_DB` minus
-  5 dB, because room tone near the threshold keeps resetting the quiet window
-  and runs the tail to `POST_ROLL_MAX_MS`. It also pauses when the output is not
+  and the room at its normal level. Before each arm block the harness measures the
+  room with nothing playing. It pauses while the median is above `TRAIL_SILENCE_DB`
+  minus `--ambient-margin-db` (default 0 dB). The adaptive quiet line lifts the
+  capture's quiet line above steady room tone, so a normal room passes; louder
+  rooms keep resetting the quiet window and run the tail to `POST_ROLL_MAX_MS`. Use
+  `--ambient-margin-db 5` with the `fixedquiet` arm, which has no adaptive line.
+  It also pauses when the output is not
   the built-in speakers, and it stops after 4 turns in a row without a transcript.
 - **Limits.** Speakers into the laptop mic are not a person at dictation
   distance, so absolute tail and accuracy numbers are approximate. Paired arm

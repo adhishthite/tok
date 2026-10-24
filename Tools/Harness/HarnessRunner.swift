@@ -37,10 +37,6 @@ final class HarnessRunner {
   /// Shortest idle gap after scaling. A press that lands while the previous turn's
   /// microphone is still shutting down is not something a person does.
   private static let minGapS: TimeInterval = 1.0
-  /// The room must sit this far below TRAIL_SILENCE_DB before a block starts. Nearer the
-  /// threshold, room tone keeps resetting the capture's quiet window, and the tail runs
-  /// to POST_ROLL_MAX_MS on most turns.
-  private static let ambientMarginDb = 5.0
   /// Audio kept after the last word by Scripts/harness_clips.py (TRIM_TAIL_S).
   private static let clipTrailS = 0.12
 
@@ -353,7 +349,7 @@ final class HarnessRunner {
   private func waitForQuietRoom() -> Bool {
     let values = HarnessSettings.values(
       arm: HarnessArm(name: "probe", overrides: [:]), owner: owner)
-    let limit = (Double(values["TRAIL_SILENCE_DB"] ?? "") ?? -40) - Self.ambientMarginDb
+    let limit = (Double(values["TRAIL_SILENCE_DB"] ?? "") ?? -40) - options.ambientMarginDb
     var paused = false
     while true {
       ambientDb = AmbientProbe.medianLevel()
