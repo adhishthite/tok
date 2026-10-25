@@ -57,6 +57,9 @@ enum RestAudioEncoder {
     }
 
     let buffer = NSMutableData()
+    // AudioFile holds `buffer` unretained, and the close in the defer below can still write
+    // through the callbacks, so keep it alive until after that close on every exit.
+    defer { withExtendedLifetime(buffer) {} }
     var fileID: AudioFileID?
     try check(
       AudioFileInitializeWithCallbacks(
