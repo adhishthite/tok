@@ -11,6 +11,8 @@ struct HarnessArm {
 
   static let catalog: [HarnessArm] = [
     HarnessArm(name: "baseline", overrides: [:]),
+    // A/A control: the same settings as baseline, kept so paired runs measure noise.
+    HarnessArm(name: "control", overrides: [:]),
     HarnessArm(
       name: "warm90", overrides: ["KEEP_MICROPHONE_WARM": "true", "MIC_IDLE_TIMEOUT": "90"]),
     HarnessArm(name: "aligned", overrides: ["WS_ENDPOINT_ALIGNED": "true"]),

@@ -257,6 +257,9 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   private static let maxAuthRejections = 3
   private var authRejectionCount = 0
   private var lastCloseIndicatedRejection = false
+  /// Category of the current socket's close-frame reason, from closeReasonCategory. Nil
+  /// until a close frame arrives. Guarded by `lock`.
+  private var lastCloseReasonCategory: String?
 
   init(
     apiKey: String,
@@ -320,6 +323,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     keepaliveWorkItem = nil
     sessionEstablishedAt = 0
     lastCloseIndicatedRejection = false
+    lastCloseReasonCategory = nil
     // Only a caller-initiated connect clears the rejection streak. Clearing it on the
     // reconnect path too would make the three-strike stop unreachable.
     if expectedConnection == nil { authRejectionCount = 0 }
@@ -506,6 +510,8 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     // names the key. A successful upgrade (101) proves the key and clears the streak; a
     // transport failure with no response leaves the streak alone.
     let status = (webSocketTask?.response as? HTTPURLResponse)?.statusCode
+    let closeCode = webSocketTask?.closeCode.rawValue ?? 0
+    let closeCategory = lastCloseReasonCategory
     if Self.isAuthRejection(status: status) || lastCloseIndicatedRejection {
       authRejectionCount += 1
     } else if status != nil {
@@ -514,8 +520,13 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     let stopReconnecting = authRejectionCount >= Self.maxAuthRejections
     if stopReconnecting { reconnectEnabled = false }
     lock.unlock()
-    onConnectionEvent?(
-      reason == "keepalive" ? "lost_keepalive" : "lost_error", turnOpenAtFailure, socketAgeS)
+    let kind = reason == "keepalive" ? "lost_keepalive" : "lost_error"
+    Log.info(
+      "WS",
+      Self.lossDescription(
+        kind: kind, closeCode: closeCode, closeCategory: closeCategory, error: error,
+        socketAgeS: socketAgeS))
+    onConnectionEvent?(kind, turnOpenAtFailure, socketAgeS)
     completion?(.failure(error))
     if stopReconnecting {
       Log.error("WS", "API key rejected; not reconnecting.")
@@ -525,14 +536,42 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     scheduleReconnect(epoch: epoch)
   }
 
+  /// One diagnostics line per lost connection: the close code (0 when no close frame came),
+  /// the close reason's category, and the error's domain and number. Never the reason or
+  /// error text, which can quote request details.
+  static func lossDescription(
+    kind: String, closeCode: Int, closeCategory: String?, error: Error, socketAgeS: Double?
+  ) -> String {
+    let nsError = error as NSError
+    let age = socketAgeS.map { String(format: "%.1fs", $0) } ?? "-"
+    return "connection lost kind=\(kind) close=\(closeCode) "
+      + "closeReason=\(closeCategory ?? "-") error=\(nsError.domain)/\(nsError.code) age=\(age)"
+  }
+
+  /// A fixed category for a close-frame reason, so the text itself is never logged.
+  static func closeReasonCategory(_ reason: String) -> String {
+    let lowered = reason.lowercased()
+    if lowered.isEmpty { return "none" }
+    if mentionsKeyRejection(lowered) { return "key" }
+    if ["quota", "rate limit", "resource_exhausted", "resource exhausted"].contains(where: {
+      lowered.contains($0)
+    }) {
+      return "quota"
+    }
+    if ["deadline", "timeout", "timed out", "idle"].contains(where: { lowered.contains($0) }) {
+      return "timeout"
+    }
+    return "other"
+  }
+
   private static func isAuthRejection(status: Int?) -> Bool {
     guard let status else { return false }
     return status == 400 || status == 401 || status == 403
   }
 
   /// The server can also refuse the key after the upgrade succeeds, with a close frame.
-  /// Record what it indicated; connectionFailed decides what to do about it. The reason text
-  /// is never logged.
+  /// Record what it indicated; connectionFailed decides what to do about it. The code and
+  /// the reason's category are logged; the reason text never is.
   func urlSession(
     _ session: URLSession, webSocketTask: URLSessionWebSocketTask,
     didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?
@@ -541,9 +580,15 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     // Close code 1008 alone is not a key verdict: services use it for quota and rate limits
     // too. Only a reason that names the key or authentication counts.
     let rejected = Self.mentionsKeyRejection(text)
+    let category = Self.closeReasonCategory(text)
     lock.lock()
-    if webSocketTask === self.webSocketTask { lastCloseIndicatedRejection = rejected }
+    let current = webSocketTask === self.webSocketTask
+    if current {
+      lastCloseIndicatedRejection = rejected
+      lastCloseReasonCategory = category
+    }
     lock.unlock()
+    if current { Log.info("WS", "close frame code=\(closeCode.rawValue) reason=\(category)") }
   }
 
   private static func mentionsKeyRejection(_ reason: String) -> Bool {
@@ -653,6 +698,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       // The handshake completed, so this key works.
       self.authRejectionCount = 0
       self.lastCloseIndicatedRejection = false
+      self.lastCloseReasonCategory = nil
       // Fresh session: server-side cumulative token counters restart from zero.
       self.lastSeenPromptTokens = 0
       self.lastSeenResponseTokens = 0
@@ -1097,7 +1143,9 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
 
   // Base64's alphabet (A-Za-z0-9+/=) needs no JSON escaping, so the fixed-shape
   // envelope is built once and the payload is spliced in directly, skipping
-  // JSONSerialization on the hot per-chunk (CHUNK_MS, ~100ms) path.
+  // JSONSerialization on the hot per-chunk (CHUNK_MS, ~100ms) path. The Live API
+  // documents raw 16-bit 16 kHz PCM as its only input format, so live audio stays
+  // uncompressed (decision record: adhishthite/tok#17).
   private static let audioChunkJSONPrefix =
     "{\"realtimeInput\":{\"audio\":{\"mimeType\":\"audio/pcm;rate=16000\",\"data\":\""
   private static let audioChunkJSONSuffix = "\"}}}"
@@ -1216,9 +1264,12 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     }
   }
 
+  static func audioChunkFrame(_ pcmChunk: Data) -> String {
+    audioChunkJSONPrefix + pcmChunk.base64EncodedString() + audioChunkJSONSuffix
+  }
+
   func sendAudioChunk(_ pcmChunk: Data) {
-    sendTurnMessage(
-      Self.audioChunkJSONPrefix + pcmChunk.base64EncodedString() + Self.audioChunkJSONSuffix)
+    sendTurnMessage(Self.audioChunkFrame(pcmChunk))
   }
 
   func commitTurn(

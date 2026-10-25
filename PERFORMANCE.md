@@ -323,6 +323,62 @@ gives up the 41 ms finalize of the first version for the full quiet window, and 
 removes the cap. Loud transient sounds at speech level (a notification, a voice) still hold
 the tail; no level-based rule can separate those from words.
 
+## Concurrency refactor baseline, 2026-10-23
+
+Baseline for #14 before any engine isolation change. Real use of build 16
+(`5c2ade61d2ae`, the engine source on main), 2026-09-27 to 2026-10-23, 5 sessions,
+`make report ARGS="--build 5c2ade61d2ae"`, 261 successful turns:
+
+| Metric | n | Median | p95 |
+| --- | --- | --- | --- |
+| `total_ms` | 261 | 490.7 | 840.2 |
+| `roundtrip_ms` | 261 | 422.5 | 759.5 |
+| `capture_finalize_ms` | 261 | 32.5 | 120.8 |
+| `commit_to_final_ms` | 260 | 416.5 | 731.4 |
+| `inject_ms` | 261 | 13.7 | 23.7 |
+| `event_queue_ms` | 268 | 0.3 | 7.4 |
+
+Split-half noise (first 134 vs last 134 rows by time, all outcomes, nearest-rank
+p95): `total_ms` p50 and p95 each moved 44 ms, `commit_to_final_ms` p50 47 ms and
+p95 152 ms, `capture_finalize_ms` p95 102 ms. The engine-local metrics held:
+`event_queue_ms` and `inject_ms` moved under 2 ms, `capture_finalize_ms` p50 0.1 ms.
+The 5 ms p50 and 10 ms p95 gate in #14 is therefore usable for `event_queue_ms`,
+`inject_ms` and the `capture_finalize_ms` median only. Network-bound metrics need a
+paired harness run to separate a regression from run-to-run variance.
+
+`make test-tsan` runs `TokEngineTests` under Thread Sanitizer in its own derived
+data folder: 163 tests, 3 skipped (live API), 0 failures, 0 sanitizer reports.
+
+A/A harness run `20261024-105745` (build `209968df861b`, acoustic, `baseline` vs
+`control` with identical settings, 60 turns each, all settled, all cold starts,
+room about -47 dBFS). Paired median difference, control minus baseline, with a
+bootstrap 95% CI:
+
+| Metric | Pairs | Median delta (ms) | 95% CI (ms) | Unpaired p50 gap (ms) |
+| --- | --- | --- | --- | --- |
+| `capture_start_ms` | 60 | 0.2 | -0.6 to 1.3 | 0.1 |
+| `capture_finalize_ms` | 60 | -1.7 | -6.4 to 0.7 | 62.1 |
+| `total_ms` | 60 | 11.2 | -40.8 to 99.1 | 53.3 |
+| `roundtrip_ms` | 60 | 30.2 | -8.6 to 102.3 | 75.3 |
+| `commit_to_final_ms` | 43 | -1.2 | -86.7 to 60.9 | 32.6 |
+
+Pairing removes the clip-driven variance: `capture_finalize_ms` medians differ by
+62 ms between two identical arms, but the paired delta stays within 7 ms. Network-bound
+metrics stay wide even when paired, so 60 pairs only detect a shift of about 100 ms in
+them. Under the `.sink` delivery the harness records `inject_ms` and `event_queue_ms` as 0,
+so those two come from real use only.
+
+Gate for #14 phases from this data:
+
+- `capture_start_ms` and `capture_finalize_ms`: paired median delta within 5 ms, from
+  a harness run with the same seed and arms on both builds.
+- `event_queue_ms` and `inject_ms`: real-use p50 within 5 ms of the table above.
+- `total_ms`, `roundtrip_ms`, `commit_to_final_ms`: report only. A shift under about
+  100 ms cannot be told from noise at 60 pairs.
+
+The two builds run as separate harness runs, so cross-run drift (network, time of
+day) adds to the within-run noise measured here and is not yet measured.
+
 ## Latency harness
 
 The harness runs real engine turns without a person. `TokHarness` builds a
@@ -370,10 +426,13 @@ make harness-report  # add ARGS="--min-turns 20" to drop smoke runs
   factor. Rows go to `build/harness/history.db`, tagged `harness-<arm>`, and to
   `build/harness/runs/<run>.jsonl`.
 - **Conditions.** Keep the lid open, the built-in speakers on at a fixed volume,
-  and the room quiet. Before each arm block the harness measures the room with
-  nothing playing. It pauses while the median is above `TRAIL_SILENCE_DB` minus
-  5 dB, because room tone near the threshold keeps resetting the quiet window
-  and runs the tail to `POST_ROLL_MAX_MS`. It also pauses when the output is not
+  and the room at its normal level. Before each arm block the harness measures the
+  room with nothing playing. It pauses while the median is above `TRAIL_SILENCE_DB`
+  minus `--ambient-margin-db` (default 0 dB). The adaptive quiet line lifts the
+  capture's quiet line above steady room tone, so a normal room passes; louder
+  rooms keep resetting the quiet window and run the tail to `POST_ROLL_MAX_MS`. Use
+  `--ambient-margin-db 5` with the `fixedquiet` arm, which has no adaptive line.
+  It also pauses when the output is not
   the built-in speakers, and it stops after 4 turns in a row without a transcript.
 - **Limits.** Speakers into the laptop mic are not a person at dictation
   distance, so absolute tail and accuracy numbers are approximate. Paired arm

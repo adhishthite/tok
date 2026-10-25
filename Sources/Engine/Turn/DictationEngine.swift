@@ -245,6 +245,9 @@ public final class DictationEngine {
   lazy var postProcessingStage = PostProcessingStage(queue: sessionQueue)
   var pendingRestRequest: CancellableRequest?
   var restAttemptStart: TimeInterval?
+  /// sessionQueue-only. The turn's REST payload, encoded on the first REST call and reused by
+  /// the hedge, the fallback and the empty-transcript retry (#16).
+  private var turnRestAudio: (turnId: UInt64, audio: (data: Data, mimeType: String))?
   private var turnEventQueueMs: Double = 0
   private var turnReleaseTime: TimeInterval = 0
   private var turnCaptureFinalizeMs: Double = 0
@@ -328,7 +331,7 @@ public final class DictationEngine {
         // read the destination window over Accessibility for nothing (audit F33).
         Log.warn(
           "LEARN",
-          "LEARN_CORRECTIONS is on but HISTORY=false - corrections are not observed. Turn History on to collect them for `make analyze`."
+          "Learn from typed corrections is on, but Save dictation history is off, so corrections are not saved. Turn on Save dictation history in Settings to keep them."
         )
       }
     }
@@ -1339,6 +1342,7 @@ public final class DictationEngine {
     let turnId = currentTurnId
     turnSettled = false
     restAttemptStart = nil
+    turnRestAudio = nil
     // New turn: no route has answered or failed yet (audit F21).
     wsCommitInFlight = false
     wsTerminal = false
@@ -1558,8 +1562,20 @@ public final class DictationEngine {
     }
     if restAttemptStart == nil { restAttemptStart = ProcessInfo.processInfo.systemUptime }
     let restStartTime = restAttemptStart!
+    let audio: (data: Data, mimeType: String)
+    if let cached = turnRestAudio, cached.turnId == turnId {
+      audio = cached.audio
+    } else {
+      let encodeStart = ProcessInfo.processInfo.systemUptime
+      audio = RestAudioEncoder.encode(pcm: pcmData)
+      turnRestAudio = (turnId, audio)
+      Log.info(
+        "REST",
+        "payload \(audio.mimeType) \(audio.data.count / 1024) KB from \(pcmData.count / 1024) KB PCM, encode \(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - encodeStart) * 1000))ms"
+      )
+    }
     pendingRestRequest = GeminiRestClient.transcribe(
-      pcmData: pcmData,
+      audio: audio,
       apiKey: config.geminiApiKey,
       model: config.geminiModel,
       languageCodes: config.languageCodes,

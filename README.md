@@ -6,7 +6,7 @@ Tok is a native macOS menu-bar app that turns speech into text with Gemini.
 It supports English, Hindi, Marathi, and other languages, with a configurable
 shortcut and vocabulary for names and technical terms.
 
-**macOS 14 or later · Apple silicon and Intel · Your own Gemini API key**
+**macOS 15 or later · Apple silicon and Intel · Your own Gemini API key**
 
 [Download Tok](https://github.com/adhishthite/tok-releases/releases/latest/download/Tok.dmg)
 · [Release notes](https://github.com/adhishthite/tok-releases/releases/latest)

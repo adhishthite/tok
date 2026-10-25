@@ -6,7 +6,7 @@ as a signed menu-bar app. Tok is not a Google product and carries no Google bran
 ## Build
 - XcodeGen `project.yml` is the source of truth; `*.xcodeproj` is generated
   and gitignored. `make generate build run test lint format check package`.
-- Deployment target macOS 14. Swift 6 language mode in App/Store/UI/Support;
+- Deployment target macOS 15. Swift 6 language mode in App/Store/UI/Support;
   Engine and HUD may stay in Swift 5 mode until audited.
 - App Sandbox is OFF by design (global event tap, AX, synthesized paste,
   IOKit). Hardened runtime ON. Distribution is Developer ID + notarization.

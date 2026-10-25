@@ -14,6 +14,10 @@ struct HarnessOptions {
   /// out of the cold regime, so use it only for arms that keep the microphone warm-off,
   /// where every turn is cold whatever the gap.
   var gapScale = 1.0
+  /// How far below TRAIL_SILENCE_DB the room must sit before a block starts. The adaptive
+  /// quiet line (QUIET_MARGIN_DB) lifts the capture's quiet line above steady room tone, so
+  /// 0 admits a normal room. Use 5 with the fixedquiet arm, which has no adaptive line.
+  var ambientMarginDb = 0.0
   /// Skips the quiet-room gate. Results then include noise-driven tail caps.
   var allowNoisy = false
   /// Stream clips straight into the Live client, many at once, instead of playing them.
@@ -30,7 +34,8 @@ struct HarnessOptions {
 
   static let usage = """
     Usage: TokHarness [--arms a,b,c] [--turns-per-arm N] [--block N] [--seed N]
-                      [--max-minutes M] [--gap-scale X] [--allow-noisy] [--only p1,p2] [--smoke]
+                      [--max-minutes M] [--gap-scale X] [--ambient-margin-db D] [--allow-noisy]
+                      [--only p1,p2] [--smoke]
            TokHarness --direct [--arms a,b] [--workers N] [--repeats N] [--seed N]
     Arms: \(HarnessArm.catalog.map(\.name).joined(separator: ", "))
     --smoke   two turns per arm with short gaps, to check the setup end to end.
@@ -72,6 +77,11 @@ struct HarnessOptions {
           throw HarnessError.usage("--gap-scale needs a positive number")
         }
         options.gapScale = scale
+      case "--ambient-margin-db":
+        guard let margin = Double(try value(argument)), margin >= 0 else {
+          throw HarnessError.usage("--ambient-margin-db needs a number of 0 or more")
+        }
+        options.ambientMarginDb = margin
       case "--direct":
         options.direct = true
       case "--workers":

@@ -25,6 +25,9 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[2]
 STATE = ROOT / "build/release-state.json"
 BIN = ROOT / "build/DerivedData/SourcePackages/artifacts/sparkle/Sparkle/bin"
+MINIMUM_MACOS = re.search(
+    r"MACOSX_DEPLOYMENT_TARGET:\s*'([^']+)'", (ROOT / "project.yml").read_text()
+).group(1)
 
 
 def run(arguments, seconds=120, accepted=(0,)):
@@ -321,6 +324,23 @@ def app_inventory(app):
     return inventory
 
 
+def verify_platform(architectures, info):
+    if (
+        set(architectures) != {"arm64", "x86_64"}
+        or info.get("LSMinimumSystemVersion") != MINIMUM_MACOS
+    ):
+        raise RuntimeError(
+            f"Release must contain both architectures and declare macOS {MINIMUM_MACOS}."
+        )
+
+
+def verify_appcast_minimum(appcast):
+    # Sparkle on an older macOS must not offer an update it cannot install.
+    element = f"<sparkle:minimumSystemVersion>{MINIMUM_MACOS}</sparkle:minimumSystemVersion>"
+    if element not in appcast.read_text():
+        raise RuntimeError(f"The appcast must declare macOS {MINIMUM_MACOS} as its minimum.")
+
+
 def verify_update_archive(app, archive):
     # Reject unsafe entries before ditto processes framework symlinks or metadata.
     with zipfile.ZipFile(archive) as zipped:
@@ -485,13 +505,7 @@ def prepare(resume=False, local_only=False):
     architectures = run(
         ["lipo", "-archs", app / "Contents/MacOS/Tok"], 10
     ).stdout.split()
-    if (
-        set(architectures) != {"arm64", "x86_64"}
-        or info.get("LSMinimumSystemVersion") != "14.0"
-    ):
-        raise RuntimeError(
-            "Release must contain both architectures and declare macOS 14.0."
-        )
+    verify_platform(architectures, info)
     team = os.environ.get("TOK_EXPECTED_TEAM_ID")
     signature = run(["codesign", "-d", "--verbose=4", app], 20)
     if not team or f"TeamIdentifier={team}" not in signature.stderr.splitlines():
@@ -534,6 +548,7 @@ def prepare(resume=False, local_only=False):
         ],
         60,
     )
+    verify_appcast_minimum(assets / "appcast.xml")
     run([BIN / "sign_update", *signing, "--verify", assets / "appcast.xml"], 30)
     signature = run(
         [BIN / "sign_update", *signing, "-p", updates / "Tok.zip"], 30
@@ -616,7 +631,8 @@ def prepare(resume=False, local_only=False):
     notes = ROOT / "build/release-notes.md"
     notes.write_text(
         f"Tok {state['version']} (build {state['build']}).\n\n"
-        "Signed, notarized, and stapled for macOS 14 or later, on Apple silicon and Intel.\n\n"
+        f"Signed, notarized, and stapled for macOS {MINIMUM_MACOS.split('.')[0]} or later, "
+        "on Apple silicon and Intel.\n\n"
         f"Source: `{state['source_commit']}`.\n\n"
         "Package verification completed. Review this draft before publishing.\n"
     )

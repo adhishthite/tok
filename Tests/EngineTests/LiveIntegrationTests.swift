@@ -98,7 +98,7 @@ final class LiveIntegrationTests: XCTestCase {
     let (config, pcm, _) = try inputs()
     let done = DispatchSemaphore(value: 0)
     let request = GeminiRestClient.transcribe(
-      pcmData: pcm, apiKey: config.geminiApiKey,
+      audio: RestAudioEncoder.encode(pcm: pcm), apiKey: config.geminiApiKey,
       model: config.geminiModel, languageCodes: config.languageCodes, customVocabulary: []
     ) { result in
       defer { done.signal() }

@@ -55,6 +55,8 @@ final class DictationStore: DictationEngineDelegate {
   /// The persisted counterpart to the in-memory `diagnostics` log (audit F36).
   /// Created in `start()`, once `settings.supportDirectory` is known.
   @ObservationIgnored private var diagnosticsFile: DiagnosticsFile?
+  /// MetricKit crash and hang reports for the saved diagnostics report (#13).
+  @ObservationIgnored let crashDiagnostics: CrashDiagnostics
   var hotkey: String { settings.configuration.hotkey }
   private var toggleMode: Bool { settings.configuration.hotkeyMode == "toggle" }
   private var readyMessage: String {
@@ -63,12 +65,14 @@ final class DictationStore: DictationEngineDelegate {
   init(settings: SettingsStore = SettingsStore()) {
     self.settings = settings
     self.metrics = MetricsStore(supportDirectory: settings.supportDirectory)
+    self.crashDiagnostics = CrashDiagnostics(supportDirectory: settings.supportDirectory)
     settings.didChange = { [weak self] keys in self?.settingsChanged(keys) }
   }
   func start() {
     settings.load()
     // The support directory only exists once settings has loaded (audit F36).
     diagnosticsFile = DiagnosticsFile(directory: settings.supportDirectory)
+    crashDiagnostics.register()
     // Sparkle must not interrupt a live turn, so it asks the store before acting.
     updates.isDictationActive = { [weak self] in self?.dictationActive ?? false }
     updates.start()
@@ -377,15 +381,17 @@ final class DictationStore: DictationEngineDelegate {
     diagnosticsFile?.write(safeLine)
   }
 
-  /// Clears the session log and the persisted file together, so "Clear log" means what it
-  /// says (audit F36).
+  /// Clears the session log, the persisted file, and stored crash and hang reports
+  /// together, so "Clear log" means what it says (audit F36, #13).
   func clearDiagnostics() {
     diagnostics.removeAll()
     diagnosticsFile?.clear()
+    crashDiagnostics.clear()
   }
 
   /// Flushes the on-disk log and presents a save panel for a support report:
-  /// a header of non-secret context, then the persisted diagnostics lines.
+  /// a header of non-secret context, the persisted diagnostics lines, then any stored
+  /// crash and hang reports.
   /// Follows the pattern of `HistoryViewStore.exportCSV` (audit F36).
   func saveDiagnosticsReport() async {
     diagnosticsFile?.flush()
@@ -396,10 +402,17 @@ final class DictationStore: DictationEngineDelegate {
     guard panel.runModal() == .OK, let url = panel.url else { return }
     let header = diagnosticsReportHeader()
     let file = diagnosticsFile
+    let crashes = crashDiagnostics
     await Task.detached(priority: .utility) {
-      let body = file?.reportContents() ?? ""
+      let body = Self.reportBody(log: file, crashes: crashes)
       try? (header + body).write(to: url, atomically: true, encoding: .utf8)
     }.value
+  }
+
+  /// The report after its header: log lines first, then the crash section, which is empty
+  /// when no crash or hang report is stored.
+  nonisolated static func reportBody(log: DiagnosticsFile?, crashes: CrashDiagnostics) -> String {
+    (log?.reportContents() ?? "") + crashes.reportSection()
   }
 
   /// App version, OS version, last latency line, permissions, and the

@@ -37,12 +37,12 @@ final class HarnessRunner {
   /// Shortest idle gap after scaling. A press that lands while the previous turn's
   /// microphone is still shutting down is not something a person does.
   private static let minGapS: TimeInterval = 1.0
-  /// The room must sit this far below TRAIL_SILENCE_DB before a block starts. Nearer the
-  /// threshold, room tone keeps resetting the capture's quiet window, and the tail runs
-  /// to POST_ROLL_MAX_MS on most turns.
-  private static let ambientMarginDb = 5.0
   /// Audio kept after the last word by Scripts/harness_clips.py (TRIM_TAIL_S).
   private static let clipTrailS = 0.12
+  /// A second guard next to `ClipPlayer.clipInterrupted` for a stop with another cause: a
+  /// stopped clip reports completion when it stops, and clips that play out finish within
+  /// about 25 ms of plan.
+  static let earlyStopMs = 100.0
 
   struct PlannedTurn {
     let clip: HarnessClip
@@ -223,6 +223,11 @@ final class HarnessRunner {
       else { return .aborted("could not play clip \(turn.clip.clipId)") }
       previousEnd = ProcessInfo.processInfo.systemUptime
       done += 1
+      if row.playbackDelayMs == nil {
+        return .aborted(
+          "clip \(turn.clip.clipId) did not finish playing within 15 s of release. The output "
+            + "engine is not rendering; check the speakers and any app holding the audio device.")
+      }
       let usable = row.outcome == "success" && (row.accuracy?.hypothesisWords ?? 0) > 0
       consecutiveBad = usable ? 0 : consecutiveBad + 1
       if consecutiveBad >= Self.maxConsecutiveBad {
@@ -253,6 +258,7 @@ final class HarnessRunner {
     let speechStart = keyDown + turn.leadMs / 1000
     let keyUp = speechStart + (clip.speechOffsetS - clip.speechOnsetS) + turn.tailMs / 1000
     let expectedEnd: TimeInterval
+    let restartsBefore = player.restarts
     do {
       expectedEnd = try player.play(
         url: clipDirectory.appendingPathComponent("\(clip.clipId).wav"),
@@ -260,6 +266,9 @@ final class HarnessRunner {
     } catch {
       writeLog("[harness] \(clip.clipId): \(error)")
       return nil
+    }
+    if player.restarts > restartsBefore {
+      say("output engine restarted after a configuration change (restart \(player.restarts))")
     }
     waitUntilHost(keyDown)
     DispatchQueue.main.async { engine.harnessKeyDown() }
@@ -274,6 +283,7 @@ final class HarnessRunner {
       playbackDelayMs = (finished - expectedEnd) * 1000
       waitUntilHost(finished - Self.clipTrailS + turn.tailMs / 1000)
     }
+    let interrupted = player.clipInterrupted
     DispatchQueue.main.async { engine.harnessKeyUp() }
     let record = observer.waitForRecord(timeout: Self.recordTimeout)
     player.stopClip()
@@ -297,6 +307,11 @@ final class HarnessRunner {
       silenceFlushMs: configuration.silenceFlushMs, ambientDb: ambientDb, reference: clip.text)
     row.playbackDelayMs = playbackDelayMs
     if let record { row.apply(record) } else { row.outcome = "no_record" }
+    if interrupted || (playbackDelayMs ?? 0) < -Self.earlyStopMs {
+      // Reports count only "success" rows, so this keeps a partial clip out of the results.
+      row.outcome = "playback_interrupted"
+      say("clip \(clip.clipId) output stopped during playback; turn excluded")
+    }
     write(row)
 
     let fmt = { (value: Double?) in value.map { String(format: "%.0f", $0) } ?? "-" }
@@ -344,7 +359,7 @@ final class HarnessRunner {
   private func waitForQuietRoom() -> Bool {
     let values = HarnessSettings.values(
       arm: HarnessArm(name: "probe", overrides: [:]), owner: owner)
-    let limit = (Double(values["TRAIL_SILENCE_DB"] ?? "") ?? -40) - Self.ambientMarginDb
+    let limit = (Double(values["TRAIL_SILENCE_DB"] ?? "") ?? -40) - options.ambientMarginDb
     var paused = false
     while true {
       ambientDb = AmbientProbe.medianLevel()

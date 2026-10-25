@@ -119,10 +119,7 @@ final class FloatingHUD: NSObject {
       ? "Speak, then press \(shortcutLabel) to paste" : "Speak, then release to paste"
   }
 
-  // CADisplayLink on macOS 14+ (stored as AnyObject so the property needs no availability
-  // annotation); a 60Hz timer stands in on older systems.
-  private var displayLink: AnyObject?
-  private var fallbackTimer: Timer?
+  private var displayLink: CADisplayLink?
   private var lastTickTime: CFTimeInterval = 0
   // Glow/orb are Core Graphics redraws - advanced at ~40Hz even when the springs tick at
   // 120Hz. Pill MOTION stays at native refresh; the slow-breathing glow doesn't need it.
@@ -133,7 +130,7 @@ final class FloatingHUD: NSObject {
   private var accessibilityObserver: NSObjectProtocol?
   private var lastReducedMotion: Bool
 
-  var isTicking: Bool { displayLink != nil || fallbackTimer != nil }
+  var isTicking: Bool { displayLink != nil }
 
   // Everything is assembled in locals first: NSObject subclasses may not touch properties
   // of already-assigned stored objects before super.init(), only initialize them.
@@ -225,9 +222,7 @@ final class FloatingHUD: NSObject {
     let pillClip = NSView(frame: pillWrapper.bounds)
     pillClip.wantsLayer = true
     pillClip.layer?.cornerRadius = HUDMetrics.pillHeight / 2.0
-    if #available(macOS 10.15, *) {
-      pillClip.layer?.cornerCurve = .continuous
-    }
+    pillClip.layer?.cornerCurve = .continuous
     pillClip.layer?.masksToBounds = true
 
     // No-notch displays have no bezel for a hardware-black slab to continue, and on a
@@ -373,12 +368,10 @@ final class FloatingHUD: NSObject {
     guard id != currentDisplayID else { return }
     currentDisplayID = id
     applyScreenLayout()
-    if #available(macOS 10.15, *) {
-      HUDLog.info(
-        "HUD",
-        "Following focus to \(screen.localizedName)\(notchInfo.hasPhysicalNotch ? " (notch)" : " (pill)")."
-      )
-    }
+    HUDLog.info(
+      "HUD",
+      "Following focus to \(screen.localizedName)\(notchInfo.hasPhysicalNotch ? " (notch)" : " (pill)")."
+    )
   }
 
   // The display picked by retarget while it's still attached; the display-config
@@ -440,11 +433,9 @@ final class FloatingHUD: NSObject {
     // The aura's capsule is a circular CGPath; a continuous-curve clip on the pill
     // diverges from it along the end caps and the rim visibly parts from the edge.
     // Match geometries in pill mode; the notch keeps Apple's continuous corners.
-    if #available(macOS 10.15, *) {
-      let curve: CALayerCornerCurve = notchInfo.hasPhysicalNotch ? .continuous : .circular
-      pillClip.layer?.cornerCurve = curve
-      backplateView.layer?.cornerCurve = curve
-    }
+    let curve: CALayerCornerCurve = notchInfo.hasPhysicalNotch ? .continuous : .circular
+    pillClip.layer?.cornerCurve = curve
+    backplateView.layer?.cornerCurve = curve
     backplateView.specularRim = notchInfo.hasPhysicalNotch
     applyContrastSurface()
     backplateView.needsDisplay = true
@@ -468,29 +459,16 @@ final class FloatingHUD: NSObject {
   // MARK: Display tick
 
   private func startTick() {
-    guard displayLink == nil && fallbackTimer == nil else { return }
+    guard displayLink == nil else { return }
     lastTickTime = CACurrentMediaTime()
-    if #available(macOS 14.0, *) {
-      let link = hostView.displayLink(target: self, selector: #selector(onDisplayTick))
-      link.add(to: .main, forMode: .common)
-      displayLink = link
-    } else {
-      let timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) {
-        [weak self] _ in
-        self?.tick()
-      }
-      RunLoop.main.add(timer, forMode: .common)
-      fallbackTimer = timer
-    }
+    let link = hostView.displayLink(target: self, selector: #selector(onDisplayTick))
+    link.add(to: .main, forMode: .common)
+    displayLink = link
   }
 
   func stopTick() {
-    if #available(macOS 14.0, *), let link = displayLink as? CADisplayLink {
-      link.invalidate()
-    }
+    displayLink?.invalidate()
     displayLink = nil
-    fallbackTimer?.invalidate()
-    fallbackTimer = nil
   }
 
   @objc private func onDisplayTick() {

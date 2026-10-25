@@ -196,6 +196,23 @@ final class PostProcessingTests: XCTestCase {
         text: original, configuration: config, appName: nil, appBundleId: nil))
   }
 
+  func testMinimalThinkingAppliesOnlyToTheDefaultCleanupModel() throws {
+    var config = EngineConfiguration()
+    config.geminiApiKey = "fixture"
+    func thinking(_ model: String) throws -> Any? {
+      config.postProcessModel = model
+      let request = try PostProcessingClient.makeRequest(
+        text: "hello", configuration: config, appName: nil, appBundleId: nil)
+      let body = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: Any])
+      let generation = try XCTUnwrap(body["generationConfig"] as? [String: Any])
+      return generation["thinkingConfig"]
+    }
+    let minimal = try XCTUnwrap(try thinking("gemini-3.5-flash-lite") as? [String: String])
+    XCTAssertEqual(minimal, ["thinkingLevel": "minimal"])
+    XCTAssertNil(try thinking("gemini-3.1-flash-lite"))
+  }
+
   func testMalformedTruncatedAndOversizedOutputFallBackWithUsagePreserved() throws {
     let config = EngineConfiguration()
     let initial = PostProcessingMetrics(status: "failed", model: config.postProcessModel)
