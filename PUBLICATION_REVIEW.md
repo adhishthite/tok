@@ -362,3 +362,47 @@ request. Full `make check` passed locally before merge. A security review of
 `d314827..5c2ade6` found no finding at confidence 7 or higher. The upgrade of an
 installed build 15 (Keychain item deleted, history columns dropped) has not been
 observed on a real machine yet.
+
+# Publication review: Tok 0.1.10, build 17
+
+Published on 2026-10-25 at 06:34:55Z as the latest release in `adhishthite/tok-releases`, tag
+`v0.1.10`, targeting hosting commit `ae0693c5c045bb57ecaf785edd283c10a50a1cb8`.
+App source: `e8bc6cc6e580` (merge of pull request 21, after pull request 20). It requires
+macOS 15, sends REST audio as lossless FLAC with a WAV fallback, keeps MetricKit crash and
+hang reports locally for saved diagnostics reports, and logs the Live socket's close code
+and reason category. The owner approved the exact assets below before upload.
+
+| Upload asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Tok.dmg | 3219092 | 84c340dffd3fd18e51bba799ce19b38cc773d175062b4f3ec09b38915e3ab087 |
+| Tok.zip | 3284809 | 24e2fdfb08e9b3d8769a7dec2a78a0d64a7973d43bb102afcf94b3160a9ba846 |
+| appcast.xml | 1180 | 3b5fed31a5fae62a468af7cbf91d6ea462e66980bca2483f026250bcf37ffb20 |
+| checksums.txt | 226 | b6c7304d1a16be68a8783e25865a077e519cbe9bc43a3dda2c8997b36cc06976 |
+
+Exact files: `build/package/build-17/release-assets/`. Only the four files above
+were uploaded. The local manifest is not uploaded. The published notes are kept at
+`build/release-notes-17.md`. Build 16's staged directories were moved to
+`build/release-stage-archive/` before staging.
+
+## Verification
+
+Apple accepted the app ZIP (`4318aa54-1e4b-4fb8-91ad-9d3dff63ffdc`) and the final
+DMG (`14c622e6-9d28-4ff0-b640-b0a369edaa06`). Each was uploaded once and resumed
+from its saved ID. Both were stapled and validated, and `spctl` reported
+`Notarized Developer ID`. The app is version 0.1.10, build 17, `x86_64 arm64`, with
+`LSMinimumSystemVersion` 15.0, and the feed entry carries
+`sparkle:minimumSystemVersion` 15.0, so macOS 14 installs are not offered it.
+`stage-assets` verified the binary, the team identifier, and the ZIP contents before
+signing the feed with the Keychain Sparkle key. Server-reported digests of all four
+assets matched the staged hashes on the draft. Anonymous HTTPS downloads through both
+the versioned and the latest URLs matched the staged bytes. The downloaded feed and
+archive passed `sign_update --verify`; an archive with one appended byte was
+rejected. The DMG and the app on a read-only mount of the downloaded DMG passed
+`stapler validate`, and the app passed `spctl`. Files remain in
+`build/anonymous-release-verification/v0.1.10/`.
+
+Source checks: CI and Lint passed on `e8bc6cc` and on pull requests 20 and 21. Full
+`make check` passed locally before each merge. A security review of
+`5c2ade6..ac4bdf6` found no finding at confidence 7 or higher; its one lower-confidence
+note (FLAC buffer lifetime) was fixed in pull request 21. An installed Sparkle update
+from build 16 and a fresh-Mac install have not been observed yet.
