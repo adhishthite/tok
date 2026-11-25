@@ -96,17 +96,20 @@ final class ConnectionStateClientTests: XCTestCase {
 
   func testConnectReasonMapsToConnectionEventKind() {
     let client = GeminiLiveClient(apiKey: "fixture-key")
+    // The transport seam keeps every connect below off the network.
+    client.connectTransport = { _, _ in }
     var kinds: [String] = []
     client.onConnectionEvent = { kind, _, _ in kinds.append(kind) }
     client.connect(reason: "startup")
     client.connect(reason: "wake")
     client.connect(reason: "rotation")
     client.connect(reason: "reconnect")
+    client.connect(reason: "turn_reset")
     client.shutdown()
     check(
       kinds == [
         "connect_startup", "connect_wake", "connect_rotation", "connect_reconnect",
-        "closed_by_client",
+        "connect_turn_reset", "closed_by_client",
       ],
       "each connect reason maps to its own connection_events kind, and shutdown reports "
         + "closed_by_client: \(kinds)")
