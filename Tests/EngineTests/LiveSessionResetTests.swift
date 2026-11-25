@@ -222,10 +222,12 @@ final class LiveSessionResetTests: XCTestCase {
     client.recoveryDrain()
     XCTAssertEqual(client.recoveryPending, 1, "activityStart waits for the new handshake")
 
-    // Starting again abandons the open turn, which replaces its socket as a planned reset.
-    // That new session has no context, so the turn start adds no second reset.
+    // Starting again abandons the open turn. Its activityStart only queued behind the clean
+    // handshake, so that handshake is kept, and the new session has no context, so the
+    // turn start adds no second reset either.
     client.startNewTurn()
-    XCTAssertEqual(kinds(), ["connect_turn_reset", "connect_turn_reset"])
+    XCTAssertEqual(kinds(), ["connect_turn_reset"])
+    XCTAssertEqual(connectionID(client), before &+ 1)
     XCTAssertFalse(client.lastConnectionChangedDuringTurn)
     client.shutdown()
   }
@@ -344,16 +346,72 @@ final class LiveSessionResetTests: XCTestCase {
   }
 
   func testAbandonTurnReplacesTheSocketAsAPlannedReset() {
-    let (client, kinds) = offlineClient(smart: false)
-    client.fixtureSetupComplete()
+    let (client, kinds, probe) = readyClient(smart: false)
     let before = connectionID(client)
     client.startNewTurn()
+    client.recoveryDrain()
+    XCTAssertEqual(probe.sent.count, 1, "activityStart reached the socket")
     XCTAssertEqual(kinds(), [], "a VERBATIM session is reused at turn start")
     client.abandonTurn()
     XCTAssertEqual(kinds(), ["connect_turn_reset"])
     XCTAssertEqual(connectionID(client), before &+ 1)
     client.abandonTurn()
     XCTAssertEqual(kinds(), ["connect_turn_reset"], "no open turn, nothing to replace")
+    client.shutdown()
+  }
+
+  // MARK: An abandoned turn keeps a clean handshake (#27)
+
+  func testAbandonKeepsACleanHandshakeTheTurnNeverWroteTo() {
+    for smart in [true, false] {
+      let (client, kinds) = offlineClient(smart: smart)
+      client.connect(reason: "startup")
+      let epoch = connectionID(client)
+      client.startNewTurn()
+      client.recoveryDrain()
+      XCTAssertEqual(client.recoveryPending, 1, "smart=\(smart): activityStart is queued")
+      client.abandonTurn()
+      XCTAssertEqual(kinds(), ["connect_startup"], "smart=\(smart): the handshake is kept")
+      XCTAssertEqual(connectionID(client), epoch, "smart=\(smart)")
+      XCTAssertEqual(client.recoveryPending, 0, "smart=\(smart): queued writes are dropped")
+      XCTAssertEqual(client.socketStateAtKeydown.state, "connecting", "smart=\(smart)")
+      // The kept handshake completes normally and the next turn uses it.
+      client.fixtureSetupComplete()
+      XCTAssertTrue(client.isReady, "smart=\(smart)")
+      client.shutdown()
+    }
+  }
+
+  func testAbandonAfterAFailureReconnectsWithoutWaitingForBackoff() {
+    let (client, kinds) = offlineClient()
+    client.connect(reason: "startup")
+    client.fixtureSetupComplete()
+    let epoch = connectionID(client)
+    client.connectionFailed(epoch: epoch, error: NSError(domain: "fixture", code: 1))
+    XCTAssertEqual(kinds(), ["connect_startup", "lost_error"])
+    client.startNewTurn()
+    client.recoveryDrain()
+    XCTAssertEqual(client.recoveryPending, 1, "nothing reached the failed socket")
+    client.abandonTurn()
+    XCTAssertEqual(
+      kinds(), ["connect_startup", "lost_error", "connect_turn_reset"],
+      "a failed socket waiting out its backoff is replaced at once")
+    XCTAssertEqual(connectionID(client), epoch &+ 1)
+    client.shutdown()
+  }
+
+  func testAbandonHonoursAGoAwayThatArrivedDuringTheTurn() {
+    let (client, kinds) = offlineClient()
+    client.connect(reason: "startup")
+    let epoch = connectionID(client)
+    client.startNewTurn()
+    let goAway = try! JSONSerialization.data(withJSONObject: ["goAway": [:]])
+    client.handleIncomingMessage(.data(goAway), epoch: epoch)
+    XCTAssertTrue(deferredRotation(client), "the swap waits for the open turn")
+    client.abandonTurn()
+    XCTAssertEqual(kinds(), ["connect_startup", "connect_turn_reset"])
+    XCTAssertEqual(connectionID(client), epoch &+ 1)
+    XCTAssertFalse(deferredRotation(client))
     client.shutdown()
   }
 

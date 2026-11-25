@@ -78,10 +78,14 @@ jobs:
       # development ZIP automatically, so it is built only on manual runs:
       #   gh workflow run CI --ref main
       # A cold Release build on the hosted runner passed 120 seconds at build 14, so the
-      # bound is 240 seconds: still far below the job timeout.
+      # bound is 240 seconds: still far below the job timeout. Scripts/xcodebuild.sh applies
+      # its own TOK_BUILD_TIMEOUT_SECONDS bound (default 120) inside that, so it is raised
+      # here too, just under the outer bound.
       - name: Package development build
         if: github.event_name == 'workflow_dispatch'
         timeout-minutes: 5
+        env:
+          TOK_BUILD_TIMEOUT_SECONDS: '220'
         run: python3 Scripts/bounded_run.py --seconds 240 --label ci-package -- make package
       - name: Upload development artifact
         if: github.event_name == 'workflow_dispatch'

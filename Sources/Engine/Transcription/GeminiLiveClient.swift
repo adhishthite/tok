@@ -1823,7 +1823,15 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
 
   func abandonTurn() {
     lock.lock()
-    let needsRotation = turnOpen
+    // Replace the socket only when this turn could have left it unusable: something of the
+    // turn reached it, a SMART turn already used the session, a goAway asked for a swap, or
+    // the socket failed and is waiting out a reconnect backoff. A turn that only queued
+    // writes behind a clean handshake (the usual case right after a session reset) leaves
+    // that handshake alone instead of cancelling it and starting over.
+    let needsRotation =
+      turnOpen
+      && (turnSentAnyMessage || sessionUsedBySmartTurn || rotateWhenIdle
+        || reconnectWorkItem != nil)
     turnOpen = false
     discardPendingWritesLocked()
     turnCompletion = nil
@@ -1833,9 +1841,8 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     settleMaxWorkItem?.cancel()
     let epoch = connectionID
     lock.unlock()
-    // The abandoned turn may have sent audio, so its socket is replaced. A planned reset,
-    // bound to this epoch: it never restarts a client that disconnect() or the key-rejection
-    // stop turned off, and leaves the rejection streak alone.
+    // A planned reset, bound to this epoch: it never restarts a client that disconnect() or
+    // the key-rejection stop turned off, and leaves the rejection streak alone.
     if needsRotation { connect(expectedConnection: epoch, reason: "turn_reset") }
   }
 
