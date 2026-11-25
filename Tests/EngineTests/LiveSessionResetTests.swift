@@ -71,10 +71,10 @@ final class LiveSessionResetTests: XCTestCase {
     return client.rotateWhenIdle
   }
 
-  private func hasServerContext(_ client: GeminiLiveClient) -> Bool {
+  private func sessionUsed(_ client: GeminiLiveClient) -> Bool {
     client.lock.lock()
     defer { client.lock.unlock() }
-    return client.sessionHasServerContext
+    return client.sessionUsedBySmartTurn
   }
 
   private func committedSessionText(_ client: GeminiLiveClient) -> String {
@@ -83,9 +83,9 @@ final class LiveSessionResetTests: XCTestCase {
     return client.sessionCommittedTranscript
   }
 
-  private func markServerContext(_ client: GeminiLiveClient) {
+  private func markSessionUsed(_ client: GeminiLiveClient) {
     client.lock.lock()
-    client.sessionHasServerContext = true
+    client.sessionUsedBySmartTurn = true
     client.lock.unlock()
   }
 
@@ -105,7 +105,7 @@ final class LiveSessionResetTests: XCTestCase {
     XCTAssertEqual(kinds(), ["connect_turn_reset"])
     XCTAssertEqual(connectionID(client), before &+ 1)
     XCTAssertEqual(client.socketStateAtKeydown.state, "connecting")
-    XCTAssertFalse(hasServerContext(client), "the new connection starts without context")
+    XCTAssertFalse(sessionUsed(client), "the new connection starts without context")
     XCTAssertEqual(committedSessionText(client), "")
     client.shutdown()
   }
@@ -117,7 +117,7 @@ final class LiveSessionResetTests: XCTestCase {
     client.settleQueue.sync {}
     XCTAssertEqual(kinds(), [])
     XCTAssertEqual(connectionID(client), before)
-    XCTAssertFalse(hasServerContext(client))
+    XCTAssertFalse(sessionUsed(client))
     client.shutdown()
   }
 
@@ -150,7 +150,8 @@ final class LiveSessionResetTests: XCTestCase {
     let before = connectionID(client)
     let release = holdSettleQueue(client)
     completeTurn(client, final: "First turn.")
-    // The next turn opens, ready, before the queued reset runs.
+    // The next turn opens, ready, before the queued reset runs. startNewTurn() would replace
+    // the used session itself, so this drives the connect guard directly.
     client.fixtureOpen()
     release()
     client.settleQueue.sync {}
@@ -179,18 +180,18 @@ final class LiveSessionResetTests: XCTestCase {
   func testFinalizedTextMarksSessionContextEvenWithNoTurnOpen() {
     let (client, _) = offlineClient()
     client.fixtureSetupComplete()
-    XCTAssertFalse(hasServerContext(client))
+    XCTAssertFalse(sessionUsed(client))
     client.fixtureMessage(["inputTranscription": ["text": " \n "]])
-    XCTAssertFalse(hasServerContext(client), "whitespace is not context")
+    XCTAssertFalse(sessionUsed(client), "whitespace is not context")
     client.fixtureMessage(["interimInputTranscription": ["text": "speculative words"]])
-    XCTAssertFalse(hasServerContext(client), "an interim is not finalized text")
+    XCTAssertFalse(sessionUsed(client), "an interim is not finalized text")
     client.fixtureMessage(["inputTranscription": ["text": "Stale words."]], oldConnection: true)
-    XCTAssertFalse(hasServerContext(client), "an earlier connection says nothing about this one")
+    XCTAssertFalse(sessionUsed(client), "an earlier connection says nothing about this one")
     client.fixtureMessage(["inputAudioTranscription": ["text": "Late words."]])
-    XCTAssertTrue(hasServerContext(client))
+    XCTAssertTrue(sessionUsed(client))
     XCTAssertEqual(client.fixtureText(), "", "a closed turn still ignores the text itself")
     client.fixtureSetupComplete()
-    XCTAssertFalse(hasServerContext(client), "a new session starts clean")
+    XCTAssertFalse(sessionUsed(client), "a new session starts clean")
     client.shutdown()
   }
 
@@ -198,7 +199,7 @@ final class LiveSessionResetTests: XCTestCase {
     let (client, kinds) = offlineClient(smart: false)
     client.fixtureSetupComplete()
     client.fixtureMessage(["inputTranscription": ["text": "Late words."]])
-    XCTAssertFalse(hasServerContext(client))
+    XCTAssertFalse(sessionUsed(client))
     client.startNewTurn()
     XCTAssertEqual(kinds(), [])
     XCTAssertFalse(client.lastConnectionChangedDuringTurn)
@@ -215,16 +216,16 @@ final class LiveSessionResetTests: XCTestCase {
     XCTAssertEqual(connectionID(client), before &+ 1)
     XCTAssertTrue(
       client.lastConnectionChangedDuringTurn, "the reset is recorded against the new turn")
-    XCTAssertFalse(hasServerContext(client))
+    XCTAssertFalse(sessionUsed(client))
     XCTAssertEqual(client.socketStateAtKeydown.state, "connecting")
     XCTAssertFalse(client.recoveryGap, "a reset before the turn opens loses no audio")
     client.recoveryDrain()
     XCTAssertEqual(client.recoveryPending, 1, "activityStart waits for the new handshake")
 
-    // Starting again abandons the open turn, which reconnects the ordinary way. The new
-    // session has no context, so no second reset is recorded.
+    // Starting again abandons the open turn, which replaces its socket as a planned reset.
+    // That new session has no context, so the turn start adds no second reset.
     client.startNewTurn()
-    XCTAssertEqual(kinds(), ["connect_turn_reset", "connect_reconnect"])
+    XCTAssertEqual(kinds(), ["connect_turn_reset", "connect_turn_reset"])
     XCTAssertFalse(client.lastConnectionChangedDuringTurn)
     client.shutdown()
   }
@@ -234,7 +235,7 @@ final class LiveSessionResetTests: XCTestCase {
     let before = connectionID(client)
     let release = holdSettleQueue(client)
     completeTurn(client, final: "First turn.")
-    XCTAssertTrue(hasServerContext(client))
+    XCTAssertTrue(sessionUsed(client))
     client.startNewTurn()
     XCTAssertEqual(kinds(), ["connect_turn_reset"])
     XCTAssertEqual(connectionID(client), before &+ 1)
@@ -251,7 +252,7 @@ final class LiveSessionResetTests: XCTestCase {
     let (client, kinds) = offlineClient()
     client.fixtureSetupComplete()
     client.disconnect()
-    markServerContext(client)
+    markSessionUsed(client)
     let before = connectionID(client)
     client.startNewTurn()
     XCTAssertEqual(kinds(), [], "disconnect stays in force")
@@ -276,11 +277,161 @@ final class LiveSessionResetTests: XCTestCase {
       client.connectionFailed(epoch: epoch, error: NSError(domain: "fixture", code: 1))
     }
     XCTAssertEqual(rejections, 1)
-    markServerContext(client)
-    client.startNewTurn()
-    XCTAssertFalse(kinds().contains("connect_turn_reset"), "the stop stays in force")
+    // Each turn after the stop opens and is abandoned, as a REST-settled turn is. Neither
+    // the turn start nor the abandon may restart the client or clear the rejection streak.
+    for turn in 1...3 {
+      markSessionUsed(client)
+      client.startNewTurn()
+      XCTAssertFalse(client.lastConnectionChangedDuringTurn, "turn \(turn)")
+      client.abandonTurn()
+      XCTAssertEqual(connectionID(client), epoch, "turn \(turn): the stop stays in force")
+    }
+    XCTAssertFalse(
+      kinds().contains { $0.hasPrefix("connect_") }, "no connect after the stop: \(kinds())")
+    // The streak survived: one more rejection is reported at once rather than counted
+    // toward a fresh three-strike limit and retried.
+    client.connectionFailed(epoch: epoch, error: NSError(domain: "fixture", code: 1))
+    XCTAssertEqual(rejections, 2)
+    client.settleQueue.sync {}
+    XCTAssertFalse(kinds().contains { $0.hasPrefix("connect_") })
     XCTAssertEqual(connectionID(client), epoch)
+    client.shutdown()
+  }
+
+  func testAHeuristicSettleDoesNotReconnectAfterTheKeyRejectionStop() {
+    let (client, kinds) = offlineClient()
+    client.recoveryFixture(LiveWriteProbe())
+    guard let task = client.webSocketTask else { return XCTFail("fixture has no task") }
+    client.urlSession(
+      client.urlSession, webSocketTask: task, didCloseWith: .policyViolation,
+      reason: Data("API key not valid".utf8))
+    let epoch = connectionID(client)
+    for _ in 0..<3 {
+      client.connectionFailed(epoch: epoch, error: NSError(domain: "fixture", code: 1))
+    }
+    client.startNewTurn()
+    var delivered: String?
+    client.fixtureCompletion { result in
+      if case .success(let value) = result { delivered = value.text }
+    }
+    client.fixtureMessage(["interimInputTranscription": ["text": "late words"]])
+    // The settle ceiling has passed: the turn settles on its interim text, and the reset
+    // that follows a heuristic finish is dropped because reconnects are stopped.
+    client.recoveryForceSettleAge()
+    XCTAssertEqual(delivered, "late words")
+    XCTAssertFalse(
+      kinds().contains { $0.hasPrefix("connect_") }, "no connect after the stop: \(kinds())")
+    XCTAssertEqual(connectionID(client), epoch)
+    client.shutdown()
+  }
+
+  func testAbandonTurnDoesNotReconnectADisconnectedClient() {
+    let (client, kinds) = offlineClient()
+    client.fixtureSetupComplete()
+    client.startNewTurn()
+    client.disconnect()
+    let afterDisconnect = connectionID(client)
+    for _ in 1...2 {
+      client.abandonTurn()
+      client.startNewTurn()
+    }
+    client.abandonTurn()
+    XCTAssertFalse(
+      kinds().contains { $0.hasPrefix("connect_") }, "disconnect stays in force: \(kinds())")
+    XCTAssertEqual(connectionID(client), afterDisconnect)
+    XCTAssertEqual(client.socketStateAtKeydown.state, "closed")
+    client.shutdown()
+  }
+
+  func testAbandonTurnReplacesTheSocketAsAPlannedReset() {
+    let (client, kinds) = offlineClient(smart: false)
+    client.fixtureSetupComplete()
+    let before = connectionID(client)
+    client.startNewTurn()
+    XCTAssertEqual(kinds(), [], "a VERBATIM session is reused at turn start")
+    client.abandonTurn()
+    XCTAssertEqual(kinds(), ["connect_turn_reset"])
+    XCTAssertEqual(connectionID(client), before &+ 1)
+    client.abandonTurn()
+    XCTAssertEqual(kinds(), ["connect_turn_reset"], "no open turn, nothing to replace")
+    client.shutdown()
+  }
+
+  // MARK: A SMART turn's audio marks the session used
+
+  /// A client on a ready socket whose writes the probe accepts and completes in order.
+  private func readyClient(smart: Bool = true) -> (
+    client: GeminiLiveClient, kinds: () -> [String], probe: LiveWriteProbe
+  ) {
+    let (client, kinds) = offlineClient(smart: smart)
+    let probe = LiveWriteProbe()
+    client.recoveryFixture(probe)
+    client.recoveryReady()
+    return (client, kinds, probe)
+  }
+
+  /// Runs one turn whose only text is an interim, sent while recording, then completed by
+  /// the server. Returns what it delivered.
+  private func completeInterimOnlyTurn(
+    _ client: GeminiLiveClient, probe: LiveWriteProbe, text: String
+  ) -> String? {
+    client.startNewTurn()
+    client.recoveryDrain()
+    for index in probe.sent.indices { probe.finish(index) }
+    client.recoveryDrain()
+    var delivered: String?
+    client.fixtureMessage(["interimInputTranscription": ["text": text]])
+    client.fixtureCompletion { result in
+      if case .success(let value) = result { delivered = value.text }
+    }
+    client.fixtureMessage(["turnComplete": true])
+    return delivered
+  }
+
+  func testTurnStartKeepsAFreshSmartSessionThatNoTurnHasUsed() {
+    let (client, kinds, probe) = readyClient()
+    XCTAssertFalse(sessionUsed(client))
+    let before = connectionID(client)
+    client.startNewTurn()
+    XCTAssertEqual(kinds(), [], "a fresh session is not replaced")
+    XCTAssertEqual(connectionID(client), before)
     XCTAssertFalse(client.lastConnectionChangedDuringTurn)
+    client.recoveryDrain()
+    XCTAssertEqual(probe.sent.count, 1, "activityStart goes out on the fresh session")
+    XCTAssertTrue(sessionUsed(client), "the turn's first write marks the session used")
+    client.shutdown()
+  }
+
+  func testInterimOnlyTurnStillResetsTheSessionAtTheNextTurnStart() {
+    let (client, kinds, probe) = readyClient()
+    let before = connectionID(client)
+    let release = holdSettleQueue(client)
+    XCTAssertEqual(
+      completeInterimOnlyTurn(client, probe: probe, text: "hello there"), "hello there")
+    XCTAssertTrue(sessionUsed(client), "no final arrived, but the turn's audio did")
+    XCTAssertEqual(kinds(), [], "the background reset is still queued")
+    // A re-press before the queued reset runs starts on a new connection anyway.
+    client.startNewTurn()
+    XCTAssertEqual(kinds(), ["connect_turn_reset"])
+    XCTAssertEqual(connectionID(client), before &+ 1)
+    XCTAssertTrue(client.lastConnectionChangedDuringTurn)
+    XCTAssertFalse(client.recoveryGap)
+    release()
+    client.settleQueue.sync {}
+    XCTAssertEqual(kinds(), ["connect_turn_reset"], "the queued reset is stale and dropped")
+    client.shutdown()
+  }
+
+  func testVerbatimTurnWritesDoNotMarkTheSessionUsed() {
+    let (client, kinds, probe) = readyClient(smart: false)
+    let before = connectionID(client)
+    XCTAssertEqual(
+      completeInterimOnlyTurn(client, probe: probe, text: "hello there"), "hello there")
+    XCTAssertFalse(sessionUsed(client))
+    client.startNewTurn()
+    client.settleQueue.sync {}
+    XCTAssertEqual(kinds(), [], "a VERBATIM session is reused")
+    XCTAssertEqual(connectionID(client), before)
     client.shutdown()
   }
 
@@ -352,7 +503,9 @@ final class LiveSessionResetTests: XCTestCase {
   // MARK: Reused session safety net
 
   /// An empty key makes every connect a no-op, which stands in for a session that was not
-  /// replaced between turns.
+  /// replaced between turns. With a key, every SMART turn that sent audio is followed by a
+  /// new connection before the next turn opens (see the turn-start tests above), so this
+  /// safety net has no production entry point to drive it through.
   private func reusedSessionClient(smart: Bool = true) -> GeminiLiveClient {
     let client = GeminiLiveClient(apiKey: "", smartTranscription: smart)
     XCTAssertEqual(completeTurn(client, final: "Hello world."), "Hello world.")
@@ -365,7 +518,7 @@ final class LiveSessionResetTests: XCTestCase {
     client.startNewTurn()
     XCTAssertFalse(
       client.lastConnectionChangedDuringTurn, "a connect that never happened is not recorded")
-    client.fixtureMessage(["interimInputTranscription": ["text": " next thing "]])
+    client.fixtureMessage(["interimInputTranscription": ["text": "next thing"]])
     XCTAssertEqual(client.fixtureText(), "next thing")
     var second: String?
     client.fixtureCompletion { result in
@@ -440,12 +593,12 @@ final class LiveSessionResetTests: XCTestCase {
     XCTAssertFalse(client.isReady, "the socket that carried the stale text is retired")
     XCTAssertEqual(client.fixtureText(), "")
     XCTAssertEqual(liveUpdates, [], "the mixed transcript never reaches the HUD")
-    XCTAssertEqual(kinds, ["lost_error"])
+    XCTAssertEqual(kinds, ["lost_context_mismatch"], "a planned retirement, not a lost socket")
 
     // Further finals on the failed turn change nothing and report nothing.
     client.fixtureMessage(["inputTranscription": ["text": "Still not a continuation."]])
     XCTAssertEqual(failures.count, 1)
-    XCTAssertEqual(kinds, ["lost_error"])
+    XCTAssertEqual(kinds, ["lost_context_mismatch"])
     XCTAssertEqual(client.fixtureText(), "")
     client.shutdown()
   }
@@ -480,7 +633,7 @@ final class LiveSessionResetTests: XCTestCase {
 
   // MARK: Whitespace
 
-  func testTranscriptionTextIsTrimmedAndWhitespaceOnlyPayloadsAreIgnored() {
+  func testWhitespaceOnlyPayloadsAreIgnoredAndTextReachesTheAccumulatorAsSent() {
     let client = GeminiLiveClient(apiKey: "")
     var liveUpdates: [String] = []
     client.onLiveTextUpdate = { liveUpdates.append($0) }
@@ -490,18 +643,98 @@ final class LiveSessionResetTests: XCTestCase {
     client.fixtureMessage(["inputAudioTranscription": ["text": "\n"]])
     XCTAssertEqual(client.fixtureText(), "")
     XCTAssertEqual(liveUpdates, [])
-    client.fixtureMessage(["interimInputTranscription": ["text": "  hello there \n"]])
+    client.fixtureMessage(["interimInputTranscription": ["text": "hello there"]])
     XCTAssertEqual(client.fixtureText(), "hello there")
-    client.fixtureMessage(["inputTranscription": ["text": "\n Hello there. "]])
-    XCTAssertEqual(client.fixtureText(), "Hello there.")
-    client.fixtureMessage(["inputAudioTranscription": ["text": "  Second sentence.\n\n"]])
-    XCTAssertEqual(client.fixtureText(), "Hello there. Second sentence.")
+    client.fixtureMessage(["inputTranscription": ["text": "Hello there.\n"]])
+    XCTAssertEqual(client.fixtureText(), "Hello there.\n", "a final keeps its line break")
+    client.fixtureMessage(["inputAudioTranscription": ["text": "Second sentence."]])
+    XCTAssertEqual(client.fixtureText(), "Hello there.\nSecond sentence.")
     // A whitespace-only final gives way to the interim carried by the same message.
     client.fixtureMessage([
-      "inputTranscription": ["text": "  "], "interimInputTranscription": ["text": " third "],
+      "inputTranscription": ["text": "  "], "interimInputTranscription": ["text": "third"],
     ])
-    XCTAssertEqual(client.fixtureText(), "Hello there. Second sentence. third")
-    XCTAssertEqual(liveUpdates.last, "Hello there. Second sentence. third")
+    XCTAssertEqual(client.fixtureText(), "Hello there.\nSecond sentence. third")
+    XCTAssertEqual(liveUpdates.last, "Hello there.\nSecond sentence. third")
+    client.shutdown()
+  }
+
+  // MARK: Finals within one turn
+
+  private func turnText(smart: Bool, finals: [String]) -> String {
+    let client = GeminiLiveClient(apiKey: "", smartTranscription: smart)
+    client.fixtureOpen()
+    for text in finals { client.fixtureMessage(["inputTranscription": ["text": text]]) }
+    defer { client.shutdown() }
+    return client.fixtureText()
+  }
+
+  func testALineBreakBetweenFinalsIsKept() {
+    for smart in [true, false] {
+      XCTAssertEqual(
+        turnText(smart: smart, finals: ["Para one.\n", "Para two."]), "Para one.\nPara two.",
+        "smart: \(smart)")
+    }
+  }
+
+  func testSmartFinalThatRewritesTheJoinReplacesTheTurnText() {
+    XCTAssertEqual(
+      turnText(smart: true, finals: ["Hello world.", "Hello world, next sentence."]),
+      "Hello world, next sentence.")
+    XCTAssertEqual(
+      turnText(
+        smart: true,
+        finals: [
+          "Hello world.", "Hello world, next sentence.", "Hello world, next sentence; more.",
+        ]
+      ),
+      "Hello world, next sentence; more.")
+    // A rewrite earlier than the join is not an extension, so the segment rules apply and
+    // no words are dropped.
+    XCTAssertEqual(
+      turnText(smart: true, finals: ["Hello world. Next.", "Hello world, next!"]),
+      "Hello world. Next. Hello world, next!")
+  }
+
+  func testSmartFinalThatExtendsTheTurnTextExactlyStillReplacesIt() {
+    XCTAssertEqual(
+      turnText(smart: true, finals: ["Hello world.", "Hello world. Next sentence."]),
+      "Hello world. Next sentence.")
+  }
+
+  func testSmartFinalsForSeparateSegmentsStillMerge() {
+    XCTAssertEqual(
+      turnText(smart: true, finals: ["First segment.", "Second segment."]),
+      "First segment. Second segment.")
+    XCTAssertEqual(
+      turnText(smart: true, finals: ["Hello world.", "Hello world."]), "Hello world.",
+      "a repeated final adds nothing")
+  }
+
+  func testVerbatimFinalsKeepTheSegmentRules() {
+    XCTAssertEqual(
+      turnText(smart: false, finals: ["Hello world.", "Hello world, next sentence."]),
+      "Hello world. Hello world, next sentence.")
+    XCTAssertEqual(
+      turnText(smart: false, finals: ["Hello world.", "Hello world. Next sentence."]),
+      "Hello world. Next sentence.")
+    XCTAssertEqual(
+      turnText(smart: false, finals: ["First segment.", "Second segment."]),
+      "First segment. Second segment.")
+  }
+
+  func testReusedSessionRewrittenJoinWithinATurnReplacesTheTurnText() {
+    let client = reusedSessionClient()
+    client.startNewTurn()
+    client.fixtureMessage(["inputTranscription": ["text": "Hello world. Send it."]])
+    XCTAssertEqual(client.fixtureText(), "Send it.")
+    var second: String?
+    client.fixtureCompletion { result in
+      if case .success(let value) = result { second = value.text }
+    }
+    client.fixtureMessage([
+      "inputTranscription": ["text": "Hello world. Send it, then file it."], "turnComplete": true,
+    ])
+    XCTAssertEqual(second, "Send it, then file it.")
     client.shutdown()
   }
 }
