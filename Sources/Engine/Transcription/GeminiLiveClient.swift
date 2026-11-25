@@ -24,7 +24,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   var turnID: UInt64 = 0
   var turnOpen = false
   var turnHasAudioGap = false
-  private var rotateWhenIdle = false
+  var rotateWhenIdle = false
   private var reconnectEnabled = true
   let sendQueue = DispatchQueue(label: "com.adhishthite.tok.send", qos: .userInitiated)
   private var turnWrites = DispatchGroup()
@@ -39,6 +39,9 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   private var writeInFlight = false
   private var turnSentAnyMessage = false
   var writeDeadline: DispatchWorkItem?
+  /// Test seam: when set, connect() hands the new task and its epoch here instead of
+  /// resuming the task, sending setup, and listening, so a connect opens no socket.
+  var connectTransport: ((URLSessionWebSocketTask, UInt64) -> Void)?
   private static let maxPendingWriteBytes = 256 * 1024
   private static let maxPendingWriteAge = 3.0
   /// The documented maximum for one live transcription session.
@@ -47,7 +50,8 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   static let sessionRotationSeconds = 480.0
   private var sessionEstablishedAt: TimeInterval = 0
   private var sessionRotationWorkItem: DispatchWorkItem?
-  /// Why the in-flight connect attempt was started (startup, rotation, reconnect, wake).
+  /// Why the in-flight connect attempt was started (startup, rotation, reconnect, wake,
+  /// turn_reset).
   /// Read back once the handshake completes so the single "session ready" line can name
   /// it, instead of a separate "connecting" line logged per attempt.
   var pendingConnectReason = "startup"
@@ -109,6 +113,21 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     defer { lock.unlock() }
     return readyState && turnOpen && !turnHasAudioGap
   }
+
+  // SMART transcription keeps text context across the turns of one session: every finalized
+  // transcription restates the whole session so far, not only the current turn, and only a
+  // new connection clears it. These three track that context per connection, under `lock`,
+  // and matter only when usesSmartSessionContext is true.
+  /// True once a SMART turn has used the current connection: a write of that turn's audio
+  /// or activity reached this socket, or the socket delivered a non-empty finalized
+  /// transcription, whether or not a turn was open to consume it. Either way the server may
+  /// now hold text it would restate in the next turn's finals.
+  var sessionUsedBySmartTurn = false
+  /// The server's cumulative text as of the last turn that completed on this connection.
+  var sessionCommittedTranscript = ""
+  /// The last finalized text of the current turn as the server sent it, trimmed, before any
+  /// earlier-turn prefix is removed.
+  var turnLastCumulativeServerFinal: String?
 
   var currentTurnText: String = ""
   // Multi-segment transcript accumulator. The server's VAD closes a speech segment at every
@@ -226,6 +245,12 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     !model.contains("transcribe") || vadMode == "manual"
   }
 
+  // Only the transcribe model in SMART mode carries text from one turn into the next.
+  // VERBATIM finals cover the current segment alone, so those sessions are reused as before.
+  private var usesSmartSessionContext: Bool {
+    model.contains("transcribe") && smartTranscription
+  }
+
   // Event-driven settlement timers for transcribe-model turn completion (see commitTurn/attemptSettle).
 
   private static let settleMinPostCommitWait: Double = 0.35
@@ -241,7 +266,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   private static let settleMaxWait: Double = 2.20
   // Settlement and deadlines use monotonic time; keep the existing scheduling allowance.
   private static let settleTimerCushion: Double = 0.01
-  private let settleQueue = DispatchQueue(label: "com.adhishthite.tok.settle")
+  let settleQueue = DispatchQueue(label: "com.adhishthite.tok.settle")
   // reschedulable: initial-wait-without-tokens, then quiet-window checks
   private var settleWorkItem: DispatchWorkItem?
   private var settleMaxWorkItem: DispatchWorkItem?  // fixed hard ceiling check
@@ -291,6 +316,14 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
   ) {
     guard !apiKey.isEmpty else { return }
 
+    // A stale or deferred attempt is decided before any task exists, so it never allocates
+    // one only to cancel it.
+    lock.lock()
+    let mayProceed = connectMayProceedLocked(
+      onlyWhenIdle: onlyWhenIdle, expectedConnection: expectedConnection)
+    lock.unlock()
+    guard mayProceed else { return }
+
     let wsUrlString =
       "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
     guard let url = URL(string: wsUrlString) else {
@@ -304,13 +337,11 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
 
     let task = urlSession.webSocketTask(with: request)
     lock.lock()
-    if let expected = expectedConnection, expected != connectionID || !reconnectEnabled {
-      lock.unlock()
-      task.cancel(with: .goingAway, reason: nil)
-      return
-    }
-    if onlyWhenIdle && turnOpen && readyState {
-      rotateWhenIdle = true
+    // The task was built off the lock, and connect() runs on main, settleQueue, and the
+    // URLSession delegate queue, so the same checks are repeated before any state changes.
+    guard
+      connectMayProceedLocked(onlyWhenIdle: onlyWhenIdle, expectedConnection: expectedConnection)
+    else {
       lock.unlock()
       task.cancel(with: .goingAway, reason: nil)
       return
@@ -342,30 +373,60 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       discardPendingWritesLocked()
     }
     rotateWhenIdle = false
+    resetSessionContextLocked()
     pendingConnectReason = reason
     let turnOpenAtConnect = turnOpen
     lock.unlock()
     old?.cancel(with: .goingAway, reason: nil)
-    task.resume()
 
     // No per-attempt "connecting" line: the single "session ready" line logged once the
     // handshake completes (below) names this attempt's reason, so a planned rotation
     // costs one persisted line instead of two.
     Log.debug("WS", "Connecting to Gemini Live WebSockets (\(model), reason=\(reason))...")
-    sendSetupMessage(task: task, epoch: epoch)
-    listenForMessages(task: task, epoch: epoch)
+    if let transport = connectTransport {
+      transport(task, epoch)
+    } else {
+      task.resume()
+      sendSetupMessage(task: task, epoch: epoch)
+      listenForMessages(task: task, epoch: epoch)
+    }
     onConnectionEvent?(Self.connectionEventKind(forConnectReason: reason), turnOpenAtConnect, nil)
+  }
+
+  /// Whether a connect attempt goes ahead. Caller holds `lock`. A scheduled attempt whose
+  /// connection was already replaced, or that arrives after reconnects were stopped, is
+  /// dropped. An idle-only attempt that finds a healthy open turn is deferred until that
+  /// turn completes, which is the only state this changes.
+  private func connectMayProceedLocked(onlyWhenIdle: Bool, expectedConnection: UInt64?) -> Bool {
+    if let expected = expectedConnection, expected != connectionID || !reconnectEnabled {
+      return false
+    }
+    if onlyWhenIdle && turnOpen && readyState {
+      rotateWhenIdle = true
+      return false
+    }
+    return true
+  }
+
+  /// A new or closed connection has no server-side transcript yet. Caller holds `lock`.
+  private func resetSessionContextLocked() {
+    sessionUsedBySmartTurn = false
+    sessionCommittedTranscript = ""
+    turnLastCumulativeServerFinal = nil
   }
 
   /// Maps the free-form `reason` a connect attempt is tagged with to one of the fixed
   /// connection_events kinds. Every reason this client actually passes to connect()
-  /// ("startup", "rotation", "wake", and the default "reconnect") is named explicitly;
-  /// anything else still gets a kind rather than being dropped.
+  /// ("startup", "rotation", "wake", "turn_reset", and the default "reconnect") is named
+  /// explicitly; anything else still gets a kind rather than being dropped. "turn_reset"
+  /// is the planned replacement of a session after a turn used it, kept apart from
+  /// "reconnect" so those planned resets do not read as recoveries.
   private static func connectionEventKind(forConnectReason reason: String) -> String {
     switch reason {
     case "startup": return "connect_startup"
     case "rotation": return "connect_rotation"
     case "wake": return "connect_wake"
+    case "turn_reset": return "connect_turn_reset"
     default: return "connect_reconnect"
     }
   }
@@ -480,8 +541,10 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     }
   }
 
-  /// `reason` only distinguishes a failed idle keepalive ping ("keepalive") from every other
-  /// cause for the connection_events kind it reports; it changes no reconnect behavior.
+  /// `reason` only picks the connection_events kind this reports: a failed idle keepalive
+  /// ping ("keepalive") and the deliberate retirement of a SMART session that mixed earlier
+  /// turns into its text ("context_mismatch") are kept apart from every other cause, so a
+  /// planned retirement does not read as a lost connection. It changes no reconnect behavior.
   func connectionFailed(epoch: UInt64, error: Error, reason: String = "error") {
     lock.lock()
     guard epoch == connectionID else {
@@ -520,7 +583,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     let stopReconnecting = authRejectionCount >= Self.maxAuthRejections
     if stopReconnecting { reconnectEnabled = false }
     lock.unlock()
-    let kind = reason == "keepalive" ? "lost_keepalive" : "lost_error"
+    let kind = Self.lossEventKind(forFailureReason: reason)
     Log.info(
       "WS",
       Self.lossDescription(
@@ -534,6 +597,15 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       return
     }
     scheduleReconnect(epoch: epoch)
+  }
+
+  /// Maps a connectionFailed `reason` to its connection_events kind.
+  private static func lossEventKind(forFailureReason reason: String) -> String {
+    switch reason {
+    case "keepalive": return "lost_keepalive"
+    case "context_mismatch": return "lost_context_mismatch"
+    default: return "lost_error"
+    }
   }
 
   /// One diagnostics line per lost connection: the close code (0 when no close frame came),
@@ -644,6 +716,8 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     var quietRescheduleElapsedSinceCommit: Double? = nil
     var quietRescheduleIsFinal = false
     var messageTurn: UInt64 = 0
+    // Set when a reused SMART session returned text this turn cannot be separated from.
+    var sessionContextMismatch = false
     var usageTrace:
       (keys: String, prompt: Int?, response: Int?, afterTurnComplete: Bool, perTurn: Bool)? = nil
 
@@ -685,6 +759,16 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       )
     }
 
+    // 0c. Finalized text advances the server's SMART session context whether or not a turn
+    // is open to consume it. Anything from an earlier connection was dropped by the epoch
+    // guard above, so this only ever describes the current socket.
+    if usesSmartSessionContext, let content = json["serverContent"] as? [String: Any],
+      Self.transcription(in: content, key: "inputTranscription") != nil
+        || Self.transcription(in: content, key: "inputAudioTranscription") != nil
+    {
+      sessionUsedBySmartTurn = true
+    }
+
     // 1. Handshake confirmation
     if json["setupComplete"] != nil {
       self.connectedState = true
@@ -704,6 +788,8 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       self.lastSeenResponseTokens = 0
       self.turnBaselinePromptTokens = 0
       self.turnBaselineResponseTokens = 0
+      // Fresh session: the server holds no transcript from earlier turns.
+      resetSessionContextLocked()
     }
     // 2. Server goAway notification (Server scheduled disconnect)
     else if json["goAway"] != nil {
@@ -716,32 +802,39 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       var isUserSpeech = false
       var isFinalTranscription = false
 
+      // A whitespace-only payload counts as absent, so the next form in priority order is
+      // read instead. Non-empty text reaches the accumulator exactly as sent: its joins
+      // depend on the server's own spacing and line breaks.
       // PRIORITY 1: Finalized inputTranscription (e.g. gemini-3.5-transcribe-live) -
       // closes the current speech segment; earlier segments must be preserved.
-      if let inputTrans = serverContent["inputTranscription"] as? [String: Any],
-        let text = inputTrans["text"] as? String, !text.isEmpty
-      {
-        applyFinalTranscription(text)
-        updatedText = mergedTranscript()
-        isUserSpeech = true
-        isFinalTranscription = true
-      }
+      let primaryFinal = Self.transcription(in: serverContent, key: "inputTranscription")
       // PRIORITY 2: Progressive Interim Transcription - rewrites only the live segment.
-      else if let interim = serverContent["interimInputTranscription"] as? [String: Any],
-        let text = interim["text"] as? String, !text.isEmpty
-      {
-        applyInterimTranscription(text)
-        updatedText = mergedTranscript()
-        isUserSpeech = true
-      }
+      let interim =
+        primaryFinal == nil
+        ? Self.transcription(in: serverContent, key: "interimInputTranscription") : nil
       // PRIORITY 3: Alternative inputAudioTranscription (finalized form)
-      else if let inputAudio = serverContent["inputAudioTranscription"] as? [String: Any],
-        let text = inputAudio["text"] as? String, !text.isEmpty
-      {
-        applyFinalTranscription(text)
+      let alternateFinal =
+        primaryFinal == nil && interim == nil
+        ? Self.transcription(in: serverContent, key: "inputAudioTranscription") : nil
+
+      if let finalText = primaryFinal ?? alternateFinal {
+        let outcome = consumeFinalTranscriptionLocked(finalText)
+        if outcome.applied {
+          updatedText = mergedTranscript()
+          isUserSpeech = true
+          isFinalTranscription = true
+        }
+        if outcome.contextMismatch {
+          // The same route a broken audio stream takes: the turn can no longer commit or
+          // complete on this socket, and connectionFailed (below, off the lock) reports it.
+          turnHasAudioGap = true
+          discardPendingWritesLocked()
+          sessionContextMismatch = true
+        }
+      } else if let text = interim {
+        applyInterimTranscription(text.raw)
         updatedText = mergedTranscript()
         isUserSpeech = true
-        isFinalTranscription = true
       }
       // PRIORITY 4: Multimodal text delta from modelTurn (raw append, no segmentation)
       else if let modelTurn = serverContent["modelTurn"] as? [String: Any],
@@ -835,6 +928,23 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
           domain: "Tok", code: -3,
           userInfo: [NSLocalizedDescriptionKey: "Live API rejected the request."]))
     }
+    if sessionContextMismatch {
+      // The reason only, never the text. Failing the live turn hands it to the backup
+      // route (a pending commit gets this error; a turn still recording stops being
+      // committable), and connectionFailed retires the socket that carried the stale text.
+      Log.warn(
+        "WS",
+        "Reused SMART session returned text that does not extend its earlier turns; "
+          + "failing the live turn so the backup route transcribes it.")
+      connectionFailed(
+        epoch: epoch,
+        error: NSError(
+          domain: "Tok", code: -4,
+          userInfo: [
+            NSLocalizedDescriptionKey: "Live session mixed in text from an earlier turn."
+          ]),
+        reason: "context_mismatch")
+    }
     if didCompleteSetup {
       pumpWrites()
       // One line per connection, covering both the attempt and its outcome, at the same
@@ -885,6 +995,134 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       lock.unlock()
       settleQueue.asyncAfter(deadline: .now() + delay, execute: item)
     }
+  }
+
+  // MARK: SMART session context
+
+  /// One transcription field of a serverContent payload: the text as sent, and the same
+  /// text trimmed. Nil when the field is absent or holds only whitespace.
+  private static func transcription(in serverContent: [String: Any], key: String)
+    -> (raw: String, trimmed: String)?
+  {
+    guard let field = serverContent[key] as? [String: Any], let raw = field["text"] as? String
+    else { return nil }
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : (raw, trimmed)
+  }
+
+  /// Routes one finalized transcription into the open turn. Caller holds `lock`. The
+  /// trimmed text decides session context; the accumulator gets the raw text, except on a
+  /// reused SMART session, where it gets what remains once earlier turns are removed.
+  /// `applied` is true when the turn's transcript took the text. `contextMismatch` is true
+  /// when a reused SMART session returned text that does not extend what it had already
+  /// committed, so this turn's words cannot be told apart from earlier ones and the caller
+  /// must fail the live turn.
+  private func consumeFinalTranscriptionLocked(_ finalText: (raw: String, trimmed: String)) -> (
+    applied: Bool, contextMismatch: Bool
+  ) {
+    guard usesSmartSessionContext else {
+      applyFinalTranscription(finalText.raw)
+      return (true, false)
+    }
+    // No turn has completed on this connection, so the text is this turn's alone.
+    guard !sessionCommittedTranscript.isEmpty else {
+      turnLastCumulativeServerFinal = finalText.trimmed
+      applySmartFinalTranscriptionLocked(finalText.raw)
+      return (true, false)
+    }
+    // A turn that already failed on this socket takes no more finals, so one mismatch is
+    // reported once however many finals follow it.
+    guard !turnHasAudioGap else { return (false, false) }
+    turnLastCumulativeServerFinal = finalText.trimmed
+    guard
+      let remainder = Self.strippingSessionPrefix(
+        finalText.trimmed, committed: sessionCommittedTranscript)
+    else { return (false, true) }
+    guard !remainder.isEmpty else {
+      // A replay of earlier turns with no new speech. Nothing of it belongs to this turn,
+      // and it must not count as this turn's final when the settle rules run.
+      currentTurnText = ""
+      committedTranscript = ""
+      interimTranscript = ""
+      lastPostCommitFinalTime = nil
+      return (false, false)
+    }
+    applySmartFinalTranscriptionLocked(remainder)
+    return (true, false)
+  }
+
+  /// A SMART final within one turn restates the turn so far, and may rewrite the
+  /// punctuation where it joins new speech ("Hello world." then "Hello world, next
+  /// sentence."). When the new final starts with everything already committed, under the
+  /// session-prefix rules, it replaces the turn's text wholesale, which drops no words.
+  /// Anything else keeps the ordinary segment rules, since a final that covers only its own
+  /// segment would lose earlier speech if it replaced the turn's text. Caller holds `lock`.
+  private func applySmartFinalTranscriptionLocked(_ text: String) {
+    if !committedTranscript.isEmpty,
+      Self.strippingSessionPrefix(text, committed: committedTranscript) != nil
+    {
+      committedTranscript = text
+      interimTranscript = ""
+    } else {
+      applyFinalTranscription(text)
+    }
+  }
+
+  /// Punctuation that can end, or be rewritten at, the join between two turns' text.
+  private static let sessionBoundaryPunctuation: Set<Character> = [
+    ".", "!", "?", ",", ";", ":", "\u{2026}", "\u{0964}",
+  ]
+
+  /// Removes the text earlier turns already committed on this session from a cumulative
+  /// finalized transcription. Returns what is new (empty when `incoming` only replays
+  /// `committed`), or nil when `incoming` does not start with `committed`.
+  ///
+  /// Runs of whitespace compare as equal, and the punctuation that ended `committed` may
+  /// have been rewritten or dropped once more speech followed it. The match has to end at
+  /// a word boundary: the end of the text, or optional boundary punctuation followed by
+  /// whitespace. A dot followed directly by more text is part of a word, so "Google" does
+  /// not match "Google.com".
+  static func strippingSessionPrefix(_ incoming: String, committed: String) -> String? {
+    let text = Array(incoming.trimmingCharacters(in: .whitespacesAndNewlines))
+    var prior = Array(committed.trimmingCharacters(in: .whitespacesAndNewlines))
+    while let last = prior.last, last.isWhitespace || sessionBoundaryPunctuation.contains(last) {
+      prior.removeLast()
+    }
+    guard !prior.isEmpty else { return nil }
+
+    var priorIndex = 0
+    var index = 0
+    while priorIndex < prior.count {
+      guard index < text.count else { return nil }
+      if prior[priorIndex].isWhitespace {
+        guard text[index].isWhitespace else { return nil }
+        while priorIndex < prior.count, prior[priorIndex].isWhitespace { priorIndex += 1 }
+        while index < text.count, text[index].isWhitespace { index += 1 }
+      } else {
+        guard prior[priorIndex] == text[index] else { return nil }
+        priorIndex += 1
+        index += 1
+      }
+    }
+
+    // Whatever replaced the old terminator, then the boundary itself.
+    while index < text.count, sessionBoundaryPunctuation.contains(text[index]) { index += 1 }
+    guard index < text.count else { return "" }
+    guard text[index].isWhitespace else { return nil }
+
+    // Skip the separator, and any punctuation left standing alone where the old
+    // terminator was. Punctuation attached to a word (".swift") belongs to the new text.
+    while index < text.count {
+      if text[index].isWhitespace {
+        index += 1
+        continue
+      }
+      var end = index
+      while end < text.count, sessionBoundaryPunctuation.contains(text[end]) { end += 1 }
+      guard end > index, end == text.count || text[end].isWhitespace else { break }
+      index = end
+    }
+    return String(text[index...])
   }
 
   // MARK: Segment transcript accumulator (all three helpers assume `lock` is held)
@@ -1048,6 +1286,9 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     settleMaxWorkItem = nil
 
     let totalLatencyMs = (now - turnCommitTime) * 1000.0
+    if usesSmartSessionContext, !text.isEmpty, let cumulative = turnLastCumulativeServerFinal {
+      sessionCommittedTranscript = cumulative
+    }
     currentTurnText = ""
     committedTranscript = ""
     interimTranscript = ""
@@ -1056,11 +1297,14 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     firstInterimLatencyMs = 0
     let cb = turnCompletion
     turnCompletion = nil
+    let settledEpoch = connectionID
     lock.unlock()
 
     // A heuristic finish has no server boundary. Retire its socket before another turn
-    // can accept delayed words from this one.
-    connect()
+    // can accept delayed words from this one. Tagged as a planned reset, not a recovery.
+    // The epoch makes connect() drop the reset if a disconnect() or the key-rejection stop
+    // landed after the unlock, or another connect already replaced this socket.
+    connect(expectedConnection: settledEpoch, reason: "turn_reset")
 
     // Completion before the terminal write, and directly on settleQueue - the consumer
     // re-dispatches onto sessionQueue itself, so the extra global-queue hop bought nothing.
@@ -1081,7 +1325,20 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     let abandoned = turnOpen
     lock.unlock()
     if abandoned { abandonTurn() }
+    // A SMART session an earlier turn used (its audio reached the socket, or a final came
+    // back) can restate that turn's text in this turn's transcript, even when the earlier
+    // turn settled on interim text alone, so the turn starts on a new connection instead.
+    // The turn is not open yet: nothing is flagged as an audio gap, and activityStart and
+    // the audio queue until the handshake completes. Passing the epoch makes connect()
+    // repeat this check under its own lock, so a disconnect() or the key-rejection stop
+    // landing in between is never undone.
     lock.lock()
+    let sessionEpoch = connectionID
+    let resetSession = usesSmartSessionContext && sessionUsedBySmartTurn && reconnectEnabled
+    lock.unlock()
+    if resetSession { connect(expectedConnection: sessionEpoch, reason: "turn_reset") }
+    lock.lock()
+    let rotatedAtStart = resetSession && connectionID != sessionEpoch
     turnID &+= 1
     turnOpen = true
     discardPendingWritesLocked()
@@ -1110,7 +1367,9 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     self.lastPostCommitFinalTime = nil
     self.turnCompletion = nil
     self.completedUsage = nil
-    self.turnConnectionChanged = false
+    // connect() only flags a change while a turn is open, and this one opened just after.
+    self.turnConnectionChanged = rotatedAtStart
+    self.turnLastCumulativeServerFinal = nil
     self.commitToLastSendMs = nil
     self.commitToFirstMsgMs = nil
     self.commitToFinalMs = nil
@@ -1234,6 +1493,10 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
       }
       self.writeInFlight = true
       self.turnSentAnyMessage = true
+      // This turn's audio is about to reach the session, so in SMART mode the server may
+      // keep its text whether or not a final ever arrives. The next turn starts on a new
+      // connection unless this one has already been replaced.
+      if self.usesSmartSessionContext { self.sessionUsedBySmartTurn = true }
       let epoch = self.connectionID
       let turn = self.turnID
       self.lock.unlock()
@@ -1445,6 +1708,9 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     settleMaxWorkItem = nil
     let elapsed = (ProcessInfo.processInfo.systemUptime - turnCommitTime) * 1000
     let text = currentTurnText
+    if usesSmartSessionContext, let cumulative = turnLastCumulativeServerFinal {
+      sessionCommittedTranscript = cumulative
+    }
     currentTurnText = ""
     committedTranscript = ""
     interimTranscript = ""
@@ -1454,10 +1720,20 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     let callback = turnCompletion
     turnCompletion = nil
     let rotate = rotateWhenIdle
+    let resetSession = usesSmartSessionContext && reconnectEnabled
     let epoch = connectionID
     lock.unlock()
-    if rotate { scheduleReconnect(epoch: epoch, onlyWhenIdle: true) }
     callback?(.success((text: text, firstTokenMs: first, totalMs: elapsed)))
+    if resetSession {
+      // The session now holds this turn's text, and only a new connection clears it. The
+      // swap runs after the completion, off the paste path, and gives way to a turn that
+      // is already open: connect() then leaves rotateWhenIdle set for that turn's end.
+      settleQueue.async { [weak self] in
+        self?.connect(onlyWhenIdle: true, expectedConnection: epoch, reason: "turn_reset")
+      }
+    } else if rotate {
+      scheduleReconnect(epoch: epoch, onlyWhenIdle: true)
+    }
     Log.endMeter()
   }
 
@@ -1555,8 +1831,12 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     hasFiredTurnCompletion = true
     settleWorkItem?.cancel()
     settleMaxWorkItem?.cancel()
+    let epoch = connectionID
     lock.unlock()
-    if needsRotation { connect() }
+    // The abandoned turn may have sent audio, so its socket is replaced. A planned reset,
+    // bound to this epoch: it never restarts a client that disconnect() or the key-rejection
+    // stop turned off, and leaves the rejection streak alone.
+    if needsRotation { connect(expectedConnection: epoch, reason: "turn_reset") }
   }
 
   func disconnect() {
@@ -1583,6 +1863,7 @@ final class GeminiLiveClient: NSObject, URLSessionWebSocketDelegate {
     webSocketTask = nil
     connectedState = false
     readyState = false
+    resetSessionContextLocked()
     if turnOpen { turnHasAudioGap = true }
     discardPendingWritesLocked()
     let completion = turnCompletion

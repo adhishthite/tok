@@ -75,6 +75,7 @@ extension GeminiLiveClient {
     currentTurnText = ""
     committedTranscript = ""
     interimTranscript = ""
+    turnLastCumulativeServerFinal = nil
     lock.unlock()
   }
   func fixtureMessage(_ fields: [String: Any], oldConnection: Bool = false) {

@@ -158,7 +158,12 @@ final class DirectRunner {
     row.mode = "direct"
 
     let readyBy = ProcessInfo.processInfo.systemUptime + Self.readyTimeout
-    if !client.isReady { client.connect(onlyWhenIdle: true, reason: "reconnect") }
+    // Only a client with no socket at all needs a connect here. One that is mid-handshake
+    // (a post-turn session reset, or a scheduled reconnect) is already on its way to ready,
+    // and connecting again would cancel that handshake and open a second socket.
+    if client.socketStateAtKeydown.state == "closed" {
+      client.connect(onlyWhenIdle: true, reason: "reconnect")
+    }
     while !client.isReady, ProcessInfo.processInfo.systemUptime < readyBy {
       Thread.sleep(forTimeInterval: 0.05)
     }

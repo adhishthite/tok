@@ -96,23 +96,26 @@ final class ConnectionStateClientTests: XCTestCase {
 
   func testConnectReasonMapsToConnectionEventKind() {
     let client = GeminiLiveClient(apiKey: "fixture-key")
+    // The transport seam keeps every connect below off the network.
+    client.connectTransport = { _, _ in }
     var kinds: [String] = []
     client.onConnectionEvent = { kind, _, _ in kinds.append(kind) }
     client.connect(reason: "startup")
     client.connect(reason: "wake")
     client.connect(reason: "rotation")
     client.connect(reason: "reconnect")
+    client.connect(reason: "turn_reset")
     client.shutdown()
     check(
       kinds == [
         "connect_startup", "connect_wake", "connect_rotation", "connect_reconnect",
-        "closed_by_client",
+        "connect_turn_reset", "closed_by_client",
       ],
       "each connect reason maps to its own connection_events kind, and shutdown reports "
         + "closed_by_client: \(kinds)")
   }
 
-  func testConnectionFailureReasonMapsToLostErrorOrLostKeepalive() {
+  func testConnectionFailureReasonMapsToItsLostKind() {
     let probe = LiveWriteProbe()
     let client = GeminiLiveClient(apiKey: "")
     client.recoveryFixture(probe)
@@ -124,6 +127,12 @@ final class ConnectionStateClientTests: XCTestCase {
     client.connectionFailed(
       epoch: 0, error: NSError(domain: "fixture", code: 2), reason: "keepalive")
     check(kinds.last == "lost_keepalive", "a keepalive-tagged failure reports lost_keepalive")
+    client.recoveryFixture(probe)
+    client.connectionFailed(
+      epoch: 0, error: NSError(domain: "fixture", code: 3), reason: "context_mismatch")
+    check(
+      kinds.last == "lost_context_mismatch",
+      "a retired SMART session reports lost_context_mismatch, not lost_error")
   }
 
   func testCloseReasonIsReducedToAFixedCategory() {
