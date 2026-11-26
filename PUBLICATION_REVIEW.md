@@ -406,3 +406,46 @@ Source checks: CI and Lint passed on `e8bc6cc` and on pull requests 20 and 21. F
 `5c2ade6..ac4bdf6` found no finding at confidence 7 or higher; its one lower-confidence
 note (FLAC buffer lifetime) was fixed in pull request 21. An installed Sparkle update
 from build 16 and a fresh-Mac install have not been observed yet.
+
+# Publication review: Tok 0.1.11, build 18
+
+Published on 2026-11-26 at 18:08:02Z as the latest release in `adhishthite/tok-releases`, tag
+`v0.1.11`, targeting hosting commit `ae0693c5c045bb57ecaf785edd283c10a50a1cb8`.
+App source: `17e5ed5f6381` (merge of pull request 33, after pull request 25). It starts each
+SMART Live dictation on a fresh connection, so text from earlier turns is no longer pasted
+again, keeps a stopped Live client stopped, and keeps a nearly ready connection when a quick
+re-press abandons a turn. The owner approved the exact assets below before upload.
+
+| Upload asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Tok.dmg | 3231107 | 5360acbfc3489571e4f60ea1b7a4929194e1373f72048d309e301f1cb395f8aa |
+| Tok.zip | 3293853 | 1bf96fd4f66b45600c3d1e4351d7d8a70d093be9d35e2f9bd4bda6277de9f290 |
+| appcast.xml | 1180 | 8054b08a8c3b01314aed95a95e3493ef9634b2de7c1d6bad9f0eb8ac8b79e459 |
+| checksums.txt | 226 | 3c8a005c8ed3ef261fbe53e7b79a7ce7a6a75667ffe3b1800f3ef4d3c7257779 |
+
+Exact files: `build/release-assets/`. Only the four files above were uploaded. The local
+manifest is not uploaded. The published notes are kept at `build/release-notes-18.md`.
+
+## Verification
+
+The first app upload failed with notarytool HTTP 403 (a required agreement was missing or
+expired). The owner accepted the reissued Apple Developer Program License Agreement. Apple
+history then showed no submission from the failed attempt; its `upload-started` record was
+preserved as a `.credential-failure.json` file before one new upload. Apple accepted the app
+ZIP (`f0b3db2a-0c53-4a92-980f-4ffc71588ac4`) and the final DMG
+(`246256d9-0d00-458a-b7bb-929348f1423b`). Each was uploaded once and resumed from its saved
+ID. Both were stapled and validated, and `spctl` reported `Notarized Developer ID`. The app
+is version 0.1.11, build 18, `x86_64 arm64`, with `LSMinimumSystemVersion` 15.0, and the
+feed entry carries `sparkle:minimumSystemVersion` 15.0. `stage-assets` verified the binary,
+the team identifier, and the ZIP contents before signing the feed with the Keychain Sparkle
+key. Server-reported digests of all four assets matched the staged hashes on the draft, and
+the public tag resolves to the hosting commit. Anonymous HTTPS downloads through both the
+versioned and the latest URLs matched the staged bytes. The downloaded feed and archive
+passed `sign_update --verify`; an archive with one appended byte was rejected. The DMG and
+the app on a read-only mount of the downloaded DMG passed `stapler validate`, and the app
+passed `spctl`. Files remain in `build/anonymous-release-verification/v0.1.11/`.
+
+Source checks: CI and Lint passed on `17e5ed5`. Full `make check` passed locally on
+`17e5ed5` (208 XCTests with 3 skipped and 0 failures, and 67 Python tests). A security review
+of `e8bc6cc..17e5ed5` found no finding at confidence 5 or higher. An installed Sparkle update
+from build 17 and a fresh-Mac install have not been observed yet.
